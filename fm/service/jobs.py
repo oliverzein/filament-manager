@@ -44,8 +44,12 @@ def enqueue(session: Session, kind: str, payload: dict) -> Job:
     return job
 
 
-def claim_next(session: Session) -> Job | None:
+def claim_next(session: Session, exclude: set[int] | None = None) -> Job | None:
     """Atomically claim the oldest queued job (FIFO): queued -> running.
+
+    ``exclude`` is an optional set of job IDs to skip — used by
+    ``run_pending`` to leap over agent-facing jobs whose kind has no
+    server-side handler.
 
     Returns ``None`` when no queued jobs remain.
     """
@@ -55,6 +59,8 @@ def claim_next(session: Session) -> Job | None:
         .order_by(Job.id)
         .limit(1)
     )
+    if exclude:
+        stmt = stmt.where(~Job.id.in_(exclude))
     job = session.scalars(stmt).first()
     if job is None:
         return None
@@ -107,17 +113,25 @@ def run_pending(session: Session, config: Config) -> None:
     handler state does not. Serialization failures (non-JSON-serializable
     handler results) are contained the same way. Nothing escapes to the
     caller, so the surrounding session commits the recorded state cleanly.
+
+    Jobs whose ``kind`` is not in ``HANDLERS`` (agent-facing kinds like
+    ``apply_preset`` / ``report_presets``) are left ``queued`` for the agent
+    to claim via ``GET /api/agent/jobs`` (Task 11).  They are skipped without
+    error so registered kinds queued behind them still process.
     """
+    skipped: set[int] = set()
     while True:
-        job = claim_next(session)
+        job = claim_next(session, exclude=skipped)
         if job is None:
             return
         handler = HANDLERS.get(job.kind)
         if handler is None:
-            detail = {"error": f"unknown kind: {job.kind}", "job_id": job.id}
-            fail(job, detail)
-            log_activity(session, job.kind, "error", detail)
-            log.warning("job %s: no handler for kind %r", job.id, job.kind)
+            # Agent-facing kinds have no server-side handler — leave queued.
+            job.status = "queued"
+            session.flush()
+            log.debug("job %s: no handler for kind %r; leaving queued",
+                       job.id, job.kind)
+            skipped.add(job.id)
             continue
         payload = json.loads(job.payload) if job.payload else {}
         try:

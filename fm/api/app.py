@@ -78,6 +78,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates = Jinja2Templates(directory=str(_DIR / "templates"))
     app.state.templates = templates
     app.state.config = app_config
+    app.mount("/static", StaticFiles(directory=str(_DIR / "static")), name="static")
 
     app.include_router(catalog.router)
     app.include_router(sync.router)

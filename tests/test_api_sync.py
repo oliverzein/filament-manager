@@ -243,6 +243,23 @@ class TestPresetEndpoint:
         # handler raises ValueError → job error
         assert data["status"] == "error"
 
+    def test_preset_leaves_apply_preset_queued(self, client):
+        """The apply_preset job enqueued by generate_preset must remain
+        'queued' (not errored) — it's agent-facing, picked up via
+        GET /api/agent/jobs in Task 11."""
+        p = _make_profile(client)
+        client.post(f"/api/sync/preset/{p['id']}")
+        # The generate_preset job is done; the apply_preset job is queued
+        from fm.db import SessionLocal
+        from fm.models import Job
+        from sqlalchemy import select
+        with SessionLocal() as s:
+            apply_job = s.scalars(
+                select(Job).where(Job.kind == "apply_preset")
+            ).first()
+            assert apply_job is not None
+            assert apply_job.status == "queued"
+
 
 # ---------------------------------------------------------------------------
 # Tempsync endpoint

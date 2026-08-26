@@ -141,19 +141,37 @@ def test_handler_receives_session_config_payload(inmemory_session, cfg):
         jobs.HANDLERS.pop("echo", None)
 
 
-def test_unknown_kind_fails_and_logs_error(inmemory_session, cfg):
+def test_unknown_kind_left_queued(inmemory_session, cfg):
+    """Jobs whose kind is not in HANDLERS (agent-facing kinds like
+    apply_preset / report_presets) are left queued for the agent to claim,
+    not errored.  run_pending skips them so registered kinds behind them
+    still process."""
     s = inmemory_session
     j = jobs.enqueue(s, "mystery", {})
     s.flush()
-    # must not raise
     jobs.run_pending(s, cfg)
     s.flush()
-    assert j.status == "error"
-    result = json.loads(j.result)
-    assert "unknown kind" in result["error"]
+    assert j.status == "queued"
+    assert j.result is None
+    # No activity log entry for skipped jobs
     entry = _last_activity(s)
-    assert entry.outcome == "error"
-    assert entry.action == "mystery"
+    assert entry is None
+
+def test_unregistered_kind_skipped_registered_behind_still_runs(inmemory_session, cfg):
+    """An unregistered kind queued before a registered kind must not block
+    the registered kind from processing."""
+    s = inmemory_session
+    jobs.enqueue(s, "mystery", {})       # no handler — left queued
+    j2 = jobs.enqueue(s, "tag", {"v": 2})  # has handler — should run
+    s.flush()
+    jobs.HANDLERS["tag"] = lambda sess, conf, p: {"tagged": p["v"]}
+    try:
+        jobs.run_pending(s, cfg)
+        s.flush()
+        assert j2.status == "done"
+        assert json.loads(j2.result)["tagged"] == 2
+    finally:
+        jobs.HANDLERS.pop("tag", None)
 
 
 def test_handler_exception_becomes_error_result_and_log(inmemory_session, cfg):

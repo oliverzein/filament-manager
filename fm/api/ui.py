@@ -19,9 +19,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal
-from ..models import ActivityLog, Profile, Spool
+from ..config import Config
+from ..models import ActivityLog, Job, Profile, Spool, SyncTarget
+from ..service import jobs
+from ..service.sync_handlers import _entry_hash
 from .catalog import _validate
-from .sync import drift_status
+from .sync import drift_status, _get_config
 
 router = APIRouter(tags=["ui"])
 
@@ -361,3 +364,193 @@ def spool_update_remaining(
     return HTMLResponse(
         f'<span id="remaining-{sid}" class="remaining">{remaining_pct}%</span>'
     )
+
+
+# ---------------------------------------------------------------------------
+# Sync page — drift table, action buttons, busy dialog, job progress
+# ---------------------------------------------------------------------------
+
+@router.get("/sync", response_class=HTMLResponse)
+def sync_page(request: Request, db: DbSession) -> HTMLResponse:
+    """Drift table per profile, HTMX action buttons, busy dialog for
+    awaiting_input jobs, and a job progress area."""
+    drift = drift_status(db)
+    awaiting_jobs = list(db.scalars(
+        select(Job).where(Job.status == "awaiting_input").order_by(Job.id)
+    ))
+    recent_jobs = list(db.scalars(
+        select(Job).order_by(Job.id.desc()).limit(20)
+    ))
+    return _templates(request).TemplateResponse(
+        request, "sync.html",
+        {"drift": drift, "awaiting_jobs": awaiting_jobs, "recent_jobs": recent_jobs},
+    )
+
+
+@router.get("/sync/progress", response_class=HTMLResponse)
+def sync_progress_fragment(db: DbSession, since: int = 0) -> HTMLResponse:
+    """HTMX fragment: job table for the progress area (polls /api/jobs?since).
+
+    Returns an HTML table of jobs with id > ``since`` so the sync page can
+    poll via ``hx-get="/sync/progress?since=N"``.
+    """
+    recent = list(db.scalars(
+        select(Job).where(Job.id > since).order_by(Job.id.desc()).limit(20)
+    ))
+    if not recent:
+        return HTMLResponse("<p>No new jobs.</p>")
+    rows = "".join(
+        f'<tr class="status-{j.status}"><td>{j.id}</td><td>{j.kind}</td>'
+        f'<td>{j.status}</td></tr>'
+        for j in recent
+    )
+    return HTMLResponse(
+        f'<table><thead><tr><th>ID</th><th>Kind</th><th>Status</th></tr>'
+        f'</thead><tbody>{rows}</tbody></table>'
+    )
+
+
+# ---------------------------------------------------------------------------
+# Migration wizard — one-time import of existing printer DB entries
+# ---------------------------------------------------------------------------
+
+def _latest_import_scan(db: Session) -> Job | None:
+    """Most recent completed import_scan job, or None."""
+    return db.scalars(
+        select(Job).where(
+            Job.kind == "import_scan", Job.status == "done",
+        ).order_by(Job.id.desc())
+    ).first()
+
+
+@router.get("/migration", response_class=HTMLResponse)
+def migration_page(request: Request, db: DbSession) -> HTMLResponse:
+    """Step 1 (import button) or step 2 (proposal table with checkboxes)."""
+    import_job = _latest_import_scan(db)
+    proposals: list[dict] = []
+    if import_job and import_job.result:
+        try:
+            result = json.loads(import_job.result)
+            proposals = result.get("proposals", [])
+        except (json.JSONDecodeError, ValueError):
+            proposals = []
+
+    existing_ids = set(
+        db.scalars(
+            select(Profile.printer_db_id).where(Profile.printer_db_id.isnot(None))
+        )
+    )
+
+    return _templates(request).TemplateResponse(
+        request, "migration.html",
+        {
+            "proposals": proposals,
+            "existing_ids": existing_ids,
+            "import_job": import_job,
+        },
+    )
+
+
+@router.post("/migration/import", response_class=HTMLResponse)
+def migration_import(request: Request, db: DbSession) -> RedirectResponse:
+    """Step 1 action: enqueue import_scan job, drain, redirect to /migration."""
+    config = _get_config(request)
+    job = jobs.enqueue(db, "import_scan", {})
+    db.flush()
+    jobs.run_pending(db, config)
+    db.flush()
+    return RedirectResponse(url="/migration", status_code=303)
+
+
+@router.post("/migration/apply", response_class=HTMLResponse)
+def migration_apply(
+    request: Request,
+    db: DbSession,
+    include: list[str] = Form(default=[]),
+) -> RedirectResponse:
+    """Step 3: create/update Profiles + SyncTargets from selected proposals.
+
+    Preserves existing ``printer_db_id`` and ``filament_id`` (Cloud-collision
+    avoidance): when a Profile with the same ``printer_db_id`` already exists,
+    its ``filament_id`` is never overwritten.
+    """
+    import_job = _latest_import_scan(db)
+    if import_job is None:
+        raise HTTPException(status_code=404, detail="no import scan result")
+
+    result = json.loads(import_job.result) if import_job.result else {}
+    proposals_by_id = {
+        p["printer_db_id"]: p for p in result.get("proposals", [])
+    }
+
+    now = _now()
+    for pid_str in include:
+        proposal = proposals_by_id.get(pid_str)
+        if proposal is None:
+            continue
+
+        existing = db.scalars(
+            select(Profile).where(Profile.printer_db_id == pid_str)
+        ).first()
+
+        if existing is not None:
+            # Update existing profile fields but preserve filament_id.
+            existing.brand = proposal["brand"]
+            existing.name = proposal["name"]
+            existing.type = proposal["type"]
+            existing.colors = proposal.get("colors", "[]")
+            existing.min_temp = proposal["min_temp"]
+            existing.max_temp = proposal["max_temp"]
+            existing.density = proposal.get("density", 0.0)
+            existing.drying_temp = proposal.get("drying_temp", 0)
+            existing.drying_time = proposal.get("drying_time", 0)
+            existing.nozzle_temperature = proposal.get("nozzle_temperature")
+            if "flow_ratio" in proposal:
+                existing.flow_ratio = proposal["flow_ratio"]
+            if "pa" in proposal:
+                existing.pa = proposal["pa"]
+            if "max_volumetric" in proposal:
+                existing.max_volumetric = proposal["max_volumetric"]
+            existing.updated_at = now
+            profile = existing
+        else:
+            profile = Profile(
+                brand=proposal["brand"],
+                name=proposal["name"],
+                type=proposal["type"],
+                colors=proposal.get("colors", "[]"),
+                min_temp=proposal["min_temp"],
+                max_temp=proposal["max_temp"],
+                density=proposal.get("density", 0.0),
+                drying_temp=proposal.get("drying_temp", 0),
+                drying_time=proposal.get("drying_time", 0),
+                nozzle_temperature=proposal.get("nozzle_temperature"),
+                flow_ratio=proposal.get("flow_ratio"),
+                pa=proposal.get("pa"),
+                max_volumetric=proposal.get("max_volumetric"),
+                printer_db_id=pid_str,
+                filament_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(profile)
+            db.flush()
+
+        # Create/update SyncTarget(printer_db) so the profile is tracked.
+        target = db.scalars(
+            select(SyncTarget).where(
+                SyncTarget.profile_id == profile.id,
+                SyncTarget.kind == "printer_db",
+            )
+        ).first()
+        if target is None:
+            target = SyncTarget(
+                profile_id=profile.id, kind="printer_db",
+                status="pending",
+            )
+            db.add(target)
+        target.status = "pending"
+        target.last_synced_at = now
+        db.flush()
+
+    return RedirectResponse(url="/migration", status_code=303)

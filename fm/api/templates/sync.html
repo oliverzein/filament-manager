@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Sync — Filament Manager{% endblock %}
+{% block content %}
+<section id="sync-page">
+  <h1>Sync</h1>
+
+  {# ── Action buttons ── #}
+  <section id="sync-actions">
+    <h2>Actions</h2>
+    <button hx-post="/api/sync/push"
+            hx-target="#job-progress"
+            hx-swap="innerHTML"
+            hx-headers='{"Accept": "application/json"}'>
+      Push all
+    </button>
+    <button hx-post="/api/sync/tempsync"
+            hx-target="#job-progress"
+            hx-swap="innerHTML"
+            hx-headers='{"Accept": "application/json"}'>
+      Temp sync
+    </button>
+  </section>
+
+  {# ── Busy dialog: awaiting_input jobs ── #}
+  {% if awaiting_jobs %}
+  <section id="busy-dialog" class="busy-dialog">
+    <h2>Awaiting input</h2>
+    <p>The printer is busy. Choose how to proceed:</p>
+    {% for job in awaiting_jobs %}
+    <div class="awaiting-job" id="awaiting-{{ job.id }}">
+      <p>Job #{{ job.id }} — {{ job.kind }}</p>
+      <button hx-post="/api/jobs/{{ job.id }}/resolve"
+              hx-vals='{"choice": "force_reboot"}'
+              hx-headers='{"Content-Type": "application/json"}'
+              hx-target="#busy-dialog"
+              hx-swap="outerHTML">
+        Force reboot
+      </button>
+      <button hx-post="/api/jobs/{{ job.id }}/resolve"
+              hx-vals='{"choice": "wait"}'
+              hx-headers='{"Content-Type": "application/json"}'
+              hx-target="#busy-dialog"
+              hx-swap="outerHTML">
+        Wait
+      </button>
+      <button hx-post="/api/jobs/{{ job.id }}/resolve"
+              hx-vals='{"choice": "no_reboot"}'
+              hx-headers='{"Content-Type": "application/json"}'
+              hx-target="#busy-dialog"
+              hx-swap="outerHTML">
+        No reboot
+      </button>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {# ── Drift table ── #}
+  <section id="drift-table">
+    <h2>Drift status</h2>
+    {% if drift %}
+    <table class="drift-table">
+      <thead>
+        <tr>
+          <th>Profile</th>
+          <th>Printer DB</th>
+          <th>Orca preset</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for d in drift %}
+        <tr>
+          <td>{{ d.brand }} {{ d.name }}</td>
+          <td class="status-{{ d.printer_db.status }}">{{ d.printer_db.status }}</td>
+          <td class="status-{{ d.orca_preset.status }}">{{ d.orca_preset.status }}</td>
+          <td>
+            <button class="btn-preset"
+                    hx-post="/api/sync/preset/{{ d.profile_id }}"
+                    hx-target="#job-progress"
+                    hx-swap="innerHTML"
+                    hx-headers='{"Accept": "application/json"}'>
+              Generate preset
+            </button>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>No profiles tracked.</p>
+    {% endif %}
+  </section>
+
+  <section id="job-progress"
+           hx-get="/sync/progress?since=0"
+           hx-trigger="every 3s"
+           hx-swap="innerHTML">
+    {% if recent_jobs %}
+    <h2>Recent jobs</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Kind</th><th>Status</th></tr></thead>
+      <tbody>
+      {% for job in recent_jobs %}
+        <tr class="status-{{ job.status }}">
+          <td>{{ job.id }}</td>
+          <td>{{ job.kind }}</td>
+          <td>{{ job.status }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>No jobs yet.</p>
+    {% endif %}
+  </section>
+</section>
+{% endblock %}

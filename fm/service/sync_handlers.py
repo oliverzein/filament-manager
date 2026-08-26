@@ -42,6 +42,7 @@ from ..models import Job, Profile, SyncTarget
 from ..printer.dbcodec import (
     build_entry,
     find_entry,
+    find_custom_entries,
     insert_entry,
     load_db,
     next_free_id,
@@ -63,6 +64,7 @@ log = __import__("logging").getLogger(__name__)
 
 _transport_factory: Callable[[Config], PrinterTransport] = lambda cfg: SshTransport(cfg)
 _cache_db_path: Path | None = None
+_import_db_path: Path | None = None  # import_scan: pre-pulled DB for tests
 _preset_template_factory: Callable[[dict], dict | None] = lambda p: find_system_preset(p["type"])
 _sleep = time.sleep  # tests override to no-op
 
@@ -439,6 +441,87 @@ def handle_temp_sync(session: Session, config: Config, payload: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Migration: import_scan
+# ---------------------------------------------------------------------------
+
+def _entry_to_proposal(entry: dict) -> dict:
+    """Convert a printer-DB custom (99xxx) entry to a migration proposal dict.
+
+    Adapted from ``cfs.py:convert_orca_to_db_values`` (line 230) — maps
+    printer-DB ``base``/``kvParam`` fields to catalog ``Profile`` column names.
+    The temp-range logic mirrors the Orca preset conversion: prefer
+    ``nozzle_temperature_range_low/high``; fall back to ``nozzle_temperature``.
+    """
+    b = entry["base"]
+    kv = entry.get("kvParam", {})
+
+    range_low = kv.get("nozzle_temperature_range_low")
+    range_high = kv.get("nozzle_temperature_range_high")
+    if range_low is not None and range_high is not None:
+        min_temp = int(range_low)
+        max_temp = int(range_high)
+    else:
+        nozzle = kv.get("nozzle_temperature")
+        temp = int(nozzle) if nozzle else 0
+        min_temp = temp
+        max_temp = temp
+
+    proposal: dict = {
+        "printer_db_id": b["id"],
+        "brand": b.get("brand", ""),
+        "name": b.get("name", ""),
+        "type": b.get("meterialType", ""),
+        "min_temp": min_temp,
+        "max_temp": max_temp,
+        "density": b.get("density", 0.0),
+        "drying_temp": b.get("dryingTemp", 0),
+        "drying_time": b.get("dryingTime", 0),
+        "colors": json.dumps(b.get("colors", [])),
+        "nozzle_temperature": int(kv["nozzle_temperature"])
+        if kv.get("nozzle_temperature") else None,
+    }
+
+    flow_ratio = kv.get("filament_flow_ratio")
+    if flow_ratio and flow_ratio != "nil":
+        proposal["flow_ratio"] = float(flow_ratio)
+
+    pa = kv.get("pressure_advance")
+    if pa and pa != "nil":
+        proposal["pa"] = float(pa)
+
+    max_volumetric = kv.get("filament_max_volumetric_speed")
+    if max_volumetric and max_volumetric != "nil":
+        proposal["max_volumetric"] = float(max_volumetric)
+
+    return proposal
+
+
+def handle_import_scan(session: Session, config: Config, payload: dict) -> dict:
+    """Import-scan handler: pull printer DB, extract all 99xxx entries as
+    migration proposals, enqueue ``report_presets`` for the agent.
+
+    In production, ``scp_pull`` fetches the live printer DB.  Tests override
+    ``_import_db_path`` to point at a fixture file, bypassing SSH.
+    """
+    if _import_db_path is not None:
+        db = load_db(_import_db_path)
+    else:
+        transport = _get_transport(config)
+        local_path = Path(tempfile.NamedTemporaryFile(suffix=".json", delete=False).name)
+        transport.scp_pull(local_path)
+        db = load_db(local_path)
+
+    entries = find_custom_entries(db)
+    proposals = [_entry_to_proposal(e) for e in entries]
+
+    # Request report_presets via the agent queue (agent-facing kind — stays
+    # queued until claimed via GET /api/agent/jobs).
+    jobs.enqueue(session, "report_presets", {})
+
+    return {"proposals": proposals}
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -448,6 +531,7 @@ def register_handlers() -> None:
     jobs.HANDLERS["verify"] = handle_verify
     jobs.HANDLERS["generate_preset"] = handle_generate_preset
     jobs.HANDLERS["temp_sync"] = handle_temp_sync
+    jobs.HANDLERS["import_scan"] = handle_import_scan
 
 
 # Auto-register on import so including the sync router wires handlers.

@@ -201,6 +201,15 @@ def resolve_job(
     return _job_response(job)
 
 
+@router.get("/jobs")
+def list_jobs(db: DbSession, since: int = 0) -> list[dict]:
+    """List jobs with id > ``since`` (for UI progress polling)."""
+    rows = list(db.scalars(
+        select(Job).where(Job.id > since).order_by(Job.id)
+    ))
+    return [_job_response(j) for j in rows]
+
+
 @router.get("/jobs/{job_id}")
 def get_job(job_id: int, db: DbSession) -> dict:
     """Return a single job's status + result (used by tests + UI polling)."""

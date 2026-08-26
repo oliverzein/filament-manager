@@ -189,3 +189,14 @@ def test_profile_edit_colors_empty_array_blank(client):
     r = client.get(f"/profiles/{p['id']}/edit")
     assert r.status_code == 200
     assert b'value=""' in r.content
+
+
+# ---------------------------------------------------------------------------
+# Fix-round-2 regressions
+# ---------------------------------------------------------------------------
+
+def test_spools_filter_non_numeric_profile_id(client, seeded_profile):
+    """?profile_id=abc must not 500 — treat as no filter (200)."""
+    r = client.get("/spools?profile_id=abc")
+    assert r.status_code == 200
+    assert b"Add spool" in r.content

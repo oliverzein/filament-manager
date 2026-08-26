@@ -299,7 +299,7 @@ def spools_page(
     profile_id: str | None = None,
     location: str | None = None,
 ) -> HTMLResponse:
-    pid = int(profile_id) if profile_id else None
+    pid = int(profile_id) if profile_id and profile_id.isdigit() else None
     stmt = select(Spool).order_by(Spool.id)
     if pid:
         stmt = stmt.where(Spool.profile_id == pid)

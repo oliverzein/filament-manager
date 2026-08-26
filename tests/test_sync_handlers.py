@@ -15,6 +15,7 @@ import pytest
 from sqlalchemy import select
 
 from conftest import FakeTransport
+from fm.printer.dbcodec import find_entry
 from fm.config import Config
 from fm.models import ActivityLog, Job, Profile, SyncTarget
 from fm.service import jobs
@@ -411,3 +412,258 @@ class TestTempSyncHandler:
         result = sh.handle_temp_sync(s, cfg, {})
 
         assert result["updates"] == []
+
+
+# ---------------------------------------------------------------------------
+# Final-review fix wave regression tests
+# ---------------------------------------------------------------------------
+
+class TestProductionCachePath:
+    """[P1] Finding 1: handle_push must succeed without _cache_db_path
+    monkeypatched — production derives the cache path from FM_DATABASE_URL
+    and pulls from the printer on first run."""
+
+    def test_push_succeeds_without_cache_db_path_monkeypatch(
+        self, inmemory_session, cfg, tmp_path, sample_db, monkeypatch
+    ):
+        s = inmemory_session
+        _make_profile(s)
+        # Production-like: FM_DATABASE_URL set, _cache_db_path left as None
+        monkeypatch.setenv("FM_DATABASE_URL", f"sqlite:///{tmp_path}/filaments.db")
+        monkeypatch.setattr(sh, "_transport_factory",
+                            lambda c: VerifyTransport(db=sample_db))
+
+        result = sh.handle_push(s, cfg, {})
+
+        assert result["status"] == "ok"
+        assert result["pushed"] == 1
+        # Cache file created in the data dir alongside the SQLite DB
+        assert (tmp_path / "printer-db-cache.json").exists()
+
+
+class TestNozzleTemperaturePropagation:
+    """[P1] Finding 2: profile.nozzle_temperature must reach the printer DB
+    kvParam.nozzle_temperature instead of being overwritten by maxTemp."""
+
+    def test_nozzle_temperature_reaches_printer(
+        self, inmemory_session, cfg, tmp_path, sample_db, monkeypatch
+    ):
+        s = inmemory_session
+        profile = _make_profile(s, max_temp=215, nozzle_temperature=205)
+        cache = _cache_file(tmp_path, sample_db)
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: FakeTransport())
+
+        sh.handle_push(s, cfg, {})
+
+        pushed_db = json.loads(cache.read_text())
+        entry = find_entry(pushed_db, profile.printer_db_id)
+        assert entry["kvParam"]["nozzle_temperature"] == "205"
+        # range_high still tracks maxTemp (the allowed range, not default temp)
+        assert entry["kvParam"]["nozzle_temperature_range_high"] == "215"
+
+    def test_nozzle_temperature_falls_back_to_max_temp(
+        self, inmemory_session, cfg, tmp_path, sample_db, monkeypatch
+    ):
+        s = inmemory_session
+        profile = _make_profile(s, max_temp=215, nozzle_temperature=None)
+        cache = _cache_file(tmp_path, sample_db)
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: FakeTransport())
+
+        sh.handle_push(s, cfg, {})
+
+        pushed_db = json.loads(cache.read_text())
+        entry = find_entry(pushed_db, profile.printer_db_id)
+        assert entry["kvParam"]["nozzle_temperature"] == "215"
+
+
+class TestEntryHashCoverage:
+    """[P2] Finding 3: _entry_hash must cover density, drying_temp, drying_time,
+    pa, flow_ratio, max_volumetric so drift in those fields is detected."""
+
+    def test_density_drift_detected(
+        self, inmemory_session, cfg, tmp_path, sample_db, monkeypatch
+    ):
+        s = inmemory_session
+        profile = _make_profile(s, density=1.23, printer_db_id="99001")
+        cache = _cache_file(tmp_path, sample_db)
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: FakeTransport())
+        # Push to set expected_hash (includes density=1.23)
+        sh.handle_push(s, cfg, {})
+
+        # Verify with density mutated on the printer
+        drifted_db = json.loads(json.dumps(sample_db))
+        entry = find_entry(drifted_db, "99001")
+        entry["base"]["density"] = 1.99
+        monkeypatch.setattr(sh, "_transport_factory",
+                            lambda c: VerifyTransport(db=drifted_db))
+
+        sh.handle_verify(s, cfg, {})
+
+        target = s.scalars(select(SyncTarget).where(
+            SyncTarget.profile_id == profile.id,
+            SyncTarget.kind == "printer_db",
+        )).first()
+        assert target.status == "error"  # drift detected
+
+    def test_flow_ratio_drift_detected(
+        self, inmemory_session, cfg, tmp_path, sample_db, monkeypatch
+    ):
+        s = inmemory_session
+        profile = _make_profile(s, flow_ratio=0.998, printer_db_id="99001")
+        cache = _cache_file(tmp_path, sample_db)
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: FakeTransport())
+        sh.handle_push(s, cfg, {})
+
+        drifted_db = json.loads(json.dumps(sample_db))
+        entry = find_entry(drifted_db, "99001")
+        entry["kvParam"]["filament_flow_ratio"] = "0.95"
+        monkeypatch.setattr(sh, "_transport_factory",
+                            lambda c: VerifyTransport(db=drifted_db))
+
+        sh.handle_verify(s, cfg, {})
+
+        target = s.scalars(select(SyncTarget).where(
+            SyncTarget.profile_id == profile.id,
+            SyncTarget.kind == "printer_db",
+        )).first()
+        assert target.status == "error"
+
+
+class TestPresetDriftComputation:
+    """[P2] Finding 4: orca_preset expected_hash must be compared against
+    reported presets, updating status to in_sync / drift."""
+
+    def _seed_report(self, session, presets):
+        result = json.dumps({"presets": presets})
+        job = Job(kind="report_presets", payload="{}", status="done", result=result)
+        session.add(job)
+        session.flush()
+        return job
+
+    def test_drift_detected_when_preset_temp_differs(
+        self, inmemory_session, cfg, monkeypatch
+    ):
+        s = inmemory_session
+        profile = _make_profile(s)
+        monkeypatch.setattr(sh, "_preset_template_factory",
+                            lambda p: _preset_template())
+        sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
+
+        presets = [{
+            "name": "Sunlu PLA+",
+            "filament_type": ["PLA"],
+            "filament_vendor": ["Sunlu"],
+            "filament_id": profile.filament_id,
+            "nozzle_temperature": ["999"],  # differs from generated preset
+        }]
+        self._seed_report(s, presets)
+
+        sh.refresh_preset_drift(s)
+
+        target = s.scalars(select(SyncTarget).where(
+            SyncTarget.profile_id == profile.id,
+            SyncTarget.kind == "orca_preset",
+        )).first()
+        assert target.status == "drift"
+
+    def test_in_sync_when_reported_preset_matches(
+        self, inmemory_session, cfg, monkeypatch
+    ):
+        s = inmemory_session
+        profile = _make_profile(s, max_temp=215)
+        monkeypatch.setattr(sh, "_preset_template_factory",
+                            lambda p: _preset_template())
+        sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
+
+        presets = [{
+            "name": "Sunlu PLA+",
+            "filament_type": ["PLA"],
+            "filament_vendor": ["Sunlu"],
+            "filament_id": profile.filament_id,
+            "nozzle_temperature": ["215"],  # matches generated preset
+        }]
+        self._seed_report(s, presets)
+
+        sh.refresh_preset_drift(s)
+
+        target = s.scalars(select(SyncTarget).where(
+            SyncTarget.profile_id == profile.id,
+            SyncTarget.kind == "orca_preset",
+        )).first()
+        assert target.status == "in_sync"
+
+    def test_no_report_leaves_status_pending(
+        self, inmemory_session, cfg, monkeypatch
+    ):
+        s = inmemory_session
+        profile = _make_profile(s)
+        monkeypatch.setattr(sh, "_preset_template_factory",
+                            lambda p: _preset_template())
+        sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
+
+        sh.refresh_preset_drift(s)
+
+        target = s.scalars(select(SyncTarget).where(
+            SyncTarget.profile_id == profile.id,
+            SyncTarget.kind == "orca_preset",
+        )).first()
+        assert target.status == "pending"
+
+
+class TestOrphanRemoval:
+    """[P2] Finding 5: _rebuild_printer_db must remove 99xxx entries with no
+    catalog profile so deleted profiles don't linger on the printer."""
+
+    def test_deleted_profile_orphan_removed(
+        self, inmemory_session, cfg, tmp_path, sample_db, monkeypatch
+    ):
+        s = inmemory_session
+        profile = _make_profile(s, printer_db_id="99001")
+        cache = _cache_file(tmp_path, sample_db)
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: FakeTransport())
+        # Push to seed the cache with the profile's entry
+        sh.handle_push(s, cfg, {})
+        pushed_db = json.loads(cache.read_text())
+        assert find_entry(pushed_db, "99001") is not None
+
+        # Delete the profile from the catalog
+        s.delete(profile)
+        s.flush()
+
+        # Push again — orphan 99001 should be removed
+        sh.handle_push(s, cfg, {})
+
+        pushed_db = json.loads(cache.read_text())
+        assert find_entry(pushed_db, "99001") is None
+
+
+class TestImportScanTempFileCleanup:
+    """[P3] Finding 6: handle_import_scan must not leak the temp file when
+    pulling via scp_pull (no _import_db_path override)."""
+
+    def test_temp_file_unlinked_after_import_scan(
+        self, inmemory_session, cfg, sample_db, monkeypatch
+    ):
+        s = inmemory_session
+        monkeypatch.setattr(sh, "_import_db_path", None)
+
+        pulled_path: list[Path] = []
+
+        class CapturingTransport(FakeTransport):
+            def scp_pull(self, local):
+                p = Path(local)
+                pulled_path.append(p)
+                p.write_text(json.dumps(sample_db))
+
+        monkeypatch.setattr(sh, "_transport_factory",
+                            lambda c: CapturingTransport())
+
+        sh.handle_import_scan(s, cfg, {})
+
+        assert len(pulled_path) == 1
+        assert not pulled_path[0].exists()  # temp file cleaned up

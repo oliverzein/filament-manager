@@ -336,6 +336,62 @@ class TestDriftStatus:
         assert entry["printer_db"]["expected_hash"] is not None
         assert entry["orca_preset"]["expected_hash"] is not None
 
+    def test_preset_drift_surfaces_in_drift_status(self, client):
+        """[P2] Finding 4: orca_preset drift computed from report_presets
+        must surface in the /api/status/drift output."""
+        from fm.db import SessionLocal
+        from fm.models import Profile as ProfileModel
+        p = _make_profile(client)
+        client.post(f"/api/sync/preset/{p['id']}")
+
+        # Seed a report_presets job with a drifting nozzle_temperature
+        with SessionLocal() as s:
+            prof = s.get(ProfileModel, p["id"])
+            presets = [{
+                "name": p["name"],
+                "filament_type": [p["type"]],
+                "filament_vendor": [p["brand"]],
+                "filament_id": prof.filament_id,
+                "nozzle_temperature": ["999"],  # differs from generated preset
+            }]
+            job = Job(
+                kind="report_presets", payload="{}", status="done",
+                result=json.dumps({"presets": presets}),
+            )
+            s.add(job)
+
+        r = client.get("/api/status/drift")
+        assert r.status_code == 200
+        matrix = r.json()
+        assert matrix[0]["orca_preset"]["status"] == "drift"
+
+    def test_preset_in_sync_surfaces_in_drift_status(self, client):
+        """[P2] Finding 4: matching reported preset → in_sync in drift output."""
+        from fm.db import SessionLocal
+        from fm.models import Profile as ProfileModel
+        p = _make_profile(client)  # max_temp defaults to 215
+        client.post(f"/api/sync/preset/{p['id']}")
+
+        with SessionLocal() as s:
+            prof = s.get(ProfileModel, p["id"])
+            presets = [{
+                "name": p["name"],
+                "filament_type": [p["type"]],
+                "filament_vendor": [p["brand"]],
+                "filament_id": prof.filament_id,
+                "nozzle_temperature": ["215"],  # matches generated preset
+            }]
+            job = Job(
+                kind="report_presets", payload="{}", status="done",
+                result=json.dumps({"presets": presets}),
+            )
+            s.add(job)
+
+        r = client.get("/api/status/drift")
+        assert r.status_code == 200
+        matrix = r.json()
+        assert matrix[0]["orca_preset"]["status"] == "in_sync"
+
 
 # ---------------------------------------------------------------------------
 # Job query endpoint

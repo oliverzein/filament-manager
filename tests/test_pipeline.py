@@ -62,8 +62,8 @@ def test_push_order_and_guards(tmp_path, cfg):
     t = FakeTransport(); db_file = make_db_file(tmp_path, entries=41)
     res = pl.run_push(cfg, db_file, t, sleep=lambda s: None)
     assert res["status"] == "ok"
-    backup_idx = idx_of(t.commands, "backup")
-    busy_idx   = idx_of(t.commands, "busy-check")     # busy BEFORE backup/upload
+    backup_idx = idx_of(t.commands, ".bak.")
+    busy_idx   = idx_of(t.commands, "ws:get")        # busy BEFORE backup/upload
     upload_idx = idx_of(t.commands, "scp-push:")
     reboot_idx = idx_of(t.commands, "sync; sync;")
     assert busy_idx < backup_idx < upload_idx < reboot_idx
@@ -99,7 +99,7 @@ def test_busy_does_not_backup(tmp_path, cfg):
     t = FakeTransport(busy={"filename": "x.gcode", "progress": "50%"})
     db_file = make_db_file(tmp_path, entries=41)
     pl.run_push(cfg, db_file, t)
-    assert not any("backup" in c for c in t.commands)
+    assert not any(".bak." in c for c in t.commands)
     assert not any("sync; sync;" in c for c in t.commands)
 
 

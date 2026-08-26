@@ -100,15 +100,12 @@ def run_push(config: Config, local_db_path: Path, transport: PrinterTransport,
         job = check_printer_busy(transport)
         if job and not force_reboot:
             return {"status": "busy", "job": job}
-        # phase marker: busy check passed, proceeding to backup (no-op on the
-        # real printer — ':' is the POSIX shell true builtin; records ordering)
-        transport.run(": busy-check")
 
     # Backup remote DB before overwriting (rotation: keep last 5)
     remote_path = config.db_remote_path
     ts = time.strftime("%Y%m%d-%H%M%S")
     backup_path = f"{remote_path}.bak.{ts}"
-    transport.run(f": backup; cp {remote_path} {backup_path}")
+    transport.run(f"cp {remote_path} {backup_path}")
     # rotate: keep last 5
     transport.run(
         f"ls -t {remote_path}.bak.* 2>/dev/null | tail -n +6 | xargs -r rm")
@@ -143,7 +140,7 @@ def _wait_for_reboot(transport: PrinterTransport, *, timeout=300, sleep=time.sle
     while time.time() < deadline:
         try:
             result = transport.run("echo ok", timeout=5)
-            if result.returncode == 0:
+            if result.returncode == 0 and "ok" in result.stdout:
                 sleep(5)  # services settle
                 return True
         except FmError:

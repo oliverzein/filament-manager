@@ -20,7 +20,7 @@ class FakeTransport:
 
     def run(self, cmd, timeout=30):
         self.commands.append(cmd)
-        return subprocess.CompletedProcess([], 0, "", "")
+        return subprocess.CompletedProcess([], 0, "ok\n", "")
 
     def scp_push(self, local):
         self.commands.append(f"scp-push:{local}")
@@ -29,6 +29,7 @@ class FakeTransport:
         self.commands.append(f"scp-pull:{local}")
 
     def ws_request(self, method, params):
+        self.commands.append(f"ws:{method}")
         if self.busy:
             return {"state": 1,
                     "printFileName": self.busy.get("filename", ""),

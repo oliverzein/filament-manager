@@ -266,9 +266,11 @@ def test_handler_partial_write_rolled_back_on_exception(inmemory_session, cfg):
 
 
 def test_handler_partial_write_rolled_back_across_commit(tmp_path, cfg):
-    """Partial handler write is not persisted across session auto-commit."""
+    """Partial handler write is not persisted across session auto-commit,
+    while the job error status and ActivityLog(error) are."""
     from fm.db import init_engine, SessionLocal
     from fm.models import Profile
+    init_engine(f"sqlite:///{tmp_path}/commit.db")
     jobs.HANDLERS["boom"] = lambda sess, conf, payload: (
         sess.add(Profile(brand="X", name="X", type="PLA", min_temp=200,
                          max_temp=230, created_at=_NOW, updated_at=_NOW)),
@@ -281,11 +283,19 @@ def test_handler_partial_write_rolled_back_across_commit(tmp_path, cfg):
             s.flush()
             jobs.run_pending(s, cfg)
         with SessionLocal() as s:
+            # partial handler write discarded
             assert s.scalars(
                 select(Profile).where(Profile.brand == "X")
             ).all() == []
+            # job error status persisted
             job = s.scalar(select(Job).where(Job.kind == "boom"))
             assert job.status == "error"
+            assert "after-write-fail" in json.loads(job.result)["error"]
+            # error activity log persisted
+            entry = s.scalar(
+                select(ActivityLog).where(ActivityLog.action == "boom")
+            )
+            assert entry is not None and entry.outcome == "error"
     finally:
         jobs.HANDLERS.pop("boom", None)
 

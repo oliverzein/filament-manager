@@ -161,3 +161,31 @@ def test_spool_remaining_htmx_patch(client, seeded_profile):
 def test_spool_remaining_patch_404(client):
     r = client.post("/spools/9999/remaining", data={"remaining_pct": "10"})
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Fix-round-1 regressions
+# ---------------------------------------------------------------------------
+
+def test_spools_filter_empty_profile_id(client, seeded_profile):
+    """?profile_id= (the '(all)' default) must return 200, not 422."""
+    r = client.get("/spools?profile_id=&location=")
+    assert r.status_code == 200
+    assert b"Add spool" in r.content
+
+
+def test_profile_edit_colors_rendered_from_json(client):
+    """Profile.colors is a JSON string; the edit form must render the parsed
+    list joined as comma-separated hex, not the raw JSON characters."""
+    p = _make_profile(client, colors=["#ff0000", "#00ff00"])
+    r = client.get(f"/profiles/{p['id']}/edit")
+    assert r.status_code == 200
+    assert b'value="#ff0000, #00ff00"' in r.content
+
+
+def test_profile_edit_colors_empty_array_blank(client):
+    """A profile with no colors renders an empty colors input value."""
+    p = _make_profile(client)  # default colors=[]
+    r = client.get(f"/profiles/{p['id']}/edit")
+    assert r.status_code == 200
+    assert b'value=""' in r.content

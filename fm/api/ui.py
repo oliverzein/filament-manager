@@ -296,12 +296,13 @@ def profile_update_form(
 def spools_page(
     request: Request,
     db: DbSession,
-    profile_id: int | None = None,
+    profile_id: str | None = None,
     location: str | None = None,
 ) -> HTMLResponse:
+    pid = int(profile_id) if profile_id else None
     stmt = select(Spool).order_by(Spool.id)
-    if profile_id:
-        stmt = stmt.where(Spool.profile_id == profile_id)
+    if pid:
+        stmt = stmt.where(Spool.profile_id == pid)
     if location:
         stmt = stmt.where(Spool.location == location)
     rows = list(db.scalars(stmt))
@@ -313,7 +314,7 @@ def spools_page(
         {
             "spools": rows,
             "profiles": profiles,
-            "filter_profile_id": profile_id or "",
+            "filter_profile_id": pid or "",
             "filter_location": location or "",
         },
     )

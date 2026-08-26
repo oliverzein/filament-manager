@@ -11,6 +11,7 @@ target::
 """
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,6 +77,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Templates + static (dirs exist as placeholders; populated by Task 13/14).
     templates = Jinja2Templates(directory=str(_DIR / "templates"))
+    # Parse Profile.colors (JSON string) -> list for template rendering.
+    templates.env.filters["colors_list"] = lambda v: json.loads(v) if isinstance(v, str) else (v or [])
     app.state.templates = templates
     app.state.config = app_config
     app.mount("/static", StaticFiles(directory=str(_DIR / "static")), name="static")

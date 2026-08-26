@@ -22,6 +22,12 @@ from fm.models import Job, Profile, SyncTarget
 from fm.service import sync_handlers as sh
 
 
+def get_job_status(client, job_id) -> str:
+    r = client.get(f"/api/jobs/{job_id}")
+    assert r.status_code == 200, r.text
+    return r.json()["status"]
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -215,6 +221,103 @@ class TestSyncPage:
         assert b"Force reboot" in r.content
         assert b"Wait" in r.content
         assert b"No reboot" in r.content
+
+    def test_sync_resolve_force_reboot_transition(self, client, monkeypatch,
+                                                   sample_db, tmp_path):
+        """Integration test: POST /sync/jobs/{id}/resolve with form-urlencoded
+        body (what HTMX actually sends) transitions the job out of
+        awaiting_input.  This exercises the real click path — the buttons in
+        sync.html POST form data to the UI resolve endpoint, not JSON to the
+        API endpoint."""
+        # Create a profile so push has something to push
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        # Make transport busy so push parks as awaiting_input
+        busy_transport = FakeTransport(busy={"filename": "x.gcode", "progress": 50})
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: busy_transport)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+
+        r = client.post("/api/sync/push", json={})
+        job_id = r.json()["job_id"]
+        assert get_job_status(client, job_id) == "awaiting_input"
+
+        # Simulate HTMX click: form-urlencoded POST to the UI resolve endpoint
+        r = client.post(f"/sync/jobs/{job_id}/resolve",
+                        data={"choice": "force_reboot"})
+        assert r.status_code == 200
+        # After force_reboot, the job should transition to done (FakeTransport
+        # with no busy → push succeeds). The busy-dialog fragment should be
+        # empty (no more awaiting_input jobs).
+        assert get_job_status(client, job_id) == "done"
+        assert b"busy-dialog" not in r.content
+
+    def test_sync_resolve_wait_stays_awaiting(self, client, monkeypatch,
+                                               sample_db, tmp_path):
+        """The 'wait' choice retries without force — still busy → parks again.
+        The returned fragment should still contain the busy-dialog."""
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        busy_transport = FakeTransport(busy={"filename": "x.gcode", "progress": 50})
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: busy_transport)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+
+        r = client.post("/api/sync/push", json={})
+        job_id = r.json()["job_id"]
+
+        r = client.post(f"/sync/jobs/{job_id}/resolve",
+                        data={"choice": "wait"})
+        assert r.status_code == 200
+        assert get_job_status(client, job_id) == "awaiting_input"
+        assert b"busy-dialog" in r.content
+
+    def test_sync_resolve_no_reboot_transition(self, client, monkeypatch,
+                                                sample_db, tmp_path):
+        """The 'no_reboot' choice transitions the job to done."""
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        busy_transport = FakeTransport(busy={"filename": "x.gcode", "progress": 50})
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: busy_transport)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+
+        r = client.post("/api/sync/push", json={})
+        job_id = r.json()["job_id"]
+
+        r = client.post(f"/sync/jobs/{job_id}/resolve",
+                        data={"choice": "no_reboot"})
+        assert r.status_code == 200
+        assert get_job_status(client, job_id) == "done"
+
+    def test_sync_resolve_invalid_choice_422(self, client, monkeypatch,
+                                              sample_db, tmp_path):
+        """Invalid choice returns 422 from the UI endpoint."""
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        busy_transport = FakeTransport(busy={"filename": "x.gcode", "progress": 50})
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: busy_transport)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+
+        r = client.post("/api/sync/push", json={})
+        job_id = r.json()["job_id"]
+
+        r = client.post(f"/sync/jobs/{job_id}/resolve",
+                        data={"choice": "bogus"})
+        assert r.status_code == 422
 
 
 # ---------------------------------------------------------------------------

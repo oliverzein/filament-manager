@@ -410,6 +410,80 @@ def sync_progress_fragment(db: DbSession, since: int = 0) -> HTMLResponse:
     )
 
 
+@router.post("/sync/jobs/{job_id}/resolve", response_class=HTMLResponse)
+def sync_resolve_job(
+    request: Request, job_id: int, db: DbSession,
+    choice: str = Form(...),
+) -> HTMLResponse:
+    """HTMX form endpoint: resolve an awaiting_input job and return an
+    updated busy-dialog fragment.
+
+    Accepts ``choice`` as a form field (HTMX's default urlencoded encoding).
+    Performs the same resolve logic as ``POST /api/jobs/{id}/resolve`` but
+    returns HTML instead of JSON.
+    """
+    config = _get_config(request)
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if job.status != "awaiting_input":
+        raise HTTPException(
+            status_code=409, detail="job is not awaiting input"
+        )
+
+    payload = json.loads(job.payload) if job.payload else {}
+    if choice == "force_reboot":
+        payload["force_reboot"] = True
+    elif choice == "no_reboot":
+        payload["no_reboot"] = True
+    elif choice == "wait":
+        pass  # retry as-is
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail="invalid choice; expected force_reboot|wait|no_reboot",
+        )
+
+    job.payload = json.dumps(payload)
+    job.status = "queued"
+    job.result = None
+    db.flush()
+    jobs.run_pending(db, config)
+    db.flush()
+
+    # Re-render the busy-dialog fragment with remaining awaiting_input jobs.
+    awaiting = list(db.scalars(
+        select(Job).where(Job.status == "awaiting_input").order_by(Job.id)
+    ))
+    if not awaiting:
+        return HTMLResponse("")
+    buttons = "".join(
+        f'<div class="awaiting-job" id="awaiting-{j.id}">'
+        f'<p>Job #{j.id} — {j.kind}</p>'
+        f'<button hx-post="/sync/jobs/{j.id}/resolve" '
+        f'hx-vals=\'{{"choice": "force_reboot"}}\' '
+        f'hx-target="#busy-dialog" hx-swap="outerHTML">'
+        f'Force reboot</button>'
+        f'<button hx-post="/sync/jobs/{j.id}/resolve" '
+        f'hx-vals=\'{{"choice": "wait"}}\' '
+        f'hx-target="#busy-dialog" hx-swap="outerHTML">'
+        f'Wait</button>'
+        f'<button hx-post="/sync/jobs/{j.id}/resolve" '
+        f'hx-vals=\'{{"choice": "no_reboot"}}\' '
+        f'hx-target="#busy-dialog" hx-swap="outerHTML">'
+        f'No reboot</button>'
+        f'</div>'
+        for j in awaiting
+    )
+    return HTMLResponse(
+        f'<section id="busy-dialog" class="busy-dialog">'
+        f'<h2>Awaiting input</h2>'
+        f'<p>The printer is busy. Choose how to proceed:</p>'
+        f'{buttons}'
+        f'</section>'
+    )
+
+
 # ---------------------------------------------------------------------------
 # Migration wizard — one-time import of existing printer DB entries
 # ---------------------------------------------------------------------------

@@ -29,23 +29,20 @@
     {% for job in awaiting_jobs %}
     <div class="awaiting-job" id="awaiting-{{ job.id }}">
       <p>Job #{{ job.id }} — {{ job.kind }}</p>
-      <button hx-post="/api/jobs/{{ job.id }}/resolve"
+      <button hx-post="/sync/jobs/{{ job.id }}/resolve"
               hx-vals='{"choice": "force_reboot"}'
-              hx-headers='{"Content-Type": "application/json"}'
               hx-target="#busy-dialog"
               hx-swap="outerHTML">
         Force reboot
       </button>
-      <button hx-post="/api/jobs/{{ job.id }}/resolve"
+      <button hx-post="/sync/jobs/{{ job.id }}/resolve"
               hx-vals='{"choice": "wait"}'
-              hx-headers='{"Content-Type": "application/json"}'
               hx-target="#busy-dialog"
               hx-swap="outerHTML">
         Wait
       </button>
-      <button hx-post="/api/jobs/{{ job.id }}/resolve"
+      <button hx-post="/sync/jobs/{{ job.id }}/resolve"
               hx-vals='{"choice": "no_reboot"}'
-              hx-headers='{"Content-Type": "application/json"}'
               hx-target="#busy-dialog"
               hx-swap="outerHTML">
         No reboot

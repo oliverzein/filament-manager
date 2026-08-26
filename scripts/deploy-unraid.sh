@@ -30,6 +30,7 @@ env_file="${FM_ENV_FILE:-deploy/filament-manager.env}"
 template="deploy/filament-manager.xml"
 templates_dir="/boot/config/plugins/dockerMan/templates-user"
 container="filament-manager"
+remote_env="${remote_dir}/filament-manager.env"
 
 if [[ ! -f "${tarball}" ]]; then
   echo "error: ${tarball} not found; run scripts/release.sh ${version} first" >&2
@@ -44,25 +45,34 @@ if [[ ! -f "${template}" ]]; then
   exit 1
 fi
 
+# Run ssh/scp with sshpass only when SSHPASS is set; otherwise fall through to
+# ssh key / config-alias authentication. Never export an empty SSHPASS — that
+# makes sshpass send an empty password instead of letting ssh use keys.
+if [[ -n "${SSHPASS:-}" ]]; then
+  ssh_prefix=(sshpass -e)
+else
+  ssh_prefix=()
+fi
+
 echo "==> copying ${tarball} to ${host}:${remote_dir}/"
-sshpass -e scp -O "${tarball}" "root@${host}:${remote_dir}/"
-# Provide the ssh password via SSHPASS (sshpass -e) if set; otherwise rely on
-# ssh keys / an ssh config alias. Export only when defined.
-export SSHPASS="${SSHPASS:-}"
+"${ssh_prefix[@]}" scp -O "${tarball}" "root@${host}:${remote_dir}/"
+
+echo "==> copying env file to ${host}:${remote_env}"
+"${ssh_prefix[@]}" scp -O "${env_file}" "root@${host}:${remote_env}"
 
 echo "==> loading image on ${host}"
-sshpass -e ssh "root@${host}" "gunzip -c ${remote_dir}/$(basename "${tarball}") | docker load"
+"${ssh_prefix[@]}" ssh "root@${host}" "gunzip -c ${remote_dir}/$(basename "${tarball}") | docker load"
 
 echo "==> installing dockerMan template"
-sshpass -e scp -O "${template}" "root@${host}:${templates_dir}/$(basename "${template}")"
+"${ssh_prefix[@]}" scp -O "${template}" "root@${host}:${templates_dir}/$(basename "${template}")"
 
 echo "==> restarting container ${container}"
-sshpass -e ssh "root@${host}" "
+"${ssh_prefix[@]}" ssh "root@${host}" "
   docker stop ${container} 2>/dev/null || true
   docker rm ${container} 2>/dev/null || true
   docker run -d \
     --name ${container} \
-    --env-file ${remote_dir}/filament-manager.env \
+    --env-file ${remote_env} \
     -v ${remote_dir}:/data \
     -p 8404:8000 \
     --restart unless-stopped \

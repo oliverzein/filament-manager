@@ -20,7 +20,7 @@
     <Date>2026-08-26</Date>
     <Config Name="HTTP port" Target="8000" Default="8404" Mode="tcp" Description="Container port 8000 mapped to host port 8404." Type="Port" Display="always" Required="true" Mask="false"/>
     <Config Name="App data" Target="/data" Default="/mnt/user/appdata/filament-manager" Mode="rw" Description="Bind-mounted app data directory holding the SQLite database (filaments.db)." Type="Path" Display="always" Required="true" Mask="false"/>
-    <Config Name="FM_DATABASE_URL" Target="FM_DATABASE_URL" Default="/data/filaments.db" Mode="" Description="SQLAlchemy database URL. Points at the bind-mounted volume." Type="Variable" Display="always" Required="true" Mask="false"/>
+    <Config Name="FM_DATABASE_URL" Target="FM_DATABASE_URL" Default="sqlite:////data/filaments.db" Mode="" Description="SQLAlchemy database URL (sqlite:////data/filaments.db — absolute path inside the container). Points at the bind-mounted volume." Type="Variable" Display="always" Required="true" Mask="false"/>
     <Config Name="FM_PRINTER_IP" Target="FM_PRINTER_IP" Default="192.168.0.101" Mode="" Description="Creality K2 printer IP for sync." Type="Variable" Display="always" Required="true" Mask="false"/>
     <Config Name="FM_SSH_USER" Target="FM_SSH_USER" Default="root" Mode="" Description="SSH user for the printer." Type="Variable" Display="always" Required="true" Mask="false"/>
     <Config Name="FM_SSH_PASSWORD" Target="FM_SSH_PASSWORD" Default="" Mode="" Description="SSH password for the printer." Type="Variable" Display="always" Required="true" Mask="true"/>

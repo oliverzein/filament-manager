@@ -168,11 +168,14 @@ Scripted (AGENTS.md rule: no hand-run deploy steps):
 - Versioning: git tags `vX.Y.Z`; app exposes version in UI footer and `/api/version`.
 - Docs synced on release: README + BrainVault note (documentation-sync convention).
 
-## 10. AGENTS.md Working Instructions (to create at scaffold time)
+## 10. AGENTS.md Working Instructions
+
+Created as `AGENTS.md` in the repo root. Summary:
 
 1. **Designer role for UI**: all UI design/refinement tasks use the omp designer agent.
 2. **Scripts over repetition**: any action likely to repeat (dev server lifecycle, tests, builds, deploys, DB migrations) goes into a script under `scripts/`; agents call scripts, never ad-hoc command sequences.
 3. Skill repo `~/Dokumente/Daten/Development/skills/Creality-custom-filament` is reference material — lift logic from there; do not modify it.
+4. The iron rules are restated there verbatim so every agent session sees them without reading this spec.
 
 ## 11. Open Items for Implementation Planning
 

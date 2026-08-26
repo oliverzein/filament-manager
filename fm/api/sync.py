@@ -19,7 +19,7 @@ from ..config import Config
 from ..db import SessionLocal
 from ..models import Job, Profile, SyncTarget
 from ..service import jobs
-from ..service.sync_handlers import register_handlers  # noqa: F401 — side-effect import
+from ..service.sync_handlers import refresh_preset_drift, register_handlers  # noqa: F401 — side-effect import
 
 router = APIRouter(prefix="/api", tags=["sync"])
 
@@ -137,6 +137,7 @@ def sync_tempsync(body: TempSyncRequest, request: Request, db: DbSession) -> dic
 @router.get("/status/drift")
 def drift_status(db: DbSession) -> list[dict]:
     """Per-profile drift matrix: printer_db + orca_preset SyncTarget status."""
+    refresh_preset_drift(db)
     profiles = list(db.scalars(select(Profile).order_by(Profile.id)))
     result = []
     for p in profiles:

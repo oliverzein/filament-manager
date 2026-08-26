@@ -28,6 +28,7 @@ real SSH or ``/opt/orca-slicer``.
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -124,6 +125,8 @@ def _profile_to_values(profile: Profile, entry_id: str) -> dict:
         values["flowRatio"] = profile.flow_ratio
     if profile.pa is not None:
         values["pa"] = profile.pa
+    if profile.nozzle_temperature is not None:
+        values["nozzle_temperature"] = profile.nozzle_temperature
     if profile.max_volumetric is not None:
         values["maxVolumetric"] = profile.max_volumetric
     return values
@@ -141,15 +144,69 @@ def _entry_hash(entry: dict) -> str:
         "minTemp": b["minTemp"],
         "maxTemp": b["maxTemp"],
         "nozzle_temperature": kv.get("nozzle_temperature"),
+        "density": b.get("density"),
+        "dryingTemp": b.get("dryingTemp"),
+        "dryingTime": b.get("dryingTime"),
+        "pa": kv.get("pressure_advance"),
+        "flow_ratio": kv.get("filament_flow_ratio"),
+        "max_volumetric": kv.get("filament_max_volumetric_speed"),
     })
 
 
-def _load_cache_db() -> dict:
-    if _cache_db_path is not None and Path(_cache_db_path).exists():
-        return load_db(_cache_db_path)
-    raise FileNotFoundError(
-        "cache DB not configured — set sync_handlers._cache_db_path"
-    )
+def _sqlite_path_from_url(url: str) -> Path | None:
+    """Extract the filesystem path from a ``sqlite:///`` URL."""
+    if not url.startswith("sqlite:///"):
+        return None
+    rest = url[len("sqlite:///"):]
+    # sqlite:////data/filaments.db -> /data/filaments.db (absolute, 4 slashes)
+    if rest.startswith("/"):
+        return Path(rest)
+    # sqlite:///.local/filaments.db -> .local/filaments.db (relative)
+    return Path(rest)
+
+
+def _resolve_cache_path() -> Path | None:
+    """Production default cache DB path.
+
+    Resolution order: explicit ``FM_CACHE_DB_PATH`` env, then derived from
+    ``FM_DATABASE_URL``'s parent dir (``<data-dir>/printer-db-cache.json``).
+    Returns ``None`` when neither is set (tests leave ``_cache_db_path`` as
+    ``None`` and monkeypatch it).
+    """
+    env_path = os.environ.get("FM_CACHE_DB_PATH")
+    if env_path:
+        return Path(env_path)
+    db_url = os.environ.get("FM_DATABASE_URL")
+    if db_url:
+        db_path = _sqlite_path_from_url(db_url)
+        if db_path is not None:
+            return db_path.parent / "printer-db-cache.json"
+    return None
+
+
+def _load_cache_db(config: Config, transport: PrinterTransport) -> dict:
+    """Load the cached printer DB, pulling from the printer on first run.
+
+    When a cache file exists (explicit ``_cache_db_path``, ``FM_CACHE_DB_PATH``,
+    or the derived default) it is loaded directly.  When no cache file exists
+    the current printer DB is fetched via ``transport.scp_pull`` and persisted
+    to the resolved cache path for subsequent rebuilds.
+    """
+    path = _cache_db_path if _cache_db_path is not None else _resolve_cache_path()
+    if path is not None and Path(path).exists():
+        return load_db(path)
+    # No cache file — pull fresh from the printer.
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp = Path(f.name)
+    try:
+        transport.scp_pull(tmp)
+        db = load_db(tmp)
+    finally:
+        tmp.unlink(missing_ok=True)
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        save_db(path, db)
+    return db
 
 
 # ---------------------------------------------------------------------------
@@ -157,18 +214,21 @@ def _load_cache_db() -> dict:
 # ---------------------------------------------------------------------------
 
 def _rebuild_printer_db(
-    session: Session, config: Config, profile_ids: list[int] | None = None
+    session: Session, config: Config, transport: PrinterTransport,
+    profile_ids: list[int] | None = None,
 ) -> tuple[dict, list[tuple[Profile, dict]]]:
     """Rebuild the local printer DB from cache copy + catalog.
 
     For each target profile: remove any existing custom entry (by
     ``printer_db_id``), assign a new 99xxx ID if the profile has none, then
-    insert a fresh entry via ``build_entry``.
+    insert a fresh entry via ``build_entry``.  After processing, orphaned
+    custom entries (99xxx IDs with no matching catalog profile) are removed so
+    deleted profiles don't linger on the printer forever.
 
     Returns ``(db, pushed)`` where ``pushed`` is a list of
     ``(profile, entry)`` tuples.
     """
-    db = _load_cache_db()
+    db = _load_cache_db(config, transport)
 
     if profile_ids:
         profiles = list(session.scalars(
@@ -194,6 +254,16 @@ def _rebuild_printer_db(
         insert_entry(db, entry)
         pushed.append((profile, entry))
 
+    # Remove orphaned custom entries — 99xxx IDs with no current catalog
+    # profile.  Deleted profiles would otherwise be re-pushed indefinitely.
+    current_db_ids = set(session.scalars(
+        select(Profile.printer_db_id).where(Profile.printer_db_id.isnot(None))
+    ))
+    for entry in find_custom_entries(db):
+        eid = entry["base"]["id"]
+        if eid not in current_db_ids:
+            remove_entry(db, eid)
+
     return db, pushed
 
 
@@ -209,14 +279,15 @@ def handle_push(session: Session, config: Config, payload: dict) -> dict:
     force_reboot = payload.get("force_reboot", False)
     no_reboot = payload.get("no_reboot", False)
 
-    db, pushed = _rebuild_printer_db(session, config, profile_ids)
+    transport = _get_transport(config)
+    db, pushed = _rebuild_printer_db(session, config, transport, profile_ids)
 
-    local_path = Path(_cache_db_path) if _cache_db_path else Path(
+    cache_path = _cache_db_path if _cache_db_path is not None else _resolve_cache_path()
+    local_path = Path(cache_path) if cache_path is not None else Path(
         tempfile.NamedTemporaryFile(suffix=".json", delete=False).name
     )
     save_db(local_path, db)
 
-    transport = _get_transport(config)
     result = run_push(
         config, local_path, transport,
         force_reboot=force_reboot, no_reboot=no_reboot,
@@ -441,6 +512,54 @@ def handle_temp_sync(session: Session, config: Config, payload: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Preset drift computation
+# ---------------------------------------------------------------------------
+
+def refresh_preset_drift(session: Session) -> None:
+    """Update ``orca_preset`` SyncTarget status from the latest report_presets.
+
+    For each profile with an ``orca_preset`` target carrying an
+    ``expected_hash``: find the most recent completed ``report_presets`` job,
+    locate the reported preset matching the profile's ``filament_id``, hash the
+    same canonical field set used by ``handle_generate_preset``, and set
+    ``in_sync`` / ``drift`` accordingly.  Targets without a report or matching
+    preset are left untouched (remain ``pending``).
+    """
+    report_job = session.scalars(
+        select(Job)
+        .where(Job.kind == "report_presets", Job.status == "done")
+        .order_by(Job.id.desc())
+    ).first()
+    if report_job is None:
+        return
+    report_result = json.loads(report_job.result) if report_job.result else {}
+    presets = report_result.get("presets", [])
+    by_filament_id = {p.get("filament_id"): p for p in presets}
+
+    targets = list(session.scalars(
+        select(SyncTarget).where(SyncTarget.kind == "orca_preset")
+    ))
+    for target in targets:
+        if not target.expected_hash:
+            continue
+        profile = session.get(Profile, target.profile_id)
+        if profile is None or not profile.filament_id:
+            continue
+        preset = by_filament_id.get(profile.filament_id)
+        if preset is None:
+            continue
+        actual_hash = canonical_hash({
+            "name": preset.get("name"),
+            "filament_id": preset.get("filament_id"),
+            "filament_vendor": preset.get("filament_vendor"),
+            "filament_type": preset.get("filament_type"),
+            "nozzle_temperature": preset.get("nozzle_temperature"),
+        })
+        target.status = "in_sync" if actual_hash == target.expected_hash else "drift"
+    session.flush()
+
+
+# ---------------------------------------------------------------------------
 # Migration: import_scan
 # ---------------------------------------------------------------------------
 
@@ -508,8 +627,11 @@ def handle_import_scan(session: Session, config: Config, payload: dict) -> dict:
     else:
         transport = _get_transport(config)
         local_path = Path(tempfile.NamedTemporaryFile(suffix=".json", delete=False).name)
-        transport.scp_pull(local_path)
-        db = load_db(local_path)
+        try:
+            transport.scp_pull(local_path)
+            db = load_db(local_path)
+        finally:
+            local_path.unlink(missing_ok=True)
 
     entries = find_custom_entries(db)
     proposals = [_entry_to_proposal(e) for e in entries]

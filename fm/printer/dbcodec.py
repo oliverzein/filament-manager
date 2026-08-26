@@ -134,7 +134,7 @@ def build_entry(db, values):
     if "color" in values:
         b["colors"] = [values["color"]]
     kv = entry["kvParam"]
-    kv["nozzle_temperature"] = str(values["maxTemp"])
+    kv["nozzle_temperature"] = str(values.get("nozzle_temperature", values["maxTemp"]))
     kv["nozzle_temperature_range_high"] = str(values["maxTemp"])
     kv["nozzle_temperature_range_low"] = str(values["minTemp"])
     kv["filament_type"] = values["type"]

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Spools — Filament Manager{% endblock %}
+{% block content %}
+<section id="spools">
+  <h1>Spools</h1>
+
+  <form method="get" action="/spools" class="filters">
+    <label>Profile
+      <select name="profile_id">
+        <option value="">(all)</option>
+        {% for p in profiles %}
+        <option value="{{ p.id }}" {% if filter_profile_id == p.id %}selected{% endif %}>{{ p.brand }} {{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Location
+      <input name="location" value="{{ filter_location }}">
+    </label>
+    <button type="submit">Filter</button>
+  </form>
+
+  <details open>
+    <summary>Add spool</summary>
+    <form method="post" action="/spools/form" class="add-form">
+      <label>Profile
+        <select name="profile_id" required>
+          {% for p in profiles %}
+          <option value="{{ p.id }}">{{ p.brand }} {{ p.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Color override
+        <input type="color" name="color_override" value="#cccccc">
+      </label>
+      <label>Remaining (%)
+        <input type="range" name="remaining_pct" min="0" max="100" value="100"
+               oninput="this.nextElementSibling.textContent=this.value+'%'">
+        <span>100%</span>
+      </label>
+      <label>Location <input name="location" value=""></label>
+      <label>RFID tag <input name="rfid_tag" value=""></label>
+      <label>Notes <input name="notes" value=""></label>
+      <button type="submit">Add spool</button>
+    </form>
+  </details>
+
+  {% if spools %}
+  <table>
+    <thead>
+      <tr><th>ID</th><th>Profile</th><th>Color</th><th>Remaining</th><th>Location</th></tr>
+    </thead>
+    <tbody>
+    {% for s in spools %}
+      <tr>
+        <td>{{ s.id }}</td>
+        <td>{{ s.profile.brand }} {{ s.profile.name }}</td>
+        <td>
+          {% if s.color_override %}
+          <span class="swatch" style="background:{{ s.color_override }}"></span>
+          {{ s.color_override }}
+          {% else %}
+          —
+          {% endif %}
+        </td>
+        <td>
+          <span id="remaining-{{ s.id }}" class="remaining">{{ s.remaining_pct }}%</span>
+          <input type="range" min="0" max="100" value="{{ s.remaining_pct }}"
+                 name="remaining_pct"
+                 hx-post="/spools/{{ s.id }}/remaining"
+                 hx-trigger="change"
+                 hx-target="#remaining-{{ s.id }}"
+                 hx-swap="outerHTML"
+                 hx-include="this">
+        </td>
+        <td>{{ s.location }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No spools in stock.</p>
+  {% endif %}
+</section>
+{% endblock %}

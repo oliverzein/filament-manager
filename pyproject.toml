@@ -1,0 +1,15 @@
+# pyproject.toml
+[project]
+name = "filament-manager"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["fastapi>=0.115", "uvicorn[standard]", "sqlalchemy>=2.0",
+                "jinja2", "python-multipart", "websocket-client", "requests", "pytest"]
+[project.scripts]
+fm-agent = "fm.agent.cli:main"
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore:Using `httpx` with `starlette.testclient`:Warning",
+]

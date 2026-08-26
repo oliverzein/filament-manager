@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Migration — Filament Manager{% endblock %}
+{% block content %}
+<section id="migration-page">
+  <h1>Migration wizard</h1>
+
+  {% if not import_job %}
+  {# ── Step 1: import scan ── #}
+  <section id="migration-step1">
+    <h2>Step 1 — Import scan</h2>
+    <p>Pull the printer DB and propose catalog entries from all 99xxx entries.</p>
+    <form method="post" action="/migration/import">
+      <button type="submit">Start import scan</button>
+    </form>
+  </section>
+  {% else %}
+  {# ── Step 2: proposal table ── #}
+  <section id="migration-step2">
+    <h2>Step 2 — Review proposals</h2>
+    <p>Select entries to import into the catalog.</p>
+
+    {% if proposals %}
+    <form method="post" action="/migration/apply" id="proposal-form">
+      <table class="proposal-table">
+        <thead>
+          <tr>
+            <th>Import</th>
+            <th>Printer DB ID</th>
+            <th>Brand</th>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Min temp</th>
+            <th>Max temp</th>
+            <th>Density</th>
+            <th>Existing?</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for p in proposals %}
+          <tr>
+            <td>
+              <input type="checkbox" name="include" value="{{ p.printer_db_id }}"
+                     {% if p.printer_db_id in existing_ids %}checked{% endif %}>
+            </td>
+            <td>{{ p.printer_db_id }}</td>
+            <td>{{ p.brand }}</td>
+            <td>{{ p.name }}</td>
+            <td>{{ p.type }}</td>
+            <td>{{ p.min_temp }}</td>
+            <td>{{ p.max_temp }}</td>
+            <td>{{ p.density }}</td>
+            <td>
+              {% if p.printer_db_id in existing_ids %}
+                <span class="status-in_sync">exists</span>
+              {% else %}
+                <span class="status-pending">new</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <button type="submit">Import selected</button>
+    </form>
+    {% else %}
+    <p>No custom (99xxx) entries found in the printer DB.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+</section>
+{% endblock %}

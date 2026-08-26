@@ -1,0 +1,6 @@
+.local/
+__pycache__/
+*.egg-info/
+.venv/
+dist/
+deploy/*.env

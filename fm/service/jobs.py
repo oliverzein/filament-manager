@@ -133,6 +133,17 @@ def run_pending(session: Session, config: Config) -> None:
             log_activity(session, job.kind, "error", detail)
             log.exception("job %s (%s) failed", job.id, job.kind)
             continue
+        # Handler can request to park the job awaiting user input (e.g. busy
+        # printer).  The sentinel result {"_awaiting_input": True, ...} tells
+        # run_pending to call await_input instead of complete.
+        if isinstance(result, dict) and result.get("_awaiting_input"):
+            options = result.get("options", [])
+            await_input(job, options)
+            log_activity(
+                session, job.kind, "warn",
+                {"job_id": job.id, "busy": result.get("busy")},
+            )
+            continue
         # Release the savepoint (commit it) once the handler result is known
         # good; serialization of the result is contained below.
         try:

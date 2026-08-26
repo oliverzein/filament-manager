@@ -3,10 +3,13 @@
 
 Jobs move through statuses: queued -> running -> (done | error | awaiting_input).
 ``run_pending`` drains the queue by dispatching each job to a registered handler
-in ``HANDLERS``. Handler exceptions and unknown kinds are captured as a job
-``error`` result plus an ``ActivityLog(outcome="error")`` row — they never
-propagate to the caller, so the session's auto-commit-on-clean-exit policy
-persists the recorded error state rather than rolling back partial work.
+in ``HANDLERS``. Each handler runs inside a savepoint; on exception the
+savepoint is rolled back (discarding the handler's partial DB writes) before
+the failure is recorded as a job ``error`` result plus an
+``ActivityLog(outcome="error")`` row. Handler exceptions, unknown kinds, and
+non-serializable results never propagate to the caller, so the session's
+auto-commit-on-clean-exit policy persists the recorded error state rather
+than rolling back partial work.
 """
 from __future__ import annotations
 
@@ -97,9 +100,13 @@ def log_activity(
 def run_pending(session: Session, config: Config) -> None:
     """Drain the queue: claim and run each queued job through ``HANDLERS``.
 
-    Unknown kinds and handler exceptions are recorded as a job error result
-    plus an ``ActivityLog(outcome="error")`` and never re-raised, so the
-    surrounding session commits the recorded failure state cleanly.
+    Each handler runs inside a savepoint (``session.begin_nested()``). On
+    exception the savepoint is rolled back, discarding the handler's partial
+    DB writes, before ``fail()`` + ``ActivityLog(error)`` record the failure
+    — so the job status transition and error log survive while partial
+    handler state does not. Serialization failures (non-JSON-serializable
+    handler results) are contained the same way. Nothing escapes to the
+    caller, so the surrounding session commits the recorded state cleanly.
     """
     while True:
         job = claim_next(session)
@@ -114,14 +121,28 @@ def run_pending(session: Session, config: Config) -> None:
             continue
         payload = json.loads(job.payload) if job.payload else {}
         try:
-            result = handler(session, config, payload)
+            nested = session.begin_nested()
+            try:
+                result = handler(session, config, payload)
+            except Exception:
+                nested.rollback()
+                raise
         except Exception as exc:  # noqa: BLE001 - record, never propagate
             detail = {"error": str(exc), "job_id": job.id, "kind": job.kind}
             fail(job, detail)
             log_activity(session, job.kind, "error", detail)
             log.exception("job %s (%s) failed", job.id, job.kind)
             continue
-        complete(job, result)
-        log_activity(
-            session, job.kind, "ok", {"job_id": job.id, "result": result}
-        )
+        # Release the savepoint (commit it) once the handler result is known
+        # good; serialization of the result is contained below.
+        try:
+            complete(job, result)
+            log_activity(
+                session, job.kind, "ok", {"job_id": job.id, "result": result}
+            )
+        except Exception as exc:  # noqa: BLE001 - e.g. non-serializable result
+            nested.rollback()
+            detail = {"error": str(exc), "job_id": job.id, "kind": job.kind}
+            fail(job, detail)
+            log_activity(session, job.kind, "error", detail)
+            log.exception("job %s (%s) result recording failed", job.id, job.kind)

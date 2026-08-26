@@ -1,11 +1,14 @@
 # tests/test_jobs.py
 import json
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import select
 
 from fm.models import ActivityLog, Job
 from fm.service import jobs
+
+_NOW = datetime.now(timezone.utc)
 
 
 def _last_activity(session) -> ActivityLog:
@@ -229,3 +232,76 @@ def test_run_pending_persists_error_state_across_commit(tmp_path, cfg):
             assert entry is not None and entry.outcome == "error"
     finally:
         jobs.HANDLERS.pop("boom", None)
+
+
+def test_handler_partial_write_rolled_back_on_exception(inmemory_session, cfg):
+    """A handler that writes to the DB then raises must have that partial
+    write discarded (savepoint rollback), while the job error status and
+    ActivityLog(error) survive."""
+    from fm.models import Profile
+    s = inmemory_session
+    def boom(sess, conf, payload):
+        p = Profile(brand="X", name="X", type="PLA", min_temp=200, max_temp=230,
+                    created_at=_NOW, updated_at=_NOW)
+        sess.add(p)
+        sess.flush()
+        raise RuntimeError("after-write-fail")
+    jobs.HANDLERS["boom"] = boom
+    try:
+        j = jobs.enqueue(s, "boom", {})
+        s.flush()
+        jobs.run_pending(s, cfg)
+        s.flush()
+        # job recorded as error
+        assert j.status == "error"
+        assert "after-write-fail" in json.loads(j.result)["error"]
+        # error activity logged
+        entry = _last_activity(s)
+        assert entry.outcome == "error" and entry.action == "boom"
+        # partial handler write discarded
+        profiles = s.scalars(select(Profile).where(Profile.brand == "X")).all()
+        assert profiles == []
+    finally:
+        jobs.HANDLERS.pop("boom", None)
+
+
+def test_handler_partial_write_rolled_back_across_commit(tmp_path, cfg):
+    """Partial handler write is not persisted across session auto-commit."""
+    from fm.db import init_engine, SessionLocal
+    from fm.models import Profile
+    jobs.HANDLERS["boom"] = lambda sess, conf, payload: (
+        sess.add(Profile(brand="X", name="X", type="PLA", min_temp=200,
+                         max_temp=230, created_at=_NOW, updated_at=_NOW)),
+        sess.flush(),
+        (_ for _ in ()).throw(RuntimeError("after-write-fail")),
+    )[-1]
+    try:
+        with SessionLocal() as s:
+            jobs.enqueue(s, "boom", {})
+            s.flush()
+            jobs.run_pending(s, cfg)
+        with SessionLocal() as s:
+            assert s.scalars(
+                select(Profile).where(Profile.brand == "X")
+            ).all() == []
+            job = s.scalar(select(Job).where(Job.kind == "boom"))
+            assert job.status == "error"
+    finally:
+        jobs.HANDLERS.pop("boom", None)
+
+
+def test_non_serializable_result_contained(inmemory_session, cfg):
+    """A handler returning a non-JSON-serializable result must not escape
+    run_pending; the job is recorded as error instead."""
+    s = inmemory_session
+    jobs.HANDLERS["bad"] = lambda sess, conf, payload: {"obj": object()}
+    try:
+        j = jobs.enqueue(s, "bad", {})
+        s.flush()
+        jobs.run_pending(s, cfg)  # must not raise
+        s.flush()
+        assert j.status == "error"
+        entry = _last_activity(s)
+        assert entry.outcome == "error" and entry.action == "bad"
+    finally:
+        jobs.HANDLERS.pop("bad", None)

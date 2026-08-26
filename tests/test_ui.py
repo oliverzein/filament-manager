@@ -83,7 +83,7 @@ def test_profile_form_groups(client):
     r = client.get("/profiles/new")
     assert r.status_code == 200
     assert b"Identity" in r.content
-    assert b"Temps" in r.content
+    assert b"Temperature" in r.content
     assert b"Extrusion" in r.content
     assert b"Drying" in r.content
 

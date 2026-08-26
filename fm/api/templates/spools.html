@@ -2,83 +2,18 @@
 {% block title %}Spools — Filament Manager{% endblock %}
 {% block content %}
 <section id="spools">
-  <h1>Spools</h1>
-
-  <form method="get" action="/spools" class="filters">
-    <label>Profile
-      <select name="profile_id">
-        <option value="">(all)</option>
-        {% for p in profiles %}
-        <option value="{{ p.id }}" {% if filter_profile_id == p.id %}selected{% endif %}>{{ p.brand }} {{ p.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Location
-      <input name="location" value="{{ filter_location }}">
-    </label>
-    <button type="submit">Filter</button>
-  </form>
-
-  <details open>
-    <summary>Add spool</summary>
-    <form method="post" action="/spools/form" class="add-form">
-      <label>Profile
-        <select name="profile_id" required>
-          {% for p in profiles %}
-          <option value="{{ p.id }}">{{ p.brand }} {{ p.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Color override
-        <input type="color" name="color_override" value="#cccccc">
-      </label>
-      <label>Remaining (%)
-        <input type="range" name="remaining_pct" min="0" max="100" value="100"
-               oninput="this.nextElementSibling.textContent=this.value+'%'">
-        <span>100%</span>
-      </label>
-      <label>Location <input name="location" value=""></label>
-      <label>RFID tag <input name="rfid_tag" value=""></label>
-      <label>Notes <input name="notes" value=""></label>
-      <button type="submit">Add spool</button>
-    </form>
-  </details>
-
-  {% if spools %}
-  <table>
-    <thead>
-      <tr><th>ID</th><th>Profile</th><th>Color</th><th>Remaining</th><th>Location</th></tr>
-    </thead>
-    <tbody>
-    {% for s in spools %}
-      <tr>
-        <td>{{ s.id }}</td>
-        <td>{{ s.profile.brand }} {{ s.profile.name }}</td>
-        <td>
-          {% if s.color_override %}
-          <span class="swatch" style="background:{{ s.color_override }}"></span>
-          {{ s.color_override }}
-          {% else %}
-          —
-          {% endif %}
-        </td>
-        <td>
-          <span id="remaining-{{ s.id }}" class="remaining">{{ s.remaining_pct }}%</span>
-          <input type="range" min="0" max="100" value="{{ s.remaining_pct }}"
-                 name="remaining_pct"
-                 hx-post="/spools/{{ s.id }}/remaining"
-                 hx-trigger="change"
-                 hx-target="#remaining-{{ s.id }}"
-                 hx-swap="outerHTML"
-                 hx-include="this">
-        </td>
-        <td>{{ s.location }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p>No spools in stock.</p>
-  {% endif %}
+  <header class="page-header"><div><p class="eyebrow">Inventory</p><h1>Spool inventory</h1><p>Track stock, location and remaining material in real time.</p></div></header>
+  <section class="panel inventory-controls">
+    <form method="get" action="/spools" class="filters"><label><span>Profile</span><select name="profile_id"><option value="">All profiles</option>{% for p in profiles %}<option value="{{ p.id }}" {% if filter_profile_id == p.id %}selected{% endif %}>{{ p.brand }} {{ p.name }}</option>{% endfor %}</select></label><label><span>Location</span><input name="location" value="{{ filter_location }}" placeholder="Search location"></label><button type="submit" class="button button-secondary">Apply filters</button></form>
+    <details><summary class="button button-primary">＋ Add spool</summary><form method="post" action="/spools/form" class="add-form">
+      <div class="form-grid three-col"><label><span>Profile</span><select name="profile_id" required>{% for p in profiles %}<option value="{{ p.id }}">{{ p.brand }} {{ p.name }}</option>{% endfor %}</select></label><label><span>Color override</span><div class="color-input"><input type="color" name="color_override" value="#cccccc"><span>Choose color</span></div></label><label><span>Location</span><input name="location" value="" placeholder="e.g. Dry box A"></label><label class="range-field"><span>Remaining <output>100%</output></span><input type="range" name="remaining_pct" min="0" max="100" value="100" oninput="this.previousElementSibling.querySelector('output').textContent=this.value+'%'"></label><label><span>RFID tag</span><input name="rfid_tag" value="" placeholder="Optional"></label><label><span>Notes</span><input name="notes" value="" placeholder="Optional"></label></div><div class="form-actions"><button type="submit" class="button button-primary">Add to inventory</button></div>
+    </form></details>
+  </section>
+  <section class="panel table-panel">
+    <div class="panel-heading"><div><p class="eyebrow">Stock</p><h2>Active spools</h2></div><span class="result-count">{{ spools | length }} total</span></div>
+    {% if spools %}<div class="table-wrap"><table><thead><tr><th>Spool</th><th>Profile</th><th>Color</th><th>Material remaining</th><th>Location</th></tr></thead><tbody>
+    {% for s in spools %}<tr><td><span class="spool-id">#{{ s.id }}</span></td><td><div class="profile-cell"><span class="avatar spool-avatar">{{ s.profile.brand[:1] }}{{ s.profile.name[:1] }}</span><div><span class="cell-main">{{ s.profile.name }}</span><span class="cell-sub">{{ s.profile.brand }}</span></div></div></td><td>{% if s.color_override %}<span class="color-value"><span class="swatch" style="background:{{ s.color_override }}"></span>{{ s.color_override }}</span>{% else %}<span class="muted">Profile default</span>{% endif %}</td><td><div class="remaining-cell"><div><span id="remaining-{{ s.id }}" class="remaining">{{ s.remaining_pct }}%</span><span class="remaining-label">available</span></div><input type="range" min="0" max="100" value="{{ s.remaining_pct }}" name="remaining_pct" hx-post="/spools/{{ s.id }}/remaining" hx-trigger="change" hx-target="#remaining-{{ s.id }}" hx-swap="outerHTML" hx-include="this" aria-label="Remaining material for spool {{ s.id }}"></div></td><td><span class="location-tag">⌖ {{ s.location or 'Unassigned' }}</span></td></tr>{% endfor %}
+    </tbody></table></div>{% else %}<div class="empty-state"><span>◎</span><h3>No spools in stock</h3><p>Add the first spool to start tracking material.</p></div>{% endif %}
+  </section>
 </section>
 {% endblock %}

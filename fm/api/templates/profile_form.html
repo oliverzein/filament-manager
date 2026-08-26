@@ -2,68 +2,35 @@
 {% block title %}{{ "Edit profile" if is_edit else "New profile" }} — Filament Manager{% endblock %}
 {% block content %}
 <section id="profile-form">
-  <h1>{{ "Edit profile" if is_edit else "New profile" }}</h1>
-
-  {% if errors %}
-  <ul class="errors">
-    {% for e in errors %}<li>{{ e }}</li>{% endfor %}
-  </ul>
-  {% endif %}
-
-  {% if is_edit and profile %}
-  <div id="validation-warnings"
-       hx-get="/api/profiles/{{ profile.id }}/validate"
-       hx-trigger="load"
-       hx-target="this">
-    <p>Loading validation warnings…</p>
-  </div>
-  {% endif %}
-
-  <form method="post"
-        action="{{ '/profiles/' ~ profile.id ~ '/form' if is_edit and profile else '/profiles/form' }}">
-    <fieldset>
-      <legend>Identity</legend>
-      <label>Brand <input name="brand" value="{{ profile.brand if profile else '' }}" required></label>
-      <label>Name <input name="name" value="{{ profile.name if profile else '' }}" required></label>
-      <label>Type
-        <select name="type" required>
-          {% set current_type = profile.type if profile else '' %}
-          {% for t in ["PLA", "PETG", "ABS", "TPU", "PA", "PC", "PLA-Silk", "Other"] %}
-          <option value="{{ t }}" {% if current_type == t %}selected{% endif %}>{{ t }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Colors (comma-separated hex)
-        <input name="colors" value="{{ (profile.colors | colors_list) | join(', ') if profile else '' }}">
-      </label>
-      <label>Notes <textarea name="notes">{{ profile.notes if profile else '' }}</textarea></label>
-    </fieldset>
-
-    <fieldset>
-      <legend>Temps</legend>
-      <label>Min temp (°C) <input type="number" name="min_temp" value="{{ profile.min_temp if profile else '' }}" required></label>
-      <label>Max temp (°C) <input type="number" name="max_temp" value="{{ profile.max_temp if profile else '' }}" required></label>
-      <label>Density (g/cm³) <input type="number" step="0.01" name="density" value="{{ profile.density if profile else '0' }}"></label>
-    </fieldset>
-
-    <fieldset>
-      <legend>Extrusion</legend>
-      <label>Pressure advance <input type="number" step="0.001" name="pa" value="{{ profile.pa if profile and profile.pa is not none else '' }}"></label>
-      <label>Flow ratio <input type="number" step="0.01" name="flow_ratio" value="{{ profile.flow_ratio if profile and profile.flow_ratio is not none else '' }}"></label>
-      <label>Max volumetric (mm³/s) <input type="number" step="0.1" name="max_volumetric" value="{{ profile.max_volumetric if profile and profile.max_volumetric is not none else '' }}"></label>
-      <label>Retraction length (mm) <input type="number" step="0.1" name="retraction_length" value="{{ profile.retraction_length if profile and profile.retraction_length is not none else '' }}"></label>
-      <label>Retraction speed (mm/s) <input type="number" step="0.1" name="retraction_speed" value="{{ profile.retraction_speed if profile and profile.retraction_speed is not none else '' }}"></label>
-      <label>Nozzle temperature (°C) <input type="number" name="nozzle_temperature" value="{{ profile.nozzle_temperature if profile and profile.nozzle_temperature is not none else '' }}"></label>
-    </fieldset>
-
-    <fieldset>
-      <legend>Drying</legend>
-      <label>Drying temp (°C) <input type="number" name="drying_temp" value="{{ profile.drying_temp if profile else '0' }}"></label>
-      <label>Drying time (h) <input type="number" name="drying_time" value="{{ profile.drying_time if profile else '0' }}"></label>
-    </fieldset>
-
-    <button type="submit">{{ "Save changes" if is_edit else "Create profile" }}</button>
-    <a href="/profiles">Cancel</a>
+  <header class="page-header"><div><p class="eyebrow">Catalog / Profiles</p><h1>{{ "Edit profile" if is_edit else "New profile" }}</h1><p>{{ "Update the material parameters shared across your devices." if is_edit else "Define a material once, then keep every device in sync." }}</p></div><a href="/profiles" class="button button-ghost">← Back to profiles</a></header>
+  {% if errors %}<div class="alert alert-danger"><strong>Check the highlighted information</strong><ul class="errors">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}
+  {% if is_edit and profile %}<div id="validation-warnings" class="validation-panel" hx-get="/api/profiles/{{ profile.id }}/validate" hx-trigger="load" hx-target="this"><p>Loading validation warnings…</p></div>{% endif %}
+  <form method="post" action="{{ '/profiles/' ~ profile.id ~ '/form' if is_edit and profile else '/profiles/form' }}" class="profile-editor">
+    <fieldset class="form-section"><div class="form-section-heading"><span>01</span><div><legend>Identity</legend><p>How this material appears in the catalog.</p></div></div><div class="form-grid">
+      <label><span>Brand</span><input name="brand" value="{{ profile.brand if profile else '' }}" required placeholder="e.g. Polymaker"></label>
+      <label><span>Name</span><input name="name" value="{{ profile.name if profile else '' }}" required placeholder="e.g. PolyLite Galaxy"></label>
+      <label><span>Type</span><select name="type" required>{% set current_type = profile.type if profile else '' %}{% for t in ["PLA", "PETG", "ABS", "TPU", "PA", "PC", "PLA-Silk", "Other"] %}<option value="{{ t }}" {% if current_type == t %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></label>
+      <label><span>Colors</span><input name="colors" value="{{ (profile.colors | colors_list) | join(', ') if profile else '' }}" placeholder="#8f42ff, #442188"><small>Comma-separated hex values</small></label>
+      <label class="full-width"><span>Notes</span><textarea name="notes" rows="4" placeholder="Optional handling or print notes">{{ profile.notes if profile else '' }}</textarea></label>
+    </div></fieldset>
+    <fieldset class="form-section"><div class="form-section-heading"><span>02</span><div><legend>Temperature</legend><p>Safe operating range and material density.</p></div></div><div class="form-grid three-col">
+      <label><span>Minimum temp</span><div class="input-unit"><input type="number" name="min_temp" value="{{ profile.min_temp if profile else '' }}" required><b>°C</b></div></label>
+      <label><span>Maximum temp</span><div class="input-unit"><input type="number" name="max_temp" value="{{ profile.max_temp if profile else '' }}" required><b>°C</b></div></label>
+      <label><span>Density</span><div class="input-unit"><input type="number" step="0.01" name="density" value="{{ profile.density if profile else '0' }}"><b>g/cm³</b></div></label>
+    </div></fieldset>
+    <fieldset class="form-section"><div class="form-section-heading"><span>03</span><div><legend>Extrusion</legend><p>Fine tune flow, pressure and retraction.</p></div></div><div class="form-grid three-col">
+      <label><span>Pressure advance</span><input type="number" step="0.001" name="pa" value="{{ profile.pa if profile and profile.pa is not none else '' }}"></label>
+      <label><span>Flow ratio</span><input type="number" step="0.01" name="flow_ratio" value="{{ profile.flow_ratio if profile and profile.flow_ratio is not none else '' }}"></label>
+      <label><span>Max volumetric</span><div class="input-unit"><input type="number" step="0.1" name="max_volumetric" value="{{ profile.max_volumetric if profile and profile.max_volumetric is not none else '' }}"><b>mm³/s</b></div></label>
+      <label><span>Retraction length</span><div class="input-unit"><input type="number" step="0.1" name="retraction_length" value="{{ profile.retraction_length if profile and profile.retraction_length is not none else '' }}"><b>mm</b></div></label>
+      <label><span>Retraction speed</span><div class="input-unit"><input type="number" step="0.1" name="retraction_speed" value="{{ profile.retraction_speed if profile and profile.retraction_speed is not none else '' }}"><b>mm/s</b></div></label>
+      <label><span>Nozzle temperature</span><div class="input-unit"><input type="number" name="nozzle_temperature" value="{{ profile.nozzle_temperature if profile and profile.nozzle_temperature is not none else '' }}"><b>°C</b></div></label>
+    </div></fieldset>
+    <fieldset class="form-section"><div class="form-section-heading"><span>04</span><div><legend>Drying</legend><p>Recommended preparation before printing.</p></div></div><div class="form-grid">
+      <label><span>Drying temperature</span><div class="input-unit"><input type="number" name="drying_temp" value="{{ profile.drying_temp if profile else '0' }}"><b>°C</b></div></label>
+      <label><span>Drying time</span><div class="input-unit"><input type="number" name="drying_time" value="{{ profile.drying_time if profile else '0' }}"><b>hours</b></div></label>
+    </div></fieldset>
+    <div class="form-actions"><a href="/profiles" class="button button-ghost">Cancel</a><button type="submit" class="button button-primary">{{ "Save changes" if is_edit else "Create profile" }}</button></div>
   </form>
 </section>
 {% endblock %}

@@ -3,24 +3,53 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#081028">
   <title>{% block title %}Filament Manager{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/app.css">
   <script src="https://unpkg.com/htmx.org" defer></script>
 </head>
 <body>
-  <nav class="topnav">
-    <a href="/" class="brand">Filament Manager</a>
-    <a href="/">Dashboard</a>
-    <a href="/profiles">Profiles</a>
-    <a href="/spools">Spools</a>
-    <a href="/sync">Sync</a>
-    <a href="/migration">Migration</a>
-  </nav>
-  <main class="content">
-    {% block content %}{% endblock %}
-  </main>
-  <footer class="footer">
-    <span id="app-version">v{{ version }}</span>
-  </footer>
+  <input class="nav-toggle" type="checkbox" id="nav-toggle" aria-label="Toggle navigation">
+  <label class="nav-backdrop" for="nav-toggle" aria-hidden="true"></label>
+  <aside class="sidebar">
+    <div class="brand-lockup">
+      <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+      <div><a href="/" class="brand">Filament</a><span class="brand-subtitle">MANAGER</span></div>
+      <label class="nav-close" for="nav-toggle" aria-label="Close navigation">×</label>
+    </div>
+    <nav class="sidebar-nav" aria-label="Main navigation">
+      <p class="nav-eyebrow">Workspace</p>
+      <a href="/" class="nav-item {% if request.url.path == '/' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"/></svg><span>Dashboard</span>
+      </a>
+      <a href="/profiles" class="nav-item {% if request.url.path.startswith('/profiles') %}active{% endif %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v3h3v15H4V6h3V3Zm2 3h6V5H9v1Zm-2 4v8h10v-8H7Zm2 2h6v2H9v-2Z"/></svg><span>Profiles</span>
+      </a>
+      <a href="/spools" class="nav-item {% if request.url.path.startswith('/spools') %}active{% endif %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 3a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm0 14a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z"/></svg><span>Spools</span>
+      </a>
+      <a href="/sync" class="nav-item {% if request.url.path.startswith('/sync') %}active{% endif %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.7 6.3A8 8 0 0 0 4.3 10H1l4 4 4-4H6.3a6 6 0 0 1 10-2.3L18 9.4l1.4-1.4-1.7-1.7ZM19 10l-4 4h2.7a6 6 0 0 1-10 2.3L6 14.6 4.6 16l1.7 1.7A8 8 0 0 0 19.7 14H23l-4-4Z"/></svg><span>Sync</span>
+      </a>
+      <a href="/migration" class="nav-item {% if request.url.path.startswith('/migration') %}active{% endif %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 7 7h3v6h4V7h3l-5-5ZM5 12H2v9h20v-9h-3v6H5v-6Z"/></svg><span>Migration</span>
+      </a>
+    </nav>
+    <div class="sidebar-foot">
+      <span class="system-dot"></span>
+      <span>System online</span>
+      <span id="app-version">v{{ version }}</span>
+    </div>
+  </aside>
+  <div class="app-shell">
+    <header class="mobile-header">
+      <label class="hamburger" for="nav-toggle" aria-label="Open navigation"><span></span><span></span><span></span></label>
+      <a href="/" class="mobile-brand">Filament Manager</a>
+    </header>
+    <main class="content">{% block content %}{% endblock %}</main>
+  </div>
 </body>
 </html>

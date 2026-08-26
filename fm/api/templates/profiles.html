@@ -2,52 +2,28 @@
 {% block title %}Profiles — Filament Manager{% endblock %}
 {% block content %}
 <section id="profiles">
-  <h1>Profiles</h1>
-
-  <form method="get" action="/profiles" class="filters">
-    <label>Type
-      <select name="type">
-        <option value="">(all)</option>
-        {% for t in types %}
-        <option value="{{ t }}" {% if filter_type == t %}selected{% endif %}>{{ t }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Brand
-      <select name="brand">
-        <option value="">(all)</option>
-        {% for b in brands %}
-        <option value="{{ b }}" {% if filter_brand == b %}selected{% endif %}>{{ b }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <button type="submit">Filter</button>
-  </form>
-
-  <p><a href="/profiles/new">+ New profile</a></p>
-
-  {% if profiles %}
-  <table>
-    <thead>
-      <tr><th>ID</th><th>Brand</th><th>Name</th><th>Type</th><th>Spools</th><th>Actions</th></tr>
-    </thead>
-    <tbody>
-    {% for p in profiles %}
-      <tr>
-        <td>{{ p.id }}</td>
-        <td>{{ p.brand }}</td>
-        <td>{{ p.name }}</td>
-        <td>{{ p.type }}</td>
-        <td>{{ p.spools | length }}</td>
-        <td>
-          <a href="/profiles/{{ p.id }}/edit">edit</a>
-        </td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p>No profiles match the current filters.</p>
-  {% endif %}
+  <header class="page-header"><div><p class="eyebrow">Catalog</p><h1>Filament profiles</h1><p>Manage material definitions shared with your printer and slicer.</p></div><a href="/profiles/new" class="button button-primary"><span>＋</span> New profile</a></header>
+  <section class="panel table-panel">
+    <div class="toolbar">
+      <form method="get" action="/profiles" class="filters">
+        <label><span>Material type</span><select name="type"><option value="">All types</option>{% for t in types %}<option value="{{ t }}" {% if filter_type == t %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></label>
+        <label><span>Brand</span><select name="brand"><option value="">All brands</option>{% for b in brands %}<option value="{{ b }}" {% if filter_brand == b %}selected{% endif %}>{{ b }}</option>{% endfor %}</select></label>
+        <button type="submit" class="button button-secondary">Apply filters</button>
+      </form>
+      <span class="result-count">{{ profiles | length }} profile{% if profiles | length != 1 %}s{% endif %}</span>
+    </div>
+    {% if profiles %}<div class="table-wrap"><table><thead><tr><th><span class="fake-check"></span></th><th>Profile</th><th>Material</th><th>Inventory</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
+    {% for p in profiles %}<tr>
+      <td><span class="fake-check"></span></td>
+      <td><div class="profile-cell"><span class="avatar avatar-gradient">{{ p.brand[:1] }}{{ p.name[:1] }}</span><div><span class="cell-main">{{ p.name }}</span><span class="cell-sub">{{ p.brand }} · ID {{ p.id }}</span></div></div></td>
+      <td><span class="badge badge-purple">{{ p.type }}</span></td>
+      <td><span class="cell-main">{{ p.spools | length }}</span><span class="cell-sub">spool{% if p.spools | length != 1 %}s{% endif %}</span></td>
+      <td><span class="status-badge {% if p.spools | length %}status-in_sync{% else %}status-pending{% endif %}">{% if p.spools | length %}in stock{% else %}no stock{% endif %}</span></td>
+      <td><a class="icon-button" href="/profiles/{{ p.id }}/edit" aria-label="Edit {{ p.brand }} {{ p.name }}"><svg viewBox="0 0 24 24"><path d="m4 15.5 11-11 4.5 4.5-11 11H4v-4.5ZM16.5 6 6 16.5V18h1.5L18 7.5 16.5 6Z"/></svg></a></td>
+    </tr>{% endfor %}
+    </tbody></table></div>
+    <footer class="table-footer"><span>1–{{ profiles | length }} of {{ profiles | length }}</span><span>Rows per page: <b>{{ profiles | length }}</b></span></footer>
+    {% else %}<div class="empty-state"><span>◇</span><h3>No matching profiles</h3><p>Adjust the filters or create a new material profile.</p><a href="/profiles/new" class="button button-primary">Create profile</a></div>{% endif %}
+  </section>
 </section>
 {% endblock %}

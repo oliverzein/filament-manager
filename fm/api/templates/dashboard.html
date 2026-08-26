@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Filament Manager{% endblock %}
+{% block content %}
+<section id="dashboard">
+  <h1>Dashboard</h1>
+
+  <section id="spool-summary">
+    <h2>Spools by profile (top 10)</h2>
+    {% if spool_counts %}
+    <table>
+      <thead><tr><th>Profile</th><th>Spool count</th></tr></thead>
+      <tbody>
+      {% for row in spool_counts %}
+        <tr>
+          <td>{{ row.brand }} {{ row.name }}</td>
+          <td>{{ row.spool_count }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>No spools yet.</p>
+    {% endif %}
+  </section>
+
+  <section id="drift-matrix">
+    <h2>Sync drift matrix</h2>
+    {% if drift %}
+    <table>
+      <thead>
+        <tr><th>Profile</th><th>Printer DB</th><th>Orca preset</th></tr>
+      </thead>
+      <tbody>
+      {% for d in drift %}
+        <tr>
+          <td>{{ d.brand }} {{ d.name }}</td>
+          <td>{{ d.printer_db.status }}</td>
+          <td>{{ d.orca_preset.status }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>No profiles tracked.</p>
+    {% endif %}
+  </section>
+
+  <section id="recent-activity">
+    <h2>Recent activity</h2>
+    {% if activity %}
+    <table>
+      <thead><tr><th>Time</th><th>Action</th><th>Outcome</th></tr></thead>
+      <tbody>
+      {% for a in activity %}
+        <tr>
+          <td>{{ a.ts }}</td>
+          <td>{{ a.action }}</td>
+          <td>{{ a.outcome }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>No activity recorded.</p>
+    {% endif %}
+  </section>
+</section>
+{% endblock %}

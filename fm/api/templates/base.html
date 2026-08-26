@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Filament Manager{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="https://unpkg.com/htmx.org" defer></script>
+</head>
+<body>
+  <nav class="topnav">
+    <a href="/" class="brand">Filament Manager</a>
+    <a href="/">Dashboard</a>
+    <a href="/profiles">Profiles</a>
+    <a href="/spools">Spools</a>
+  </nav>
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer">
+    <span id="app-version">v{{ version }}</span>
+  </footer>
+</body>
+</html>

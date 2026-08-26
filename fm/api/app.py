@@ -22,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 from ..config import Config, load_config
 from ..db import init_engine
 from ..errors import FmError
-from . import agent, catalog, sync
+from . import agent, catalog, sync, ui
 
 _DIR = Path(__file__).parent
 
@@ -83,7 +83,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(catalog.router)
     app.include_router(sync.router)
     app.include_router(agent.router)
-
+    app.include_router(ui.router)
     @app.get("/api/version", tags=["meta"])
     def api_version() -> dict[str, str]:
         return {"version": _package_version()}

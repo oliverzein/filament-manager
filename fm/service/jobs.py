@@ -44,12 +44,18 @@ def enqueue(session: Session, kind: str, payload: dict) -> Job:
     return job
 
 
-def claim_next(session: Session, exclude: set[int] | None = None) -> Job | None:
+def claim_next(
+    session: Session,
+    exclude: set[int] | None = None,
+    kinds: set[str] | None = None,
+) -> Job | None:
     """Atomically claim the oldest queued job (FIFO): queued -> running.
 
     ``exclude`` is an optional set of job IDs to skip — used by
     ``run_pending`` to leap over agent-facing jobs whose kind has no
-    server-side handler.
+    server-side handler.  ``kinds`` restricts the claim to a set of job
+    kinds — used by the agent pull API (Task 11) to claim only
+    agent-facing kinds (``apply_preset`` / ``report_presets``).
 
     Returns ``None`` when no queued jobs remain.
     """
@@ -61,6 +67,8 @@ def claim_next(session: Session, exclude: set[int] | None = None) -> Job | None:
     )
     if exclude:
         stmt = stmt.where(~Job.id.in_(exclude))
+    if kinds:
+        stmt = stmt.where(Job.kind.in_(kinds))
     job = session.scalars(stmt).first()
     if job is None:
         return None

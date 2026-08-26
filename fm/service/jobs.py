@@ -1,0 +1,127 @@
+# fm/service/jobs.py
+"""Job queue + activity log service.
+
+Jobs move through statuses: queued -> running -> (done | error | awaiting_input).
+``run_pending`` drains the queue by dispatching each job to a registered handler
+in ``HANDLERS``. Handler exceptions and unknown kinds are captured as a job
+``error`` result plus an ``ActivityLog(outcome="error")`` row — they never
+propagate to the caller, so the session's auto-commit-on-clean-exit policy
+persists the recorded error state rather than rolling back partial work.
+"""
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Callable
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..config import Config
+from ..models import ActivityLog, Job
+
+log = logging.getLogger(__name__)
+
+# Handlers registered by later tasks. A handler receives the live session, the
+# resolved Config, and the decoded job payload, and returns a result dict that
+# becomes the job's `result` on success.
+HANDLERS: dict[str, Callable[[Session, Config, dict], dict]] = {}
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def enqueue(session: Session, kind: str, payload: dict) -> Job:
+    """Create a queued job for ``kind`` carrying ``payload``."""
+    job = Job(kind=kind, payload=json.dumps(payload), status="queued")
+    session.add(job)
+    session.flush()
+    return job
+
+
+def claim_next(session: Session) -> Job | None:
+    """Atomically claim the oldest queued job (FIFO): queued -> running.
+
+    Returns ``None`` when no queued jobs remain.
+    """
+    stmt = (
+        select(Job)
+        .where(Job.status == "queued")
+        .order_by(Job.id)
+        .limit(1)
+    )
+    job = session.scalars(stmt).first()
+    if job is None:
+        return None
+    job.status = "running"
+    session.flush()
+    return job
+
+
+def complete(job: Job, result: dict) -> None:
+    """Mark ``job`` done and store its success ``result``."""
+    job.status = "done"
+    job.result = json.dumps(result)
+    job.finished_at = _now()
+
+
+def fail(job: Job, error: dict) -> None:
+    """Mark ``job`` errored and store the ``error`` detail."""
+    job.status = "error"
+    job.result = json.dumps(error)
+    job.finished_at = _now()
+
+
+def await_input(job: Job, options: list[str]) -> None:
+    """Park ``job`` awaiting user input from ``options``."""
+    job.status = "awaiting_input"
+    job.result = json.dumps({"options": options})
+
+
+def log_activity(
+    session: Session, action: str, outcome: str, detail: dict
+) -> ActivityLog:
+    """Append an ``ActivityLog`` row.
+
+    ``outcome`` is one of ok|warn|error to match the column's domain.
+    """
+    entry = ActivityLog(
+        ts=_now(), action=action, outcome=outcome, detail=json.dumps(detail)
+    )
+    session.add(entry)
+    return entry
+
+
+def run_pending(session: Session, config: Config) -> None:
+    """Drain the queue: claim and run each queued job through ``HANDLERS``.
+
+    Unknown kinds and handler exceptions are recorded as a job error result
+    plus an ``ActivityLog(outcome="error")`` and never re-raised, so the
+    surrounding session commits the recorded failure state cleanly.
+    """
+    while True:
+        job = claim_next(session)
+        if job is None:
+            return
+        handler = HANDLERS.get(job.kind)
+        if handler is None:
+            detail = {"error": f"unknown kind: {job.kind}", "job_id": job.id}
+            fail(job, detail)
+            log_activity(session, job.kind, "error", detail)
+            log.warning("job %s: no handler for kind %r", job.id, job.kind)
+            continue
+        payload = json.loads(job.payload) if job.payload else {}
+        try:
+            result = handler(session, config, payload)
+        except Exception as exc:  # noqa: BLE001 - record, never propagate
+            detail = {"error": str(exc), "job_id": job.id, "kind": job.kind}
+            fail(job, detail)
+            log_activity(session, job.kind, "error", detail)
+            log.exception("job %s (%s) failed", job.id, job.kind)
+            continue
+        complete(job, result)
+        log_activity(
+            session, job.kind, "ok", {"job_id": job.id, "result": result}
+        )

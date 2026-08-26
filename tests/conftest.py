@@ -151,3 +151,16 @@ def sample_db():
     """Load the 40-stock + 1-custom fixture DB (tests/fixtures/sample_db.json)."""
     with open(Path(__file__).parent / "fixtures" / "sample_db.json") as f:
         return json.load(f)
+
+
+@pytest.fixture
+def inmemory_session(tmp_path):
+    """A live SessionLocal bound to a fresh per-test sqlite DB.
+
+    The session auto-commits on clean context-manager exit (see fm.db), so
+    work done within the test persists without an explicit commit.
+    """
+    from fm.db import init_engine, SessionLocal
+    init_engine(f"sqlite:///{tmp_path}/jobs.db")
+    with SessionLocal() as s:
+        yield s

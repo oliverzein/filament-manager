@@ -1,9 +1,40 @@
 # tests/conftest.py
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 from fm.config import Config
+
+
+class FakeTransport:
+    """Test double satisfying fm.printer.transport.PrinterTransport.
+
+    Also used by later tasks (pipeline, API). ``busy`` is a dict with
+    ``filename``/``progress``/``layer``; when set, ``ws_request`` reports a
+    printing job (state=1) so ``check_printer_busy`` detects it.
+    """
+    def __init__(self, busy=None):
+        self.commands: list[str] = []
+        self.busy = busy
+
+    def run(self, cmd, timeout=30):
+        self.commands.append(cmd)
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    def scp_push(self, local):
+        self.commands.append(f"scp-push:{local}")
+
+    def scp_pull(self, local):
+        self.commands.append(f"scp-pull:{local}")
+
+    def ws_request(self, method, params):
+        if self.busy:
+            return {"state": 1,
+                    "printFileName": self.busy.get("filename", ""),
+                    "printProgress": self.busy.get("progress", 0),
+                    "layer": self.busy.get("layer", 0)}
+        return {"state": 0, "data": {"boxsInfo": []}}
 
 
 @pytest.fixture

@@ -9,3 +9,7 @@ dependencies = ["fastapi>=0.115", "uvicorn[standard]", "sqlalchemy>=2.0",
 fm-agent = "fm.agent.cli:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore:Using `httpx` with `starlette.testclient`:Warning",
+]

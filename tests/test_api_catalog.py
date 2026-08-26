@@ -145,6 +145,13 @@ def test_patch_profile_colors(client, seeded_profile):
     assert r.json()["colors"] == ["#abc"]
 
 
+def test_patch_profile_colors_null_normalizes_to_empty(client, seeded_profile):
+    """PATCH with colors:null must not 500 — normalize to empty list."""
+    r = client.patch(f"/api/profiles/{seeded_profile['id']}", json={"colors": None})
+    assert r.status_code == 200
+    assert r.json()["colors"] == []
+
+
 def test_delete_profile_simple(client, seeded_profile):
     r = client.delete(f"/api/profiles/{seeded_profile['id']}")
     assert r.status_code == 204
@@ -279,6 +286,14 @@ def test_patch_spool_reassign_to_missing_profile_404(client, seeded_profile):
     r = client.post("/api/spools", json={"profile_id": seeded_profile["id"]})
     sid = r.json()["id"]
     assert client.patch(f"/api/spools/{sid}", json={"profile_id": 9999}).status_code == 404
+
+
+def test_patch_spool_profile_id_null_rejected_422(client, seeded_profile):
+    """PATCH with profile_id:null must not 500 — reject (spool needs a profile)."""
+    r = client.post("/api/spools", json={"profile_id": seeded_profile["id"]})
+    sid = r.json()["id"]
+    r = client.patch(f"/api/spools/{sid}", json={"profile_id": None})
+    assert r.status_code == 422
 
 
 def test_delete_spool(client, seeded_profile):

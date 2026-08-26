@@ -260,8 +260,9 @@ def patch_profile(pid: int, data: ProfileUpdate, db: DbSession) -> Profile:
         raise HTTPException(status_code=404, detail="profile not found")
 
     for key, val in data.model_dump(exclude_unset=True).items():
-        if key == "colors" and val is not None:
-            p.colors = json.dumps(val)
+        if key == "colors":
+            # colors is NOT NULL; treat explicit null as "clear" → empty list.
+            p.colors = json.dumps(val or [])
         else:
             setattr(p, key, val)
 
@@ -375,7 +376,12 @@ def patch_spool(sid: int, data: SpoolUpdate, db: DbSession) -> Spool:
         raise HTTPException(status_code=404, detail="spool not found")
 
     updates = data.model_dump(exclude_unset=True)
-    if updates.get("profile_id") is not None:
+    if "profile_id" in updates:
+        if updates["profile_id"] is None:
+            raise HTTPException(
+                status_code=422,
+                detail="profile_id must reference an existing profile",
+            )
         if db.get(Profile, updates["profile_id"]) is None:
             raise HTTPException(status_code=404, detail="profile not found")
 

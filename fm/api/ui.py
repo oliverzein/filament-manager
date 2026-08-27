@@ -9,12 +9,13 @@ Functional pages only; visual/layout refinement is a separate designer pass
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+import subprocess
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -25,6 +26,8 @@ from ..service import jobs
 from ..service.sync_handlers import _entry_hash
 from .catalog import _validate
 from .sync import drift_status, _get_config
+from ..settings_store import load_settings, save_settings, build_config
+from ..errors import FmError
 
 router = APIRouter(tags=["ui"])
 
@@ -58,10 +61,7 @@ def _parse_colors(raw: str) -> list[str]:
 def _profile_from_form(
     brand: str, name: str, type_: str, colors: str,
     min_temp: int, max_temp: int, density: float,
-    drying_temp: int, drying_time: int,
-    pa: float | None, flow_ratio: float | None, max_volumetric: float | None,
-    retraction_length: float | None, retraction_speed: float | None,
-    nozzle_temperature: int | None, notes: str,
+    drying_temp: int, drying_time: int, notes: str,
 ) -> dict:
     """Build a profile field dict from submitted form values."""
     return {
@@ -69,20 +69,14 @@ def _profile_from_form(
         "colors": json.dumps(_parse_colors(colors)),
         "min_temp": min_temp, "max_temp": max_temp,
         "density": density, "drying_temp": drying_temp,
-        "drying_time": drying_time, "pa": pa, "flow_ratio": flow_ratio,
-        "max_volumetric": max_volumetric, "retraction_length": retraction_length,
-        "retraction_speed": retraction_speed,
-        "nozzle_temperature": nozzle_temperature, "notes": notes,
+        "drying_time": drying_time, "notes": notes,
     }
 
 
 def _submitted_namespace(
     pid: int | None, brand: str, name: str, type_: str, colors: str,
     min_temp: int, max_temp: int, density: float,
-    drying_temp: int, drying_time: int,
-    pa: float | None, flow_ratio: float | None, max_volumetric: float | None,
-    retraction_length: float | None, retraction_speed: float | None,
-    nozzle_temperature: int | None, notes: str,
+    drying_temp: int, drying_time: int, notes: str,
 ) -> SimpleNamespace:
     """A profile-like namespace carrying submitted values back into the form
     on validation error re-render."""
@@ -90,10 +84,7 @@ def _submitted_namespace(
         id=pid, brand=brand, name=name, type=type_,
         colors=_parse_colors(colors), min_temp=min_temp, max_temp=max_temp,
         density=density, drying_temp=drying_temp, drying_time=drying_time,
-        pa=pa, flow_ratio=flow_ratio, max_volumetric=max_volumetric,
-        retraction_length=retraction_length, retraction_speed=retraction_speed,
-        nozzle_temperature=nozzle_temperature, notes=notes,
-        printer_db_id=None, filament_id=None,
+        notes=notes, printer_db_id=None, filament_id=None,
     )
     return ns
 
@@ -199,12 +190,6 @@ def profile_create_form(
     density: float = Form(0.0),
     drying_temp: int = Form(0),
     drying_time: int = Form(0),
-    pa: float | None = Form(None),
-    flow_ratio: float | None = Form(None),
-    max_volumetric: float | None = Form(None),
-    retraction_length: float | None = Form(None),
-    retraction_speed: float | None = Form(None),
-    nozzle_temperature: int | None = Form(None),
     notes: str = Form(""),
 ) -> HTMLResponse | RedirectResponse:
     errors, _ = _validate(
@@ -215,8 +200,7 @@ def profile_create_form(
     if errors:
         profile = _submitted_namespace(
             None, brand, name, type, colors, min_temp, max_temp, density,
-            drying_temp, drying_time, pa, flow_ratio, max_volumetric,
-            retraction_length, retraction_speed, nozzle_temperature, notes,
+            drying_temp, drying_time, notes,
         )
         return _templates(request).TemplateResponse(
             request, "profile_form.html",
@@ -228,8 +212,7 @@ def profile_create_form(
     p = Profile(
         **_profile_from_form(
             brand, name, type, colors, min_temp, max_temp, density,
-            drying_temp, drying_time, pa, flow_ratio, max_volumetric,
-            retraction_length, retraction_speed, nozzle_temperature, notes,
+            drying_temp, drying_time, notes,
         ),
         created_at=now, updated_at=now,
     )
@@ -252,12 +235,6 @@ def profile_update_form(
     density: float = Form(0.0),
     drying_temp: int = Form(0),
     drying_time: int = Form(0),
-    pa: float | None = Form(None),
-    flow_ratio: float | None = Form(None),
-    max_volumetric: float | None = Form(None),
-    retraction_length: float | None = Form(None),
-    retraction_speed: float | None = Form(None),
-    nozzle_temperature: int | None = Form(None),
     notes: str = Form(""),
 ) -> HTMLResponse | RedirectResponse:
     p = db.get(Profile, pid)
@@ -272,8 +249,7 @@ def profile_update_form(
     if errors:
         profile = _submitted_namespace(
             pid, brand, name, type, colors, min_temp, max_temp, density,
-            drying_temp, drying_time, pa, flow_ratio, max_volumetric,
-            retraction_length, retraction_speed, nozzle_temperature, notes,
+            drying_temp, drying_time, notes,
         )
         return _templates(request).TemplateResponse(
             request, "profile_form.html",
@@ -283,14 +259,93 @@ def profile_update_form(
 
     for key, val in _profile_from_form(
         brand, name, type, colors, min_temp, max_temp, density,
-        drying_temp, drying_time, pa, flow_ratio, max_volumetric,
-        retraction_length, retraction_speed, nozzle_temperature, notes,
+        drying_temp, drying_time, notes,
     ).items():
         setattr(p, key, val)
     p.updated_at = _now()
     db.flush()
     return RedirectResponse(url="/profiles", status_code=303)
 
+
+
+# ---------------------------------------------------------------------------
+# OrcaSlicer preset sync — HTMX fragment + job enqueue
+# ---------------------------------------------------------------------------
+
+@router.post("/profiles/{pid}/sync-from-orca", response_class=HTMLResponse)
+def sync_from_orca(pid: int, request: Request, db: DbSession) -> HTMLResponse:
+    """Enqueue report_presets job, return syncing-state HTML fragment for HTMX swap."""
+    job = jobs.enqueue(db, "report_presets", {})
+    db.flush()
+    return _templates(request).TemplateResponse(
+        request, "orca_fragment.html",
+        {"pid": pid, "orca_data": None, "last_synced": None,
+         "syncing": True, "stale": False, "job_id": job.id},
+    )
+
+
+@router.get("/profiles/{pid}/orca-fragment", response_class=HTMLResponse)
+def orca_fragment(
+    pid: int, request: Request, db: DbSession, job_id: int | None = None,
+) -> HTMLResponse:
+    """HTMX fragment: read-only Orca preset values or syncing state."""
+    from ..service.sync_handlers import refresh_preset_drift
+
+    profile = db.get(Profile, pid)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="profile not found")
+
+    # Find orca_preset SyncTarget
+    target = db.scalars(
+        select(SyncTarget).where(
+            SyncTarget.profile_id == pid,
+            SyncTarget.kind == "orca_preset",
+        )
+    ).first()
+
+    syncing = False
+    stale = False
+
+    if job_id is not None:
+        job = db.get(Job, job_id)
+        if job and job.kind == "report_presets":
+            if job.status in ("queued", "running"):
+                created = job.created_at.replace(tzinfo=timezone.utc) if job.created_at.tzinfo is None else job.created_at
+                age = datetime.now(timezone.utc) - created
+                if age > timedelta(minutes=5):
+                    stale = True
+                else:
+                    syncing = True
+            elif job.status == "done":
+                refresh_preset_drift(db)
+                db.flush()
+                if target:
+                    db.refresh(target)
+            elif job.status == "error":
+                stale = True
+
+    # Parse preset data from target
+    orca_data = None
+    last_synced = None
+    if target and target.actual_state:
+        try:
+            orca_data = json.loads(target.actual_state)
+        except (json.JSONDecodeError, ValueError):
+            orca_data = None
+    if target and target.last_synced_at:
+        last_synced = target.last_synced_at.isoformat()
+
+    return _templates(request).TemplateResponse(
+        request, "orca_fragment.html",
+        {
+            "pid": pid,
+            "orca_data": orca_data,
+            "last_synced": last_synced,
+            "syncing": syncing,
+            "stale": stale,
+            "job_id": job_id,
+        },
+    )
 
 # ---------------------------------------------------------------------------
 # Spools — list + filters + add form + HTMX remaining patch
@@ -303,7 +358,7 @@ def spools_page(
     location: str | None = None,
 ) -> HTMLResponse:
     pid = int(profile_id) if profile_id and profile_id.isdigit() else None
-    stmt = select(Spool).order_by(Spool.id)
+    stmt = select(Spool).order_by(Spool.id.desc())
     if pid:
         stmt = stmt.where(Spool.profile_id == pid)
     if location:
@@ -331,7 +386,6 @@ def spool_create_form(
     color_override: str | None = Form(None),
     remaining_pct: int = Form(100),
     location: str = Form(""),
-    rfid_tag: str | None = Form(None),
     notes: str = Form(""),
 ) -> RedirectResponse:
     if db.get(Profile, profile_id) is None:
@@ -342,7 +396,6 @@ def spool_create_form(
         color_override=color_override or None,
         remaining_pct=remaining_pct,
         location=location,
-        rfid_tag=rfid_tag or None,
         notes=notes,
         created_at=now, updated_at=now,
     )
@@ -500,6 +553,7 @@ def _latest_import_scan(db: Session) -> Job | None:
 @router.get("/migration", response_class=HTMLResponse)
 def migration_page(request: Request, db: DbSession) -> HTMLResponse:
     """Step 1 (import button) or step 2 (proposal table with checkboxes)."""
+    applied = request.query_params.get("applied") == "1"
     import_job = _latest_import_scan(db)
     proposals: list[dict] = []
     if import_job and import_job.result:
@@ -521,7 +575,9 @@ def migration_page(request: Request, db: DbSession) -> HTMLResponse:
             "proposals": proposals,
             "existing_ids": existing_ids,
             "import_job": import_job,
+            "applied": applied,
         },
+   
     )
 
 
@@ -627,4 +683,157 @@ def migration_apply(
         target.last_synced_at = now
         db.flush()
 
-    return RedirectResponse(url="/migration", status_code=303)
+    return RedirectResponse(url="/migration?applied=1", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Settings — printer connection + agent credentials (persisted to settings.json)
+# ---------------------------------------------------------------------------
+
+_SETTINGS_DEFAULTS = {
+    "ws_port": 9999,
+    "version_override": 9876543210,
+    "id_range_start": 99001,
+}
+
+
+def _settings_context(
+    config: Config | None, saved: bool = False, errors: list[str] | None = None,
+) -> dict:
+    """Build the template context for the settings page."""
+    values: dict = {}
+    if config is not None:
+        values = {
+            "printer_ip": config.printer_ip,
+            "ssh_user": config.ssh_user,
+            "ssh_password": config.ssh_password,
+            "db_remote_path": config.db_remote_path,
+            "agent_token": config.agent_token,
+            "ws_port": config.ws_port,
+            "version_override": config.version_override,
+            "id_range_start": config.id_range_start,
+        }
+    else:
+        stored = load_settings() or {}
+        values = {
+            "printer_ip": stored.get("printer_ip", ""),
+            "ssh_user": stored.get("ssh_user", ""),
+            "ssh_password": stored.get("ssh_password", ""),
+            "db_remote_path": stored.get("db_remote_path", ""),
+            "agent_token": stored.get("agent_token", ""),
+            "ws_port": stored.get("ws_port", _SETTINGS_DEFAULTS["ws_port"]),
+            "version_override": stored.get(
+                "version_override", _SETTINGS_DEFAULTS["version_override"]),
+            "id_range_start": stored.get(
+                "id_range_start", _SETTINGS_DEFAULTS["id_range_start"]),
+        }
+    return {
+        **values,
+        "configured": config is not None,
+        "saved": saved,
+        "errors": errors or [],
+    }
+
+
+@router.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request) -> HTMLResponse:
+    """Render the settings form pre-filled from current config or settings.json."""
+    config = getattr(request.app.state, "config", None)
+    saved = request.query_params.get("saved") == "1"
+    return _templates(request).TemplateResponse(
+        request, "settings.html", _settings_context(config, saved=saved),
+    )
+
+
+@router.post("/settings", response_class=HTMLResponse, response_model=None)
+def settings_save(
+    request: Request,
+    printer_ip: str = Form(""),
+    ssh_user: str = Form(""),
+    ssh_password: str = Form(""),
+    db_remote_path: str = Form(""),
+    agent_token: str = Form(""),
+    ws_port: str = Form(""),
+    version_override: str = Form(""),
+    id_range_start: str = Form(""),
+) -> HTMLResponse | RedirectResponse:
+    """Validate, persist settings.json, update app.state.config, redirect."""
+    printer_ip = printer_ip.strip()
+    ssh_user = ssh_user.strip()
+    ssh_password = ssh_password.strip()
+    db_remote_path = db_remote_path.strip()
+    agent_token = agent_token.strip()
+
+    errors: list[str] = []
+    for label, val in [
+        ("Printer IP", printer_ip), ("SSH user", ssh_user),
+        ("SSH password", ssh_password), ("Remote DB path", db_remote_path),
+        ("Agent token", agent_token),
+    ]:
+        if not val:
+            errors.append(f"{label} is required.")
+
+    def _int(name: str, raw: str, default: int) -> int:
+        raw = raw.strip()
+        if not raw:
+            return default
+        try:
+            return int(raw)
+        except ValueError:
+            errors.append(f"{name} must be a whole number.")
+            return default
+
+    port = _int("WebSocket port", ws_port, _SETTINGS_DEFAULTS["ws_port"])
+    ver = _int("Version override", version_override, _SETTINGS_DEFAULTS["version_override"])
+    ids = _int("ID range start", id_range_start, _SETTINGS_DEFAULTS["id_range_start"])
+
+    submitted = {
+        "printer_ip": printer_ip, "ssh_user": ssh_user,
+        "ssh_password": ssh_password, "db_remote_path": db_remote_path,
+        "agent_token": agent_token, "ws_port": port,
+        "version_override": ver, "id_range_start": ids,
+    }
+
+    if errors:
+        ctx = {**submitted, "configured": False, "saved": False, "errors": errors}
+        return _templates(request).TemplateResponse(
+            request, "settings.html", ctx, status_code=422,
+        )
+
+    save_settings(submitted)
+    request.app.state.config = build_config(submitted)
+    return RedirectResponse(url="/settings?saved=1", status_code=303)
+
+
+@router.post("/api/settings/test-connection")
+def test_connection(
+    printer_ip: str = Form(""),
+    ssh_user: str = Form(""),
+    ssh_password: str = Form(""),
+    db_remote_path: str = Form(""),
+) -> dict:
+    """SSH to printer and check DB path exists."""
+    missing = [f for f in (printer_ip, ssh_user, ssh_password, db_remote_path) if not f.strip()]
+    if missing:
+        return {"ok": False, "error": "Fill in all printer connection fields first."}
+    cmd = [
+        "sshpass", "-p", ssh_password,
+        "ssh", "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "ConnectTimeout=10",
+        f"{ssh_user}@{printer_ip}",
+        f"test -f {db_remote_path} && echo EXISTS",
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": f"Connection timed out (15s) to {printer_ip}."}
+    except FileNotFoundError:
+        return {"ok": False, "error": "sshpass not installed on the server."}
+    if result.returncode == 255 and "Permission denied" in result.stderr:
+        return {"ok": False, "error": "SSH authentication failed. Check user and password."}
+    if result.returncode == 255:
+        return {"ok": False, "error": f"Cannot reach {printer_ip}. Check IP or network. {result.stderr.strip()}"}
+    if "EXISTS" not in result.stdout:
+        return {"ok": False, "error": f"DB path not found: {db_remote_path}"}
+    return {"ok": True, "error": None}

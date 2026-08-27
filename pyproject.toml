@@ -7,6 +7,9 @@ dependencies = ["fastapi>=0.115", "uvicorn[standard]", "sqlalchemy>=2.0",
                 "jinja2", "python-multipart", "websocket-client", "requests", "pytest"]
 [project.scripts]
 fm-agent = "fm.agent.cli:main"
+[tool.setuptools.packages.find]
+include = ["fm*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = [

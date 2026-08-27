@@ -79,12 +79,11 @@ def test_profiles_filter_by_type(client):
 
 
 def test_profile_form_groups(client):
-    """The new-profile form must render identity/temps/extrusion/drying groups."""
+    """The new-profile form must render identity/temps/drying groups."""
     r = client.get("/profiles/new")
     assert r.status_code == 200
     assert b"Identity" in r.content
     assert b"Temperature" in r.content
-    assert b"Extrusion" in r.content
     assert b"Drying" in r.content
 
 

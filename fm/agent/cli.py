@@ -158,6 +158,17 @@ def _preset_report(d: dict, path: Path) -> dict:
         "filament_id": d.get("filament_id", ""),
         "_path": str(path),
         "_system": False,
+        "pressure_advance": d.get("pressure_advance"),
+        "enable_pressure_advance": d.get("enable_pressure_advance"),
+        "filament_flow_ratio": d.get("filament_flow_ratio"),
+        "filament_max_volumetric_speed": d.get("filament_max_volumetric_speed"),
+        "filament_retraction_length": d.get("filament_retraction_length"),
+        "filament_retraction_speed": d.get("filament_retraction_speed"),
+        "fan_min_speed": d.get("fan_min_speed"),
+        "fan_max_speed": d.get("fan_max_speed"),
+        "cool_plate_temp": d.get("cool_plate_temp"),
+        "eng_plate_temp": d.get("eng_plate_temp"),
+        "hot_plate_temp": d.get("hot_plate_temp"),
     }
 
 

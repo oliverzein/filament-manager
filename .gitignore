@@ -3,4 +3,6 @@ __pycache__/
 *.egg-info/
 .venv/
 dist/
+build/
+*.db
 deploy/*.env

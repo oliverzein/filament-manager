@@ -518,13 +518,17 @@ def handle_temp_sync(session: Session, config: Config, payload: dict) -> dict:
 def refresh_preset_drift(session: Session) -> None:
     """Update ``orca_preset`` SyncTarget status from the latest report_presets.
 
-    For each profile with an ``orca_preset`` target carrying an
-    ``expected_hash``: find the most recent completed ``report_presets`` job,
-    locate the reported preset matching the profile's ``filament_id``, hash the
-    same canonical field set used by ``handle_generate_preset``, and set
-    ``in_sync`` / ``drift`` accordingly.  Targets without a report or matching
-    preset are left untouched (remain ``pending``).
+    Two matching strategies:
+    1. If a profile has ``filament_id`` set, match by filament_id (exact).
+    2. Otherwise, match by brand/name/type via ``match_presets`` scoring
+       (same algorithm as OrcaSlicer). Creates a SyncTarget if one doesn't
+       exist yet, and sets ``profile.filament_id`` from the matched preset.
+
+    Stores the full matched preset dict as JSON in ``target.actual_state`` and
+    updates ``target.last_synced_at``.
     """
+    from ..presets.matching import match_presets
+
     report_job = session.scalars(
         select(Job)
         .where(Job.kind == "report_presets", Job.status == "done")
@@ -534,28 +538,63 @@ def refresh_preset_drift(session: Session) -> None:
         return
     report_result = json.loads(report_job.result) if report_job.result else {}
     presets = report_result.get("presets", [])
-    by_filament_id = {p.get("filament_id"): p for p in presets}
+    by_filament_id = {p.get("filament_id"): p for p in presets if p.get("filament_id")}
 
-    targets = list(session.scalars(
+    # Build profile→target map for existing orca_preset targets
+    existing_targets = list(session.scalars(
         select(SyncTarget).where(SyncTarget.kind == "orca_preset")
     ))
-    for target in targets:
-        if not target.expected_hash:
-            continue
-        profile = session.get(Profile, target.profile_id)
-        if profile is None or not profile.filament_id:
-            continue
-        preset = by_filament_id.get(profile.filament_id)
+    target_by_pid = {t.profile_id: t for t in existing_targets}
+
+    # Process all profiles — match by filament_id or brand/name/type
+    profiles = list(session.scalars(select(Profile).order_by(Profile.id)))
+    for profile in profiles:
+        target = target_by_pid.get(profile.id)
+        preset = None
+
+        # Strategy 1: match by filament_id
+        if profile.filament_id:
+            preset = by_filament_id.get(profile.filament_id)
+
+        # Strategy 2: match by brand/name/type scoring
+        if preset is None:
+            matches, _ = match_presets(
+                presets, profile.brand, profile.name, profile.type,
+            )
+            if matches and matches[0]["score"] >= 30:
+                fid = matches[0]["fid"]
+                preset = by_filament_id.get(fid)
+                # Set filament_id on profile if not yet set
+                if preset and not profile.filament_id:
+                    profile.filament_id = fid
+
         if preset is None:
             continue
-        actual_hash = canonical_hash({
-            "name": preset.get("name"),
-            "filament_id": preset.get("filament_id"),
-            "filament_vendor": preset.get("filament_vendor"),
-            "filament_type": preset.get("filament_type"),
-            "nozzle_temperature": preset.get("nozzle_temperature"),
-        })
-        target.status = "in_sync" if actual_hash == target.expected_hash else "drift"
+
+        # Create target if it doesn't exist
+        if target is None:
+            target = SyncTarget(
+                profile_id=profile.id, kind="orca_preset",
+                status="pending",
+            )
+            session.add(target)
+
+        # Compute drift hash if expected_hash is set
+        if target.expected_hash:
+            actual_hash = canonical_hash({
+                "name": preset.get("name"),
+                "filament_id": preset.get("filament_id"),
+                "filament_vendor": preset.get("filament_vendor"),
+                "filament_type": preset.get("filament_type"),
+                "nozzle_temperature": preset.get("nozzle_temperature"),
+            })
+            target.status = "in_sync" if actual_hash == target.expected_hash else "drift"
+        else:
+            target.status = "in_sync"
+
+        target.actual_state = json.dumps(preset)
+        target.last_synced_at = _now()
+
     session.flush()
 
 

@@ -18,14 +18,9 @@
       <label><span>Maximum temp</span><div class="input-unit"><input type="number" name="max_temp" value="{{ profile.max_temp if profile else '' }}" required><b>°C</b></div></label>
       <label><span>Density</span><div class="input-unit"><input type="number" step="0.01" name="density" value="{{ profile.density if profile else '0' }}"><b>g/cm³</b></div></label>
     </div></fieldset>
-    <fieldset class="form-section"><div class="form-section-heading"><span>03</span><div><legend>Extrusion</legend><p>Fine tune flow, pressure and retraction.</p></div></div><div class="form-grid three-col">
-      <label><span>Pressure advance</span><input type="number" step="0.001" name="pa" value="{{ profile.pa if profile and profile.pa is not none else '' }}"></label>
-      <label><span>Flow ratio</span><input type="number" step="0.01" name="flow_ratio" value="{{ profile.flow_ratio if profile and profile.flow_ratio is not none else '' }}"></label>
-      <label><span>Max volumetric</span><div class="input-unit"><input type="number" step="0.1" name="max_volumetric" value="{{ profile.max_volumetric if profile and profile.max_volumetric is not none else '' }}"><b>mm³/s</b></div></label>
-      <label><span>Retraction length</span><div class="input-unit"><input type="number" step="0.1" name="retraction_length" value="{{ profile.retraction_length if profile and profile.retraction_length is not none else '' }}"><b>mm</b></div></label>
-      <label><span>Retraction speed</span><div class="input-unit"><input type="number" step="0.1" name="retraction_speed" value="{{ profile.retraction_speed if profile and profile.retraction_speed is not none else '' }}"><b>mm/s</b></div></label>
-      <label><span>Nozzle temperature</span><div class="input-unit"><input type="number" name="nozzle_temperature" value="{{ profile.nozzle_temperature if profile and profile.nozzle_temperature is not none else '' }}"><b>°C</b></div></label>
-    </div></fieldset>
+    <div id="orca-settings" hx-get="/profiles/{{ profile.id }}/orca-fragment" hx-trigger="load" hx-swap="innerHTML" {% if not is_edit %}style="display:none"{% endif %}>
+      <div class="orca-loading"><p>Loading print settings…</p></div>
+    </div>
     <fieldset class="form-section"><div class="form-section-heading"><span>04</span><div><legend>Drying</legend><p>Recommended preparation before printing.</p></div></div><div class="form-grid">
       <label><span>Drying temperature</span><div class="input-unit"><input type="number" name="drying_temp" value="{{ profile.drying_temp if profile else '0' }}"><b>°C</b></div></label>
       <label><span>Drying time</span><div class="input-unit"><input type="number" name="drying_time" value="{{ profile.drying_time if profile else '0' }}"><b>hours</b></div></label>

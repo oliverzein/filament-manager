@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Settings — Filament Manager{% endblock %}
+{% block content %}
+<section id="settings-form">
+  <header class="page-header"><div><p class="eyebrow">Configuration</p><h1>Settings</h1><p>Configure printer connection and agent credentials.</p></div></header>
+  {% if saved %}<div class="alert" style="border-color: rgba(80,200,120,.25); background: rgba(80,200,120,.08); color: #8ee6a8;"><strong>Settings saved.</strong><p>Printer connection updated.</p></div>{% endif %}
+  {% if not configured %}<div class="alert alert-warning"><strong>Printer not configured.</strong><p>Fill in the fields below to enable sync and migration.</p></div>{% endif %}
+  {% if errors %}<div class="alert alert-danger"><strong>Check the highlighted information</strong><ul class="errors">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}
+  <form method="post" action="/settings" class="profile-editor">
+    <fieldset class="form-section"><div class="form-section-heading"><span>01</span><div><legend>Printer connection</legend><p>SSH host and credentials used to reach the printer.</p></div></div><div class="form-grid">
+      <label><span>Printer IP</span><input name="printer_ip" value="{{ printer_ip }}" required placeholder="e.g. 192.168.0.101"></label>
+      <label><span>SSH user</span><input name="ssh_user" value="{{ ssh_user }}" required placeholder="e.g. root"></label>
+      <label><span>SSH password</span><input type="password" name="ssh_password" value="{{ ssh_password }}" required placeholder="Printer SSH password"></label>
+      <label class="full-width"><span>Remote DB path</span><input name="db_remote_path" value="{{ db_remote_path }}" required placeholder="/mnt/UDISK/creality/userdata/box/material_database.json"></label>
+    </div><div class="test-conn-row"><button type="button" id="test-conn-btn" class="button button-secondary test-conn-btn">Test connection</button></div></fieldset>
+    <fieldset class="form-section"><div class="form-section-heading"><span>02</span><div><legend>Agent</legend><p>Token used to authenticate agent requests.</p></div></div><div class="form-grid">
+      <label class="full-width"><span>Agent token</span><input type="password" name="agent_token" value="{{ agent_token }}" required placeholder="Agent authentication token"></label>
+    </div></fieldset>
+    <fieldset class="form-section"><div class="form-section-heading"><span>03</span><div><legend>Advanced</legend><p>WebSocket port and ID allocation overrides.</p></div></div><div class="form-grid three-col">
+      <label><span>WebSocket port</span><div class="input-unit"><input type="number" name="ws_port" value="{{ ws_port }}"><b>port</b></div></label>
+      <label><span>Version override</span><div class="input-unit"><input type="number" name="version_override" value="{{ version_override }}"><b>ver</b></div></label>
+      <label><span>ID range start</span><div class="input-unit"><input type="number" name="id_range_start" value="{{ id_range_start }}"><b>id</b></div></label>
+    </div></fieldset>
+    <div class="form-actions"><button type="submit" class="button button-primary">Save settings</button></div>
+  </form>
+</section>
+<script>
+(function() {
+  const btn = document.getElementById('test-conn-btn');
+  if (!btn) return;
+  const form = btn.closest('form');
+  let popupTimer = null;
+
+  function resetBtn() {
+    btn.classList.remove('is-busy', 'is-ok', 'is-fail');
+    btn.disabled = false;
+    btn.textContent = 'Test connection';
+  }
+
+  function showPopup(msg) {
+    let popup = document.getElementById('test-conn-popup');
+    if (popup) popup.remove();
+    if (popupTimer) clearTimeout(popupTimer);
+    popup = document.createElement('div');
+    popup.id = 'test-conn-popup';
+    popup.className = 'test-conn-popup';
+    popup.innerHTML = '<strong>Connection failed</strong><p>' + msg + '</p><button class="test-conn-close" type="button">×</button>';
+    btn.closest('.form-section').appendChild(popup);
+    popup.querySelector('.test-conn-close').onclick = () => popup.remove();
+    popupTimer = setTimeout(() => popup.remove(), 10000);
+  }
+
+  btn.addEventListener('click', async () => {
+    if (btn.classList.contains('is-busy')) return;
+    if (btn.classList.contains('is-ok') || btn.classList.contains('is-fail')) { resetBtn(); return; }
+
+    const fd = new FormData();
+    fd.set('printer_ip', form.querySelector('[name=printer_ip]').value);
+    fd.set('ssh_user', form.querySelector('[name=ssh_user]').value);
+    fd.set('ssh_password', form.querySelector('[name=ssh_password]').value);
+    fd.set('db_remote_path', form.querySelector('[name=db_remote_path]').value);
+
+    btn.classList.add('is-busy');
+    btn.disabled = true;
+    btn.textContent = 'Testing…';
+
+    let popup = document.getElementById('test-conn-popup');
+    if (popup) popup.remove();
+
+    try {
+      const res = await fetch('/api/settings/test-connection', { method: 'POST', body: fd });
+      const data = await res.json();
+      btn.classList.remove('is-busy');
+      if (data.ok) {
+        btn.classList.add('is-ok');
+        btn.textContent = '✓ Connected';
+      } else {
+        btn.classList.add('is-fail');
+        btn.textContent = '✗ Failed';
+        showPopup(data.error || 'Unknown error');
+      }
+    } catch (e) {
+      btn.classList.remove('is-busy');
+      btn.classList.add('is-fail');
+      btn.textContent = '✗ Failed';
+      showPopup('Request failed: ' + e.message);
+    }
+    setTimeout(resetBtn, 3000);
+  });
+})();
+</script>
+{% endblock %}

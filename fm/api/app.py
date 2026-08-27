@@ -20,9 +20,9 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from ..config import Config, load_config
+from ..config import Config
+from ..settings_store import load_merged_config
 from ..db import init_engine
-from ..errors import FmError
 from . import agent, catalog, sync, ui
 
 _DIR = Path(__file__).parent
@@ -33,9 +33,9 @@ class Settings:
     """Runtime settings for the app factory.
 
     ``database_url`` overrides ``FM_DATABASE_URL`` when provided.
-    ``config`` overrides the printer ``Config`` (otherwise loaded from FM_*
-    env vars); used by tests.  When ``None`` and env vars are missing, sync
-    endpoints return 503.
+    ``config`` overrides the printer ``Config`` (otherwise loaded from
+    ``settings.json`` or ``FM_*`` env vars); used by tests.  When ``None``
+    and neither source is complete, sync endpoints return 503.
     """
 
     database_url: str | None = None
@@ -68,10 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is not None and settings.config:
         app_config = settings.config
     else:
-        try:
-            app_config = load_config()
-        except FmError:
-            app_config = None
+        app_config = load_merged_config()
 
     app = FastAPI(title="Filament Manager", version=_package_version())
 

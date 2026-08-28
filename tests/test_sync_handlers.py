@@ -374,6 +374,27 @@ class TestGeneratePresetHandler:
         ).first()
         assert target.status == "drift"
 
+    def test_template_override_uses_brand_template(self, inmemory_session, cfg, monkeypatch):
+        """When template_override is set, the builder uses the brand-specific template."""
+        s = inmemory_session
+        profile = _make_profile(s, template_override="Bambu PETG Translucent", type="PETG")
+        fake_client = MagicMock()
+        fake_client.cloud_id.return_value = "test-cloud-uuid"
+        fake_client.sync_push.return_value = {"updated_time": 12345, "created_time": 12345}
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: fake_client)
+
+        # Use the real _preset_template_factory (not monkeypatched)
+        result = sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
+
+        assert result["filament_id"].startswith("P")
+        # The generated preset should have Bambu-specific flow ratio
+        fake_client.sync_push.assert_called_once()
+        content = fake_client.sync_push.call_args[1]["content"]
+        # sync_push receives the preset as a dict (content=), not a JSON string.
+        preset = content
+        assert preset["filament_flow_ratio"] == ["0.95"]
+        assert preset["fan_max_speed"] == ["30"]
+
 
 # ---------------------------------------------------------------------------
 # temp_sync handler

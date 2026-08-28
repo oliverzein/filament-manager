@@ -68,7 +68,24 @@ log = __import__("logging").getLogger(__name__)
 _transport_factory: Callable[[Config], PrinterTransport] = lambda cfg: SshTransport(cfg)
 _cache_db_path: Path | None = None
 _import_db_path: Path | None = None  # import_scan: pre-pulled DB for tests
-_preset_template_factory: Callable[[dict], dict | None] = lambda p: find_system_preset(p["type"])
+
+
+def _preset_template_factory(profile_dict: dict) -> dict | None:
+    """Resolve the preset template for a profile.
+
+    If template_override is set, use the brand-specific @base template.
+    Otherwise fall back to the type-based generic default.
+    """
+    override = profile_dict.get("template_override")
+    if override:
+        from ..presets.flattener import find_preset_by_name, flatten_preset
+        path = find_preset_by_name(override + " @base")
+        if path:
+            return flatten_preset(path)
+        # Fall back to type-based default if override file not found
+    return find_system_preset(profile_dict["type"])
+
+
 _sleep = time.sleep  # tests override to no-op
 def _default_orca_client() -> OrcaCloudClient | None:
     """Create an OrcaCloudClient from stored settings, or None if unconfigured."""
@@ -480,6 +497,7 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
         "retraction_speed": profile.retraction_speed,
         "nozzle_temperature": profile.nozzle_temperature,
         "printer_db_id": profile.printer_db_id,
+        "template_override": profile.template_override,
     }
 
     template = _preset_template_factory(profile_dict)

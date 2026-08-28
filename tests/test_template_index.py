@@ -53,3 +53,20 @@ def test_preview_for_template_bambu_petg():
 def test_preview_for_template_nonexistent():
     preview = preview_for_template("Nonexistent Template")
     assert preview is None
+
+
+def test_profile_template_override_persists(inmemory_session):
+    """Verify template_override column exists and persists."""
+    from datetime import datetime, timezone
+    from fm.models import Profile
+    s = inmemory_session
+    now = datetime.now(timezone.utc)
+    p = Profile(
+        brand="Bambu Lab", name="PETG Translucent", type="PETG",
+        colors='[]', min_temp=230, max_temp=270, density=1.25,
+        drying_temp=65, drying_time=8, created_at=now, updated_at=now,
+        template_override="Bambu PETG Translucent",
+    )
+    s.add(p)
+    s.flush()
+    assert p.template_override == "Bambu PETG Translucent"

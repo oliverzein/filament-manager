@@ -73,6 +73,7 @@ class ProfileCreate(BaseModel):
     retraction_length: float | None = None
     retraction_speed: float | None = None
     nozzle_temperature: int | None = None
+    template_override: str | None = None
     notes: str = ""
 
 
@@ -92,6 +93,7 @@ class ProfileUpdate(BaseModel):
     retraction_length: float | None = None
     retraction_speed: float | None = None
     nozzle_temperature: int | None = None
+    template_override: str | None = None
     notes: str | None = None
 
 
@@ -116,6 +118,7 @@ class ProfileOut(BaseModel):
     nozzle_temperature: int | None = None
     printer_db_id: str | None = None
     filament_id: str | None = None
+    template_override: str | None = None
     notes: str
     created_at: datetime
     updated_at: datetime

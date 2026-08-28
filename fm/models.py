@@ -34,6 +34,7 @@ class Profile(Base):
     nozzle_temperature: Mapped[int | None] = mapped_column(default=None)  # mirrors kvParam.nozzle_temperature (temp-sync target)
     printer_db_id: Mapped[str | None] = mapped_column(default=None)  # "99xxx" once pushed
     filament_id: Mapped[str | None] = mapped_column(default=None)  # preset filament_id once generated
+    template_override: Mapped[str | None] = mapped_column(String(255), default=None)
     notes: Mapped[str] = mapped_column(default="")
     created_at: Mapped[datetime] = mapped_column()
     updated_at: Mapped[datetime] = mapped_column()

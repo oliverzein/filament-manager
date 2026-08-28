@@ -47,3 +47,9 @@ def _migrate(engine: Engine) -> None:
         if "cloud_id" not in cols:
             conn.execute(text("ALTER TABLE sync_targets ADD COLUMN cloud_id VARCHAR(64)"))
             conn.commit()
+
+        # profiles.template_override — added for preset template selection
+        profile_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(profiles)"))}
+        if "template_override" not in profile_cols:
+            conn.execute(text("ALTER TABLE profiles ADD COLUMN template_override VARCHAR(255)"))
+            conn.commit()

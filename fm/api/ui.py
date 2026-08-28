@@ -867,7 +867,7 @@ def migration_apply(
     return RedirectResponse(url="/migration?applied=1", status_code=303)
 
 # ---------------------------------------------------------------------------
-# Import from OrcaSlicer — bring standard filament presets into the catalog
+# Import from Orca Cloud — bring standard filament presets into the catalog
 # ---------------------------------------------------------------------------
 
 
@@ -920,7 +920,7 @@ def _unmatched_orca_presets(db: Session) -> list[dict]:
 
 @router.get("/import-orca", response_class=HTMLResponse)
 def import_orca_page(request: Request, db: DbSession) -> HTMLResponse:
-    """Show unmatched OrcaSlicer presets for import as profiles."""
+    """Show unmatched Orca Cloud presets for import as profiles."""
     all_presets = _pull_orca_presets()
     presets = _unmatched_orca_presets(db)
     applied = request.query_params.get("applied") == "1"

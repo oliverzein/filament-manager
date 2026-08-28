@@ -30,7 +30,7 @@ def cfg():
         printer_ip="192.168.0.101", ssh_user="root",
         ssh_password="pw", db_remote_path="/mnt/UDISK/x.json",
         ws_port=9999, version_override=9876543210,
-        id_range_start=99001, agent_token="testtoken",
+        id_range_start=99001,
     )
 
 
@@ -493,7 +493,6 @@ class TestNoConfig:
         monkeypatch.delenv("FM_SSH_USER", raising=False)
         monkeypatch.delenv("FM_SSH_PASSWORD", raising=False)
         monkeypatch.delenv("FM_DB_REMOTE_PATH", raising=False)
-        # FM_AGENT_TOKEN is optional now
         with TestClient(create_app()) as c:
             r = c.post("/api/sync/push", json={})
             assert r.status_code == 503

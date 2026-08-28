@@ -149,7 +149,7 @@ class VerifyTransport(FakeTransport):
 def test_verify_printer_version_ok_and_present():
     from fm.config import Config
     cfg = Config(printer_ip="p", ssh_user="u", ssh_password="pw",
-                 db_remote_path="/r.json", agent_token="t")
+                 db_remote_path="/r.json")
     db = {"result": {"list": [{"base": {"id": "99001"}}, {"base": {"id": "99002"}}],
                      "version": 9876543211}}
     t = VerifyTransport(db)
@@ -162,7 +162,7 @@ def test_verify_printer_version_ok_and_present():
 def test_verify_printer_version_below_floor():
     from fm.config import Config
     cfg = Config(printer_ip="p", ssh_user="u", ssh_password="pw",
-                 db_remote_path="/r.json", agent_token="t")
+                 db_remote_path="/r.json")
     # cloud sync overwrote with epoch version (< override floor)
     db = {"result": {"list": [{"base": {"id": "99001"}}], "version": 1781668740}}
     t = VerifyTransport(db)
@@ -176,7 +176,7 @@ def test_verify_printer_pulls_via_transport():
     """verify_printer must scp_pull from the printer (fresh DB, ignoring cache)."""
     from fm.config import Config
     cfg = Config(printer_ip="p", ssh_user="u", ssh_password="pw",
-                 db_remote_path="/r.json", agent_token="t")
+                 db_remote_path="/r.json")
     db = {"result": {"list": [], "version": 9876543210}}
     t = VerifyTransport(db)
     pl.verify_printer(cfg, t, [])

@@ -8,7 +8,7 @@ from .errors import FmError
 class Config:
     printer_ip: str; ssh_user: str; ssh_password: str; db_remote_path: str
     ws_port: int = 9999; version_override: int = 9876543210
-    id_range_start: int = 99001; agent_token: str = ""
+    id_range_start: int = 99001
 _REQUIRED = ("FM_PRINTER_IP", "FM_SSH_USER", "FM_SSH_PASSWORD",
              "FM_DB_REMOTE_PATH")
 
@@ -24,4 +24,4 @@ def load_config(env: Mapping[str, str] = os.environ) -> Config:
         ws_port=int(env.get("FM_WS_PORT", "9999")),
         version_override=int(env.get("FM_VERSION_OVERRIDE", "9876543210")),
         id_range_start=int(env.get("FM_ID_RANGE_START", "99001")),
-        agent_token=env.get("FM_AGENT_TOKEN", ""))
+    )

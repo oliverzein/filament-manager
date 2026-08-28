@@ -28,6 +28,5 @@
     <Config Name="FM_WS_PORT" Target="FM_WS_PORT" Default="9999" Mode="" Description="Printer websocket port." Type="Variable" Display="advanced" Required="false" Mask="false"/>
     <Config Name="FM_VERSION_OVERRIDE" Target="FM_VERSION_OVERRIDE" Default="9876543210" Mode="" Description="Printer DB version override (must be &gt;= 9876543210)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
     <Config Name="FM_ID_RANGE_START" Target="FM_ID_RANGE_START" Default="99001" Mode="" Description="Start of custom printer ID range (99xxx)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
-    <Config Name="FM_AGENT_TOKEN" Target="FM_AGENT_TOKEN" Default="CHANGE_ME" Mode="" Description="Shared token authenticating the fm-agent CLI." Type="Variable" Display="always" Required="true" Mask="true"/>
   </Container>
 </Containers>

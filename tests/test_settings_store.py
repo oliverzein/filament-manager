@@ -32,7 +32,6 @@ FULL = {
     "ws_port": 9999,
     "version_override": 9876543210,
     "id_range_start": 99001,
-    "agent_token": "tok-abc",
 }
 
 # Complete FM_* env vars (mirrors tests/test_config.py BASE).
@@ -109,18 +108,16 @@ def test_build_config_valid():
     assert c.ws_port == 9999
     assert c.version_override == 9876543210
     assert c.id_range_start == 99001
-    assert c.agent_token == "tok-abc"
 
 
 def test_build_config_optional_defaults():
-    """Only the 4 printer fields are required; agent_token defaults to empty."""
+    """Only the 4 printer fields are required; remaining keys default."""
     minimal = {k: FULL[k] for k in
                ("printer_ip", "ssh_user", "ssh_password", "db_remote_path")}
     c = build_config(minimal)
     assert c.ws_port == 9999
     assert c.version_override == 9876543210
     assert c.id_range_start == 99001
-    assert c.agent_token == ""
 
 
 @pytest.mark.parametrize("missing", [
@@ -154,7 +151,6 @@ def test_merged_config_from_settings_file(tmp_path, monkeypatch):
     c = load_merged_config()
     assert c is not None
     assert c.printer_ip == "192.168.0.101"
-    assert c.agent_token == "tok-abc"
 
 
 def test_merged_config_from_env_when_no_file(tmp_path, monkeypatch):

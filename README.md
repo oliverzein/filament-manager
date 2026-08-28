@@ -77,7 +77,7 @@ The existing skill stays untouched and remains available for agent-driven flows.
 scripts/dev-start.sh   # uvicorn on :8404, isolated SQLite in .local/
 # ... iterate ...
 scripts/dev-stop.sh    # deterministic stop via .local/server.pid
-scripts/test.sh        # full pytest suite (358 tests)
+scripts/test.sh        # full pytest suite (356 tests)
 ```
 
 `dev-start.sh` exports an isolated
@@ -133,7 +133,7 @@ authoritative `FM_*` list lives in `fm/config.py`.
 |---|---|
 | `scripts/dev-start.sh` | Start the app locally (uvicorn, dev config, isolated SQLite in `.local/`); waits for readiness. |
 | `scripts/dev-stop.sh` | Stop the local dev app deterministically via `.local/server.pid`. |
-| `scripts/test.sh` | Run the full pytest suite (358 tests). |
+| `scripts/test.sh` | Run the full pytest suite (356 tests). |
 | `scripts/release.sh <version>` | Semver tag, build the Docker image, save a gzipped tarball to `dist/`; refuses a dirty tree. |
 | `scripts/deploy-unraid.sh <version>` | Load the released image + XML template onto Unraid, restart the container, wait for readiness. |
 | `scripts/build_templates.py` | One-off dev-time bundler: scans a local OrcaSlicer install for `@base` filament presets, copies them into `fm/presets/templates/`, and regenerates `fm/presets/template_index.json`. Output is committed to git; re-run only when OrcaSlicer updates its preset library. |

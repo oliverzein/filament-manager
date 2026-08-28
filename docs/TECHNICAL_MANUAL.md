@@ -1212,7 +1212,7 @@ Override printer env vars inline if needed.
 ## Testing
 
 ```bash
-scripts/test.sh        # full pytest suite (358 tests)
+scripts/test.sh        # full pytest suite (356 tests)
 ```
 
 ### Test Files

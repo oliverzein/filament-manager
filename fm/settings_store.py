@@ -81,8 +81,7 @@ def build_config(data: dict) -> Config:
     """Build a :class:`Config` from a settings dict.
 
     Required keys: ``printer_ip``, ``ssh_user``, ``ssh_password``,
-    ``db_remote_path``.  Optional keys: ``agent_token`` (""),
-    ``ws_port`` (9999), ``version_override`` (9876543210),
+    ``db_remote_path``.  Optional keys: ``ws_port`` (9999), ``version_override`` (9876543210),
     ``id_range_start`` (99001), ``orca_refresh_token`` (""),
     ``orca_user_id`` (""), ``orca_sync_cursor`` (0).
     Raises :class:`FmError` if any required key is missing or empty.
@@ -98,7 +97,6 @@ def build_config(data: dict) -> Config:
         ws_port=int(data.get("ws_port", 9999)),
         version_override=int(data.get("version_override", 9876543210)),
         id_range_start=int(data.get("id_range_start", 99001)),
-        agent_token=data.get("agent_token", ""),
     )
 
 

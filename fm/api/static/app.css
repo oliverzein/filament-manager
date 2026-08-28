@@ -216,3 +216,20 @@ select { cursor: pointer; }textarea { resize: vertical; }label small { display: 
 .alert-success p { margin: 0; }
 .alert-success a { color: #48d991; text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+.template-picker { display: grid; gap: var(--space-4); padding-top: var(--space-5); border-top: 1px solid var(--border); }
+.template-picker-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
+.template-picker-heading h3 { margin: 0; font-family: var(--font-heading); font-size: 14px; line-height: 1.3; }
+.template-picker-heading p { margin: var(--space-1) 0 0; font-size: 11px; }
+.template-picker-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4) var(--space-5); }
+.template-picker-indicator { width: 18px; height: 18px; flex: 0 0 auto; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: tc-spin .7s linear infinite; }
+.template-preview { padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-input); background: var(--surface-alt); }
+.template-preview h4 { margin-bottom: var(--space-3); color: var(--text-secondary); font-size: 11px; }
+.template-preview-values { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); margin: 0; }
+.template-preview-values div { min-width: 0; }
+.template-preview-values dt { color: var(--text-muted); font-size: 9px; font-weight: 600; }
+.template-preview-values dd { margin: var(--space-1) 0 0; color: var(--text); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.template-preview > p { margin: var(--space-3) 0 0; color: var(--text-muted); font-size: 9px; }
+.template-picker[aria-busy='true'] .template-picker-fields, .template-picker-fields[aria-busy='true'] { opacity: .7; }
+.template-picker-error { grid-column: 1 / -1; margin: 0; padding: var(--space-3) var(--space-4); border: 1px solid rgba(255, 90, 101, .25); border-radius: var(--radius-input); background: rgba(255, 90, 101, .08); color: #ff9ba2; font-size: 11px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@media (max-width: 760px) { .template-picker-fields, .template-preview-values { grid-template-columns: 1fr; } }

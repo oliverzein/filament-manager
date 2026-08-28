@@ -75,6 +75,7 @@ def _profile_from_form(
     brand: str, name: str, type_: str, colors: str,
     min_temp: int, max_temp: int, density: float,
     drying_temp: int, drying_time: int, notes: str,
+    template_override: str = "",
 ) -> dict:
     """Build a profile field dict from submitted form values."""
     return {
@@ -83,6 +84,7 @@ def _profile_from_form(
         "min_temp": min_temp, "max_temp": max_temp,
         "density": density, "drying_temp": drying_temp,
         "drying_time": drying_time, "notes": notes,
+        "template_override": template_override or None,
     }
 
 
@@ -90,6 +92,7 @@ def _submitted_namespace(
     pid: int | None, brand: str, name: str, type_: str, colors: str,
     min_temp: int, max_temp: int, density: float,
     drying_temp: int, drying_time: int, notes: str,
+    template_override: str = "",
 ) -> SimpleNamespace:
     """A profile-like namespace carrying submitted values back into the form
     on validation error re-render."""
@@ -98,6 +101,7 @@ def _submitted_namespace(
         colors=_parse_colors(colors), min_temp=min_temp, max_temp=max_temp,
         density=density, drying_temp=drying_temp, drying_time=drying_time,
         notes=notes, printer_db_id=None, filament_id=None,
+        template_override=template_override or None,
     )
     return ns
 
@@ -290,6 +294,7 @@ def profile_create_form(
     drying_temp: int = Form(0),
     drying_time: int = Form(0),
     notes: str = Form(""),
+    template_override: str = Form(""),
 ) -> HTMLResponse | RedirectResponse:
     errors, _ = _validate(
         brand=brand, name=name, type_=type, min_temp=min_temp,
@@ -299,7 +304,7 @@ def profile_create_form(
     if errors:
         profile = _submitted_namespace(
             None, brand, name, type, colors, min_temp, max_temp, density,
-            drying_temp, drying_time, notes,
+            drying_temp, drying_time, notes, template_override,
         )
         return _templates(request).TemplateResponse(
             request, "profile_form.html",
@@ -311,7 +316,7 @@ def profile_create_form(
     p = Profile(
         **_profile_from_form(
             brand, name, type, colors, min_temp, max_temp, density,
-            drying_temp, drying_time, notes,
+            drying_temp, drying_time, notes, template_override,
         ),
         created_at=now, updated_at=now,
     )
@@ -335,6 +340,7 @@ def profile_update_form(
     drying_temp: int = Form(0),
     drying_time: int = Form(0),
     notes: str = Form(""),
+    template_override: str = Form(""),
 ) -> HTMLResponse | RedirectResponse:
     p = db.get(Profile, pid)
     if p is None:
@@ -348,7 +354,7 @@ def profile_update_form(
     if errors:
         profile = _submitted_namespace(
             pid, brand, name, type, colors, min_temp, max_temp, density,
-            drying_temp, drying_time, notes,
+            drying_temp, drying_time, notes, template_override,
         )
         return _templates(request).TemplateResponse(
             request, "profile_form.html",
@@ -358,7 +364,7 @@ def profile_update_form(
 
     for key, val in _profile_from_form(
         brand, name, type, colors, min_temp, max_temp, density,
-        drying_temp, drying_time, notes,
+        drying_temp, drying_time, notes, template_override,
     ).items():
         setattr(p, key, val)
     p.updated_at = _now()
@@ -394,8 +400,10 @@ def sync_from_orca(pid: int, request: Request, db: DbSession) -> HTMLResponse:
     if target and target.last_synced_at:
         last_synced = _fmt_local(target.last_synced_at)
 
-    from ..presets.flattener import template_name_for_type
-    template_name = template_name_for_type(profile.type)
+    if profile.template_override:
+        template_name = profile.template_override
+    else:
+        template_name = f"Generic {profile.type} defaults"
 
     return _templates(request).TemplateResponse(
         request, "orca_fragment.html",
@@ -431,8 +439,10 @@ def orca_fragment(
     if target and target.last_synced_at:
         last_synced = _fmt_local(target.last_synced_at)
 
-    from ..presets.flattener import template_name_for_type
-    template_name = template_name_for_type(profile.type)
+    if profile.template_override:
+        template_name = profile.template_override
+    else:
+        template_name = f"Generic {profile.type} defaults"
 
     return _templates(request).TemplateResponse(
         request, "orca_fragment.html",

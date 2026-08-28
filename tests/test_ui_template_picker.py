@@ -2,6 +2,7 @@
 """Tests for the template picker HTMX fragment endpoint."""
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from fm.api.app import create_app
 from fm.db import SessionLocal
@@ -73,3 +74,36 @@ def test_profile_form_has_template_picker(client):
     r = client.get("/profiles/new")
     assert r.status_code == 200
     assert b'template-picker' in r.content
+
+
+def test_profile_form_submit_with_template(client):
+    """Submitting the form with template_override persists it."""
+    r = client.post("/profiles/form", data={
+        "brand": "Bambu Lab", "name": "PETG Translucent", "type": "PETG",
+        "min_temp": "230", "max_temp": "270", "density": "1.25",
+        "drying_temp": "65", "drying_time": "8",
+        "template_override": "Bambu PETG Translucent",
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    # Verify it persisted
+    from fm.db import SessionLocal
+    from fm.models import Profile
+    with SessionLocal() as s:
+        p = s.scalars(select(Profile).order_by(Profile.id.desc())).first()
+        assert p.template_override == "Bambu PETG Translucent"
+
+
+def test_profile_form_submit_without_template(client):
+    """Submitting without template_override sets it to None."""
+    r = client.post("/profiles/form", data={
+        "brand": "Sunlu", "name": "PLA+", "type": "PLA",
+        "min_temp": "200", "max_temp": "240", "density": "1.24",
+        "drying_temp": "60", "drying_time": "8",
+        "template_override": "",
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    from fm.db import SessionLocal
+    from fm.models import Profile
+    with SessionLocal() as s:
+        p = s.scalars(select(Profile).order_by(Profile.id.desc())).first()
+        assert p.template_override is None

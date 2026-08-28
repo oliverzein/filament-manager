@@ -8,6 +8,9 @@ persistence is verifiable without touching the real filesystem.
 """
 from __future__ import annotations
 
+import json
+from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -22,7 +25,6 @@ GOOD_FORM = {
     "ws_port": "9999",
     "version_override": "9876543210",
     "id_range_start": "99001",
-    "agent_token": "tok-abc",
 }
 
 
@@ -33,7 +35,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("FM_SETTINGS_PATH", str(settings_file))
     # Ensure no FM_* printer env leaks in (config starts as None).
     for k in ("FM_PRINTER_IP", "FM_SSH_USER", "FM_SSH_PASSWORD",
-              "FM_DB_REMOTE_PATH", "FM_AGENT_TOKEN"):
+              "FM_DB_REMOTE_PATH"):
         monkeypatch.delenv(k, raising=False)
     app = create_app(Settings(database_url=f"sqlite:///{tmp_path}/test.db"))
     c = TestClient(app)
@@ -56,7 +58,6 @@ def test_get_settings_has_form_fields(client):
     r = client.get("/settings")
     assert b"name=\"printer_ip\"" in r.content
     assert b"name=\"ssh_password\"" in r.content
-    assert b"name=\"agent_token\"" in r.content
 
 
 def test_get_settings_shows_warning_when_unconfigured(client):
@@ -90,7 +91,6 @@ def test_post_settings_updates_app_config(client):
     assert cfg is not None
     assert cfg.printer_ip == "192.168.0.101"
     assert cfg.ssh_user == "root"
-    assert cfg.agent_token == "tok-abc"
 
 
 def test_post_settings_persists_settings_json(client):
@@ -98,7 +98,6 @@ def test_post_settings_persists_settings_json(client):
     assert not client.settings_file.exists()
     client.post("/settings", data=GOOD_FORM, follow_redirects=True)
     assert client.settings_file.exists()
-    import json
     data = json.loads(client.settings_file.read_text())
     assert data["printer_ip"] == "192.168.0.101"
     assert data["ssh_password"] == "s3cret"
@@ -124,7 +123,54 @@ def test_post_settings_missing_password_re_renders(client):
 
 def test_post_settings_validation_error_does_not_save(client):
     """A failed validation must not write settings.json or set app config."""
-    bad = {k: v for k, v in GOOD_FORM.items() if k != "agent_token"}
+    bad = {k: v for k, v in GOOD_FORM.items() if k != "ssh_password"}
     client.post("/settings", data=bad, follow_redirects=False)
     assert not client.settings_file.exists()
     assert client.app.state.config is None
+
+
+# ---------------------------------------------------------------------------
+# Orca Cloud connect / disconnect
+# ---------------------------------------------------------------------------
+
+class TestOrcaConnect:
+    def test_orca_connect_saves_token(self, client):
+        """POST /api/settings/orca-connect logs in with email+password and saves token."""
+        with patch("fm.api.ui.OrcaCloudClient") as MockClient:
+            MockClient.login_with_password.return_value = ("test-refresh-token", "user-uuid-123")
+            r = client.post("/api/settings/orca-connect",
+                            data={"email": "user@example.com", "password": "secret"})
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+        data = json.loads(client.settings_file.read_text())
+        assert data["orca_refresh_token"] == "test-refresh-token"
+        assert data["orca_user_id"] == "user-uuid-123"
+
+    def test_orca_connect_invalid_credentials_returns_error(self, client):
+        """Invalid credentials return an error response."""
+        from fm.orca_cloud import OrcaCloudError
+        with patch("fm.api.ui.OrcaCloudClient") as MockClient:
+            MockClient.login_with_password.side_effect = OrcaCloudError(401, "bad credentials")
+            r = client.post("/api/settings/orca-connect",
+                            data={"email": "user@example.com", "password": "wrong"})
+        assert r.status_code == 200
+        assert r.json()["ok"] is False
+        assert "error" in r.json()
+
+    def test_orca_connect_missing_fields_returns_error(self, client):
+        """Missing email or password → error response."""
+        r = client.post("/api/settings/orca-connect", data={})
+        assert r.json()["ok"] is False
+
+
+class TestOrcaDisconnect:
+    def test_orca_disconnect_clears_token(self, client):
+        """POST /api/settings/orca-disconnect clears the Orca Cloud token."""
+        from fm.settings_store import save_orca_token
+        save_orca_token("test-refresh-token", "user-uuid-123")
+        r = client.post("/api/settings/orca-disconnect")
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+        data = json.loads(client.settings_file.read_text())
+        assert not data.get("orca_refresh_token")
+        assert not data.get("orca_user_id")

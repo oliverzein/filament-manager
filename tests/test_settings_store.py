@@ -14,7 +14,11 @@ from fm.errors import FmError
 from fm.settings_store import (
     build_config,
     load_merged_config,
+    load_orca_cursor,
+    load_orca_token,
     load_settings,
+    save_orca_cursor,
+    save_orca_token,
     save_settings,
     settings_path,
 )
@@ -31,13 +35,12 @@ FULL = {
     "agent_token": "tok-abc",
 }
 
-# Complete FM_* env vars (mirrors tests/test_config.py BASE + agent token).
+# Complete FM_* env vars (mirrors tests/test_config.py BASE).
 ENV_FULL = {
     "FM_PRINTER_IP": "10.0.0.5",
     "FM_SSH_USER": "maker",
     "FM_SSH_PASSWORD": "envpw",
     "FM_DB_REMOTE_PATH": "/mnt/UDISK/x.json",
-    "FM_AGENT_TOKEN": "envtok",
 }
 
 
@@ -110,16 +113,18 @@ def test_build_config_valid():
 
 
 def test_build_config_optional_defaults():
+    """Only the 4 printer fields are required; agent_token defaults to empty."""
     minimal = {k: FULL[k] for k in
-               ("printer_ip", "ssh_user", "ssh_password", "db_remote_path", "agent_token")}
+               ("printer_ip", "ssh_user", "ssh_password", "db_remote_path")}
     c = build_config(minimal)
     assert c.ws_port == 9999
     assert c.version_override == 9876543210
     assert c.id_range_start == 99001
+    assert c.agent_token == ""
 
 
 @pytest.mark.parametrize("missing", [
-    "printer_ip", "ssh_user", "ssh_password", "db_remote_path", "agent_token",
+    "printer_ip", "ssh_user", "ssh_password", "db_remote_path",
 ])
 def test_build_config_missing_required_raises(missing):
     data = {k: v for k, v in FULL.items() if k != missing}
@@ -144,7 +149,7 @@ def test_merged_config_from_settings_file(tmp_path, monkeypatch):
     save_settings(FULL)
     # Env vars absent — file must win.
     for k in ("FM_PRINTER_IP", "FM_SSH_USER", "FM_SSH_PASSWORD",
-              "FM_DB_REMOTE_PATH", "FM_AGENT_TOKEN"):
+              "FM_DB_REMOTE_PATH"):
         monkeypatch.delenv(k, raising=False)
     c = load_merged_config()
     assert c is not None
@@ -167,7 +172,7 @@ def test_merged_config_neither_returns_none(tmp_path, monkeypatch):
     """Neither settings.json nor env vars → None."""
     monkeypatch.setenv("FM_SETTINGS_PATH", str(tmp_path / "settings.json"))
     for k in ("FM_PRINTER_IP", "FM_SSH_USER", "FM_SSH_PASSWORD",
-              "FM_DB_REMOTE_PATH", "FM_AGENT_TOKEN"):
+              "FM_DB_REMOTE_PATH"):
         monkeypatch.delenv(k, raising=False)
     assert load_merged_config() is None
 
@@ -184,3 +189,61 @@ def test_merged_config_incomplete_file_falls_back_to_env(tmp_path, monkeypatch):
     # Env values, not file values.
     assert c.printer_ip == "10.0.0.5"
     assert c.ssh_password == "envpw"
+
+
+# ---------------------------------------------------------------------------
+# Orca Cloud token storage
+# ---------------------------------------------------------------------------
+
+def test_load_orca_token_returns_none_when_absent(tmp_path, monkeypatch):
+    """No settings.json → None."""
+    monkeypatch.setenv("FM_SETTINGS_PATH", str(tmp_path / "settings.json"))
+    assert load_orca_token() is None
+
+
+def test_load_orca_token_returns_none_when_no_token(tmp_path, monkeypatch):
+    """settings.json exists but has no orca_refresh_token → None."""
+    p = tmp_path / "settings.json"
+    monkeypatch.setenv("FM_SETTINGS_PATH", str(p))
+    save_settings(FULL)
+    assert load_orca_token() is None
+
+
+def test_save_then_load_orca_token(tmp_path, monkeypatch):
+    """save_orca_token merges into settings.json; load_orca_token reads back."""
+    p = tmp_path / "settings.json"
+    monkeypatch.setenv("FM_SETTINGS_PATH", str(p))
+    save_settings(FULL)
+    save_orca_token("refresh-abc", "user-uuid-123")
+    result = load_orca_token()
+    assert result is not None
+    assert result == ("refresh-abc", "user-uuid-123")
+
+
+def test_save_orca_token_preserves_existing_settings(tmp_path, monkeypatch):
+    """save_orca_token must not clobber existing printer settings."""
+    p = tmp_path / "settings.json"
+    monkeypatch.setenv("FM_SETTINGS_PATH", str(p))
+    save_settings(FULL)
+    save_orca_token("refresh-abc", "user-uuid-123")
+    data = load_settings()
+    assert data["printer_ip"] == "192.168.0.101"
+    assert data["orca_refresh_token"] == "refresh-abc"
+    assert data["orca_user_id"] == "user-uuid-123"
+
+
+def test_load_orca_cursor_defaults_to_zero(tmp_path, monkeypatch):
+    """No cursor stored → 0."""
+    p = tmp_path / "settings.json"
+    monkeypatch.setenv("FM_SETTINGS_PATH", str(p))
+    save_settings(FULL)
+    assert load_orca_cursor() == 0
+
+
+def test_save_then_load_orca_cursor(tmp_path, monkeypatch):
+    """save_orca_cursor persists; load_orca_cursor reads back."""
+    p = tmp_path / "settings.json"
+    monkeypatch.setenv("FM_SETTINGS_PATH", str(p))
+    save_settings(FULL)
+    save_orca_cursor(42)
+    assert load_orca_cursor() == 42

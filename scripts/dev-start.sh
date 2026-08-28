@@ -6,7 +6,6 @@ export FM_DATABASE_URL="sqlite:///.local/filaments.db"
 export FM_PRINTER_IP="${FM_PRINTER_IP:-192.168.0.101}"
 export FM_SSH_USER="${FM_SSH_USER:-root}" FM_SSH_PASSWORD="${FM_SSH_PASSWORD:-}"
 export FM_DB_REMOTE_PATH="/mnt/UDISK/creality/userdata/box/material_database.json"
-export FM_AGENT_TOKEN="devtoken"
 nohup python -m uvicorn fm.api.app:create_app --factory --port 8404 >.local/server.log 2>&1 &
 echo $! > .local/server.pid
 for i in $(seq 1 30); do curl -sf http://127.0.0.1:8404/api/version >/dev/null && exit 0; sleep 1; done

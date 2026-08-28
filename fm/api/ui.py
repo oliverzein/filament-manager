@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Annotated
 
@@ -23,10 +23,14 @@ from ..db import SessionLocal
 from ..config import Config
 from ..models import ActivityLog, Job, Profile, Spool, SyncTarget
 from ..service import jobs
-from ..service.sync_handlers import _entry_hash
+from ..service.sync_handlers import _entry_hash, refresh_preset_drift, _cloud_presets_to_local
 from .catalog import _validate
 from .sync import drift_status, _get_config
-from ..settings_store import load_settings, save_settings, build_config
+from ..settings_store import (
+    load_settings, save_settings, build_config,
+    load_orca_token, save_orca_token,
+)
+from ..orca_cloud import OrcaCloudClient, OrcaCloudError
 from ..errors import FmError
 
 router = APIRouter(tags=["ui"])
@@ -51,6 +55,15 @@ def _templates(request: Request):
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _fmt_local(dt: datetime | None) -> str | None:
+    """Format a UTC datetime as local time string (HH:MM:SS)."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _parse_colors(raw: str) -> list[str]:
@@ -142,6 +155,7 @@ def profiles_page(
     brands = sorted({p.brand for p in rows} | ({brand} if brand else set()))
     types = sorted({p.type for p in rows} | ({type} if type else set()))
 
+    orca_synced = request.query_params.get("orca_synced") == "1"
     return _templates(request).TemplateResponse(
         request, "profiles.html",
         {
@@ -150,8 +164,17 @@ def profiles_page(
             "filter_brand": brand or "",
             "brands": brands,
             "types": types,
+            "orca_synced": orca_synced,
         },
     )
+
+
+@router.post("/profiles/sync-from-orca")
+def profiles_sync_from_orca(db: DbSession) -> RedirectResponse:
+    """Pull all Orca Cloud presets and match against all profiles."""
+    refresh_preset_drift(db)
+    db.flush()
+    return RedirectResponse(url="/profiles?orca_synced=1", status_code=303)
 
 
 # ---------------------------------------------------------------------------
@@ -268,34 +291,16 @@ def profile_update_form(
 
 
 
-# ---------------------------------------------------------------------------
-# OrcaSlicer preset sync — HTMX fragment + job enqueue
-# ---------------------------------------------------------------------------
-
 @router.post("/profiles/{pid}/sync-from-orca", response_class=HTMLResponse)
 def sync_from_orca(pid: int, request: Request, db: DbSession) -> HTMLResponse:
-    """Enqueue report_presets job, return syncing-state HTML fragment for HTMX swap."""
-    job = jobs.enqueue(db, "report_presets", {})
+    """Pull Orca Cloud presets synchronously and return the fragment."""
+    refresh_preset_drift(db)
     db.flush()
-    return _templates(request).TemplateResponse(
-        request, "orca_fragment.html",
-        {"pid": pid, "orca_data": None, "last_synced": None,
-         "syncing": True, "stale": False, "job_id": job.id},
-    )
-
-
-@router.get("/profiles/{pid}/orca-fragment", response_class=HTMLResponse)
-def orca_fragment(
-    pid: int, request: Request, db: DbSession, job_id: int | None = None,
-) -> HTMLResponse:
-    """HTMX fragment: read-only Orca preset values or syncing state."""
-    from ..service.sync_handlers import refresh_preset_drift
 
     profile = db.get(Profile, pid)
     if profile is None:
         raise HTTPException(status_code=404, detail="profile not found")
 
-    # Find orca_preset SyncTarget
     target = db.scalars(
         select(SyncTarget).where(
             SyncTarget.profile_id == pid,
@@ -303,28 +308,6 @@ def orca_fragment(
         )
     ).first()
 
-    syncing = False
-    stale = False
-
-    if job_id is not None:
-        job = db.get(Job, job_id)
-        if job and job.kind == "report_presets":
-            if job.status in ("queued", "running"):
-                created = job.created_at.replace(tzinfo=timezone.utc) if job.created_at.tzinfo is None else job.created_at
-                age = datetime.now(timezone.utc) - created
-                if age > timedelta(minutes=5):
-                    stale = True
-                else:
-                    syncing = True
-            elif job.status == "done":
-                refresh_preset_drift(db)
-                db.flush()
-                if target:
-                    db.refresh(target)
-            elif job.status == "error":
-                stale = True
-
-    # Parse preset data from target
     orca_data = None
     last_synced = None
     if target and target.actual_state:
@@ -333,7 +316,47 @@ def orca_fragment(
         except (json.JSONDecodeError, ValueError):
             orca_data = None
     if target and target.last_synced_at:
-        last_synced = target.last_synced_at.isoformat()
+        last_synced = _fmt_local(target.last_synced_at)
+
+    from ..presets.flattener import template_name_for_type
+    template_name = template_name_for_type(profile.type)
+
+    return _templates(request).TemplateResponse(
+        request, "orca_fragment.html",
+        {"pid": pid, "orca_data": orca_data, "last_synced": last_synced,
+         "syncing": False, "stale": False, "job_id": None,
+         "synced_success": True, "template_name": template_name},
+    )
+
+
+@router.get("/profiles/{pid}/orca-fragment", response_class=HTMLResponse)
+def orca_fragment(
+    pid: int, request: Request, db: DbSession,
+) -> HTMLResponse:
+    """HTMX fragment: read-only Orca preset values from SyncTarget."""
+    profile = db.get(Profile, pid)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="profile not found")
+
+    target = db.scalars(
+        select(SyncTarget).where(
+            SyncTarget.profile_id == pid,
+            SyncTarget.kind == "orca_preset",
+        )
+    ).first()
+
+    orca_data = None
+    last_synced = None
+    if target and target.actual_state:
+        try:
+            orca_data = json.loads(target.actual_state)
+        except (json.JSONDecodeError, ValueError):
+            orca_data = None
+    if target and target.last_synced_at:
+        last_synced = _fmt_local(target.last_synced_at)
+
+    from ..presets.flattener import template_name_for_type
+    template_name = template_name_for_type(profile.type)
 
     return _templates(request).TemplateResponse(
         request, "orca_fragment.html",
@@ -341,9 +364,10 @@ def orca_fragment(
             "pid": pid,
             "orca_data": orca_data,
             "last_synced": last_synced,
-            "syncing": syncing,
-            "stale": stale,
-            "job_id": job_id,
+            "syncing": False,
+            "stale": False,
+            "job_id": None,
+            "template_name": template_name,
         },
     )
 
@@ -417,6 +441,63 @@ def spool_update_remaining(
     return HTMLResponse(
         f'<span id="remaining-{sid}" class="remaining">{remaining_pct}%</span>'
     )
+
+@router.post("/spools/{sid}/edit", response_class=HTMLResponse)
+def spool_edit_form(
+    request: Request,
+    sid: int,
+    db: DbSession,
+    profile_id: int = Form(...),
+    color_override: str | None = Form(None),
+    remaining_pct: int = Form(100),
+    location: str = Form(""),
+    notes: str = Form(""),
+) -> RedirectResponse:
+    """Update a spool's editable fields from the inline edit form."""
+    s = db.get(Spool, sid)
+    if s is None:
+        raise HTTPException(status_code=404, detail="spool not found")
+    if db.get(Profile, profile_id) is None:
+        raise HTTPException(status_code=404, detail="profile not found")
+    s.profile_id = profile_id
+    s.color_override = color_override or None
+    s.remaining_pct = remaining_pct
+    s.location = location
+    s.notes = notes
+    s.updated_at = _now()
+    db.flush()
+    return RedirectResponse(url="/spools", status_code=303)
+
+
+@router.post("/spools/{sid}/delete", response_class=HTMLResponse)
+def spool_delete_form(sid: int, db: DbSession) -> RedirectResponse:
+    """Delete a spool from the catalog."""
+    s = db.get(Spool, sid)
+    if s is None:
+        raise HTTPException(status_code=404, detail="spool not found")
+    db.delete(s)
+    db.flush()
+    return RedirectResponse(url="/spools", status_code=303)
+
+@router.post("/spools/{sid}/duplicate", response_class=HTMLResponse)
+def spool_duplicate_form(sid: int, db: DbSession) -> RedirectResponse:
+    """Duplicate a spool with remaining_pct reset to 100."""
+    s = db.get(Spool, sid)
+    if s is None:
+        raise HTTPException(status_code=404, detail="spool not found")
+    now = _now()
+    dup = Spool(
+        profile_id=s.profile_id,
+        color_override=s.color_override,
+        remaining_pct=100,
+        location=s.location,
+        notes=s.notes,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(dup)
+    db.flush()
+    return RedirectResponse(url="/spools", status_code=303)
 
 
 # ---------------------------------------------------------------------------
@@ -685,9 +766,137 @@ def migration_apply(
 
     return RedirectResponse(url="/migration?applied=1", status_code=303)
 
+# ---------------------------------------------------------------------------
+# Import from OrcaSlicer — bring standard filament presets into the catalog
+# ---------------------------------------------------------------------------
+
+
+def _pull_orca_presets() -> list[dict]:
+    """Pull all presets from Orca Cloud and convert to local format.
+
+    Creates an OrcaCloudClient from stored credentials, calls sync_pull,
+    and converts the upserts to local preset format (arrays for known
+    fields).  Returns an empty list if no credentials are stored or the
+    API call fails.
+    """
+    token_info = load_orca_token()
+    if token_info is None:
+        return []
+    refresh_token, user_id = token_info
+    try:
+        client = OrcaCloudClient(refresh_token)
+        result = client.sync_pull()
+    except OrcaCloudError:
+        return []
+    upserts = result.get("upserts", [])
+    return _cloud_presets_to_local(upserts)
+
+
+def _unmatched_orca_presets(db: Session) -> list[dict]:
+    """Return Orca Cloud presets not linked to any existing profile.
+
+    A preset is matched if its ``filament_id`` matches a profile's
+    ``filament_id``.  Unmatched presets are candidates for import.
+    """
+    presets = _pull_orca_presets()
+
+    existing_fids = set(
+        db.scalars(
+            select(Profile.filament_id).where(Profile.filament_id.isnot(None))
+        )
+    )
+
+    unmatched = []
+    for p in presets:
+        fid = p.get("filament_id", "")
+        if fid and fid in existing_fids:
+            continue
+        # Only presets with identity (filament_id + type) are importable
+        if not fid or not p.get("filament_type"):
+            continue
+        unmatched.append(p)
+    return unmatched
+
+
+@router.get("/import-orca", response_class=HTMLResponse)
+def import_orca_page(request: Request, db: DbSession) -> HTMLResponse:
+    """Show unmatched OrcaSlicer presets for import as profiles."""
+    all_presets = _pull_orca_presets()
+    presets = _unmatched_orca_presets(db)
+    applied = request.query_params.get("applied") == "1"
+
+    # Build proposal dicts with display-friendly fields
+    proposals = []
+    for p in presets:
+        proposals.append({
+            "filament_id": p.get("filament_id", ""),
+            "name": p.get("name", ""),
+            "brand": (p.get("filament_vendor") or [""])[0] if p.get("filament_vendor") else "",
+            "type": (p.get("filament_type") or [""])[0] if p.get("filament_type") else "",
+            "nozzle_temperature": (p.get("nozzle_temperature") or [""])[0] if p.get("nozzle_temperature") else "",
+            "pressure_advance": (p.get("pressure_advance") or [""])[0] if p.get("pressure_advance") else "",
+            "filament_flow_ratio": (p.get("filament_flow_ratio") or [""])[0] if p.get("filament_flow_ratio") else "",
+            "inherits": p.get("inherits", ""),
+            "user_tuned": not p.get("inherits", ""),
+        })
+
+    return _templates(request).TemplateResponse(
+        request, "import_orca.html",
+        {
+            "proposals": proposals,
+            "has_presets": len(all_presets) > 0,
+            "applied": applied,
+        },
+    )
+
+
+@router.post("/import-orca/apply", response_class=HTMLResponse)
+def import_orca_apply(
+    request: Request,
+    db: DbSession,
+    include: list[str] = Form(default=[]),
+) -> RedirectResponse:
+    """Create profiles from selected OrcaSlicer presets."""
+    presets = _unmatched_orca_presets(db)
+    by_fid = {p.get("filament_id", ""): p for p in presets}
+
+    now = _now()
+    for fid in include:
+        p = by_fid.get(fid)
+        if p is None:
+            continue
+
+        vendor = (p.get("filament_vendor") or [""])[0] if p.get("filament_vendor") else ""
+        ftype = (p.get("filament_type") or ["PLA"])[0] if p.get("filament_type") else "PLA"
+        temp = (p.get("nozzle_temperature") or ["220"])[0] if p.get("nozzle_temperature") else "220"
+        try:
+            temp_int = int(temp)
+        except (ValueError, TypeError):
+            temp_int = 220
+
+        profile = Profile(
+            brand=vendor,
+            name=p.get("name", ""),
+            type=ftype,
+            colors="[]",
+            min_temp=max(temp_int - 15, 0),
+            max_temp=temp_int + 15,
+            density=0.0,
+            drying_temp=0,
+            drying_time=0,
+            nozzle_temperature=temp_int,
+            filament_id=fid,
+            printer_db_id=None,  # standard filaments: no push to printer
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(profile)
+        db.flush()
+
+    return RedirectResponse(url="/import-orca?applied=1", status_code=303)
 
 # ---------------------------------------------------------------------------
-# Settings — printer connection + agent credentials (persisted to settings.json)
+# Settings — printer connection + Orca Cloud (persisted to settings.json)
 # ---------------------------------------------------------------------------
 
 _SETTINGS_DEFAULTS = {
@@ -708,7 +917,6 @@ def _settings_context(
             "ssh_user": config.ssh_user,
             "ssh_password": config.ssh_password,
             "db_remote_path": config.db_remote_path,
-            "agent_token": config.agent_token,
             "ws_port": config.ws_port,
             "version_override": config.version_override,
             "id_range_start": config.id_range_start,
@@ -720,18 +928,29 @@ def _settings_context(
             "ssh_user": stored.get("ssh_user", ""),
             "ssh_password": stored.get("ssh_password", ""),
             "db_remote_path": stored.get("db_remote_path", ""),
-            "agent_token": stored.get("agent_token", ""),
             "ws_port": stored.get("ws_port", _SETTINGS_DEFAULTS["ws_port"]),
             "version_override": stored.get(
                 "version_override", _SETTINGS_DEFAULTS["version_override"]),
             "id_range_start": stored.get(
                 "id_range_start", _SETTINGS_DEFAULTS["id_range_start"]),
         }
+    # Orca Cloud connection status
+    token_info = load_orca_token()
+    orca_connected = token_info is not None
+    orca_user_email = ""
+    if orca_connected:
+        try:
+            client = OrcaCloudClient(token_info[0])
+            orca_user_email = client.get_user_id()
+        except OrcaCloudError:
+            orca_connected = False
     return {
         **values,
         "configured": config is not None,
         "saved": saved,
         "errors": errors or [],
+        "orca_connected": orca_connected,
+        "orca_user_email": orca_user_email,
     }
 
 
@@ -752,7 +971,6 @@ def settings_save(
     ssh_user: str = Form(""),
     ssh_password: str = Form(""),
     db_remote_path: str = Form(""),
-    agent_token: str = Form(""),
     ws_port: str = Form(""),
     version_override: str = Form(""),
     id_range_start: str = Form(""),
@@ -762,13 +980,11 @@ def settings_save(
     ssh_user = ssh_user.strip()
     ssh_password = ssh_password.strip()
     db_remote_path = db_remote_path.strip()
-    agent_token = agent_token.strip()
 
     errors: list[str] = []
     for label, val in [
         ("Printer IP", printer_ip), ("SSH user", ssh_user),
         ("SSH password", ssh_password), ("Remote DB path", db_remote_path),
-        ("Agent token", agent_token),
     ]:
         if not val:
             errors.append(f"{label} is required.")
@@ -790,12 +1006,13 @@ def settings_save(
     submitted = {
         "printer_ip": printer_ip, "ssh_user": ssh_user,
         "ssh_password": ssh_password, "db_remote_path": db_remote_path,
-        "agent_token": agent_token, "ws_port": port,
+        "ws_port": port,
         "version_override": ver, "id_range_start": ids,
     }
 
     if errors:
-        ctx = {**submitted, "configured": False, "saved": False, "errors": errors}
+        ctx = {**_settings_context(None, saved=False, errors=errors), **submitted}
+        ctx["configured"] = False
         return _templates(request).TemplateResponse(
             request, "settings.html", ctx, status_code=422,
         )
@@ -803,6 +1020,34 @@ def settings_save(
     save_settings(submitted)
     request.app.state.config = build_config(submitted)
     return RedirectResponse(url="/settings?saved=1", status_code=303)
+
+
+@router.post("/api/settings/orca-connect")
+def orca_connect(email: str = Form(""), password: str = Form("")) -> dict:
+    """Connect to Orca Cloud via email+password login.
+
+    Calls Supabase password grant to obtain a refresh token, then persists it.
+    """
+    email = email.strip()
+    password = password.strip()
+    if not email or not password:
+        return {"ok": False, "error": "Email and password are required."}
+    try:
+        refresh_token, user_id = OrcaCloudClient.login_with_password(email, password)
+    except OrcaCloudError as exc:
+        return {"ok": False, "error": exc.message}
+    save_orca_token(refresh_token, user_id)
+    return {"ok": True, "user_id": user_id}
+
+
+@router.post("/api/settings/orca-disconnect")
+def orca_disconnect() -> dict:
+    """Disconnect from Orca Cloud by removing stored credentials."""
+    stored = load_settings() or {}
+    stored.pop("orca_refresh_token", None)
+    stored.pop("orca_user_id", None)
+    save_settings(stored)
+    return {"ok": True}
 
 
 @router.post("/api/settings/test-connection")

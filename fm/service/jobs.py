@@ -52,10 +52,8 @@ def claim_next(
     """Atomically claim the oldest queued job (FIFO): queued -> running.
 
     ``exclude`` is an optional set of job IDs to skip — used by
-    ``run_pending`` to leap over agent-facing jobs whose kind has no
-    server-side handler.  ``kinds`` restricts the claim to a set of job
-    kinds — used by the agent pull API (Task 11) to claim only
-    agent-facing kinds (``apply_preset`` / ``report_presets``).
+    ``run_pending`` to leap over jobs whose kind has no server-side
+    handler.  ``kinds`` restricts the claim to a set of job kinds.
 
     Returns ``None`` when no queued jobs remain.
     """
@@ -122,10 +120,8 @@ def run_pending(session: Session, config: Config) -> None:
     handler results) are contained the same way. Nothing escapes to the
     caller, so the surrounding session commits the recorded state cleanly.
 
-    Jobs whose ``kind`` is not in ``HANDLERS`` (agent-facing kinds like
-    ``apply_preset`` / ``report_presets``) are left ``queued`` for the agent
-    to claim via ``GET /api/agent/jobs`` (Task 11).  They are skipped without
-    error so registered kinds queued behind them still process.
+    Jobs whose ``kind`` is not in ``HANDLERS`` are left ``queued``
+    without error so registered kinds queued behind them still process.
     """
     skipped: set[int] = set()
     while True:
@@ -134,7 +130,7 @@ def run_pending(session: Session, config: Config) -> None:
             return
         handler = HANDLERS.get(job.kind)
         if handler is None:
-            # Agent-facing kinds have no server-side handler — leave queued.
+            # No server-side handler for this kind — leave queued.
             job.status = "queued"
             session.flush()
             log.debug("job %s: no handler for kind %r; leaving queued",

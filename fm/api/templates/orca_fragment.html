@@ -1,29 +1,7 @@
-{# HTMX fragment — read-only OrcaSlicer preset values. No base.html extends. #}
-{% if syncing %}
-<div id="orca-settings" class="form-section orca-display"
-     hx-get="/profiles/{{ pid }}/orca-fragment?job_id={{ job_id }}"
-     hx-trigger="load delay:3s"
-     hx-swap="outerHTML">
-  <div class="form-section-heading"><span>03</span><div><legend>Print settings</legend><p>Syncing from OrcaSlicer…</p></div></div>
-  <div class="orca-syncing">
-    <span class="orca-spinner"></span>
-    <p>Waiting for agent to scan presets…</p>
-  </div>
-</div>
-{% elif stale %}
+{# HTMX fragment — read-only Orca Cloud preset values. No base.html extends. #}
+{% if orca_data %}
 <div id="orca-settings" class="form-section orca-display">
-  <div class="form-section-heading"><span>03</span><div><legend>Print settings</legend><p>From OrcaSlicer</p></div></div>
-  <div class="orca-empty">
-    <p>Agent not running or sync timed out.</p>
-    <button class="button button-secondary"
-            hx-post="/profiles/{{ pid }}/sync-from-orca"
-            hx-swap="outerHTML"
-            hx-target="this">Retry sync</button>
-  </div>
-</div>
-{% elif orca_data %}
-<div id="orca-settings" class="form-section orca-display">
-  <div class="form-section-heading"><span>03</span><div><legend>Print settings</legend><p>From OrcaSlicer</p></div></div>
+  <div class="form-section-heading"><span>03</span><div><legend>Print settings</legend><p>From Orca Cloud{% if template_name %} · template: <code>{{ template_name }}</code>{% endif %}</p></div></div>
   <div class="form-grid three-col">
     {# macro: extract first element from Orca array-of-strings, or dash #}
     {% set nt = orca_data.get('nozzle_temperature') %}
@@ -64,13 +42,26 @@
 </div>
 {% else %}
 <div id="orca-settings" class="form-section orca-display">
-  <div class="form-section-heading"><span>03</span><div><legend>Print settings</legend><p>From OrcaSlicer</p></div></div>
+  <div class="form-section-heading"><span>03</span><div><legend>Print settings</legend><p>From Orca Cloud{% if template_name %} · template: <code>{{ template_name }}</code>{% endif %}</p></div></div>
   <div class="orca-empty">
-    <p>Not synced yet. Click to pull print settings from OrcaSlicer.</p>
+    <p>Not synced yet. Click to pull print settings from Orca Cloud.</p>
     <button class="button button-secondary"
             hx-post="/profiles/{{ pid }}/sync-from-orca"
             hx-swap="outerHTML"
             hx-target="#orca-settings">Sync from Orca</button>
   </div>
+</div>
+{% endif %}
+{% if synced_success %}
+<div id="orca-toast" class="orca-toast" hx-swap-oob="innerHTML">
+  <span>Synced from Orca Cloud</span>
+  <script>
+    (function() {
+      var t = document.getElementById('orca-toast');
+      if (!t) return;
+      t.classList.add('show');
+      setTimeout(function() { t.classList.remove('show'); }, 3000);
+    })();
+  </script>
 </div>
 {% endif %}

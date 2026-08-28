@@ -2,7 +2,7 @@
 {% block title %}Settings — Filament Manager{% endblock %}
 {% block content %}
 <section id="settings-form">
-  <header class="page-header"><div><p class="eyebrow">Configuration</p><h1>Settings</h1><p>Configure printer connection and agent credentials.</p></div></header>
+  <header class="page-header"><div><p class="eyebrow">Configuration</p><h1>Settings</h1><p>Configure printer connection and Orca Cloud sync.</p></div></header>
   {% if saved %}<div class="alert" style="border-color: rgba(80,200,120,.25); background: rgba(80,200,120,.08); color: #8ee6a8;"><strong>Settings saved.</strong><p>Printer connection updated.</p></div>{% endif %}
   {% if not configured %}<div class="alert alert-warning"><strong>Printer not configured.</strong><p>Fill in the fields below to enable sync and migration.</p></div>{% endif %}
   {% if errors %}<div class="alert alert-danger"><strong>Check the highlighted information</strong><ul class="errors">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}
@@ -13,8 +13,19 @@
       <label><span>SSH password</span><input type="password" name="ssh_password" value="{{ ssh_password }}" required placeholder="Printer SSH password"></label>
       <label class="full-width"><span>Remote DB path</span><input name="db_remote_path" value="{{ db_remote_path }}" required placeholder="/mnt/UDISK/creality/userdata/box/material_database.json"></label>
     </div><div class="test-conn-row"><button type="button" id="test-conn-btn" class="button button-secondary test-conn-btn">Test connection</button></div></fieldset>
-    <fieldset class="form-section"><div class="form-section-heading"><span>02</span><div><legend>Agent</legend><p>Token used to authenticate agent requests.</p></div></div><div class="form-grid">
-      <label class="full-width"><span>Agent token</span><input type="password" name="agent_token" value="{{ agent_token }}" required placeholder="Agent authentication token"></label>
+    <fieldset class="form-section"><div class="form-section-heading"><span>02</span><div><legend>Orca Cloud</legend><p>Connect your Orca Cloud account to sync filament presets.</p></div></div><div class="form-grid">
+      {% if orca_connected %}
+      <div class="full-width orca-cloud-status">
+        <p class="orca-cloud-connected"><strong>✓ Connected</strong> — user ID: <code>{{ orca_user_email }}</code></p>
+        <button type="button" id="orca-disconnect-btn" class="button button-secondary">Disconnect</button>
+      </div>
+      {% else %}
+      <label><span>Email</span><input type="email" id="orca-email" name="orca_email" placeholder="your@email.com"></label>
+      <label><span>Password</span><input type="password" id="orca-password" name="orca_password" placeholder="Orca Cloud password"></label>
+      <div class="full-width orca-cloud-actions">
+        <button type="button" id="orca-connect-btn" class="button button-primary">Connect</button>
+      </div>
+      {% endif %}
     </div></fieldset>
     <fieldset class="form-section"><div class="form-section-heading"><span>03</span><div><legend>Advanced</legend><p>WebSocket port and ID allocation overrides.</p></div></div><div class="form-grid three-col">
       <label><span>WebSocket port</span><div class="input-unit"><input type="number" name="ws_port" value="{{ ws_port }}"><b>port</b></div></label>
@@ -86,6 +97,62 @@
       showPopup('Request failed: ' + e.message);
     }
     setTimeout(resetBtn, 3000);
+  });
+})();
+
+// Orca Cloud connect
+(function() {
+  const btn = document.getElementById('orca-connect-btn');
+  if (!btn) return;
+  const emailEl = document.getElementById('orca-email');
+  const passEl = document.getElementById('orca-password');
+  btn.addEventListener('click', async () => {
+    if (!emailEl || !emailEl.value.trim() || !passEl || !passEl.value.trim()) return;
+    btn.disabled = true;
+    btn.textContent = 'Connecting…';
+    const fd = new FormData();
+    fd.set('email', emailEl.value.trim());
+    fd.set('password', passEl.value.trim());
+    try {
+      const res = await fetch('/api/settings/orca-connect', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.ok) {
+        window.location.reload();
+      } else {
+        btn.disabled = false;
+        btn.textContent = 'Connect';
+        alert(data.error || 'Connection failed');
+      }
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Connect';
+      alert('Request failed: ' + e.message);
+    }
+  });
+})();
+
+// Orca Cloud disconnect
+(function() {
+  const btn = document.getElementById('orca-disconnect-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'Disconnecting…';
+    try {
+      const res = await fetch('/api/settings/orca-disconnect', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        window.location.reload();
+      } else {
+        btn.disabled = false;
+        btn.textContent = 'Disconnect';
+        alert('Disconnect failed');
+      }
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Disconnect';
+      alert('Request failed: ' + e.message);
+    }
   });
 })();
 </script>

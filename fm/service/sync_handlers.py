@@ -14,16 +14,16 @@ Handlers:
   * ``verify`` — ``scp_pull`` fresh DB, floor-check + presence + hash compare,
     update ``SyncTarget.status`` (``in_sync`` / ``error``).  Cloud-sync
     rollback (version < floor) → ``error`` + activity warn.
-  * ``generate_preset`` — build preset dict + ``.info`` content via Task 6,
-    enqueue ``apply_preset`` for the agent queue, set
+  * ``generate_preset`` — build preset dict via Task 6, push directly to
+    Orca Cloud via ``OrcaCloudClient.sync_push``, set
     ``SyncTarget(orca_preset).expected_hash``.
-  * ``temp_sync`` — requires recent ``report_presets`` result; computes
-    ``temp_sync_targets``, applies ``nozzle_temperature`` changes to catalog,
-    enqueues ``push``.
+  * ``temp_sync`` — pull presets from Orca Cloud via ``sync_pull``, compute
+    ``temp_sync_targets``, apply ``nozzle_temperature`` changes to catalog,
+    enqueue ``push``.
 
-Transport / cache DB / preset template are injected via module-level factories
-so tests can substitute ``FakeTransport`` and temp fixtures without touching
-real SSH or ``/opt/orca-slicer``.
+Transport / cache DB / preset template / Orca Cloud client are injected via
+module-level factories so tests can substitute ``FakeTransport`` and mock
+clients without touching real SSH or the Orca Cloud API.
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import Config
-from ..models import Job, Profile, SyncTarget
+from ..models import Profile, SyncTarget
 from ..printer.dbcodec import (
     build_entry,
     find_entry,
@@ -55,6 +55,8 @@ from ..printer.transport import PrinterTransport, SshTransport
 from ..presets.builder import build_standalone_preset
 from ..presets.flattener import find_system_preset
 from ..presets.matching import temp_sync_targets
+from ..orca_cloud import OrcaCloudClient, OrcaCloudConflict, OrcaCloudError
+from ..settings_store import load_orca_token, save_orca_token
 from . import jobs
 
 log = __import__("logging").getLogger(__name__)
@@ -68,6 +70,22 @@ _cache_db_path: Path | None = None
 _import_db_path: Path | None = None  # import_scan: pre-pulled DB for tests
 _preset_template_factory: Callable[[dict], dict | None] = lambda p: find_system_preset(p["type"])
 _sleep = time.sleep  # tests override to no-op
+def _default_orca_client() -> OrcaCloudClient | None:
+    """Create an OrcaCloudClient from stored settings, or None if unconfigured."""
+    token_info = load_orca_token()
+    if token_info is None:
+        return None
+    refresh_token, user_id = token_info
+    return OrcaCloudClient(
+        refresh_token=refresh_token,
+        on_token_rotated=lambda new_token: save_orca_token(new_token, user_id),
+    )
+
+
+# Orca Cloud client factory — tests override via monkeypatch.
+# Production default loads refresh token from settings; returns None when
+# no Orca Cloud credentials are configured.
+_orca_client_factory: Callable[[], OrcaCloudClient | None] = _default_orca_client
 
 
 def _now() -> datetime:
@@ -76,6 +94,61 @@ def _now() -> datetime:
 
 def _get_transport(config: Config) -> PrinterTransport:
     return _transport_factory(config)
+
+
+# ---------------------------------------------------------------------------
+# Orca Cloud format conversion
+# ---------------------------------------------------------------------------
+
+# Fields that the local preset format stores as arrays (Orca Cloud stores
+# them as flat strings).  All other fields stay strings.
+_ARRAY_FIELDS = frozenset({
+    "filament_type",
+    "filament_vendor",
+    "nozzle_temperature",
+    "nozzle_temperature_initial_layer",
+    "pressure_advance",
+    "enable_pressure_advance",
+    "filament_flow_ratio",
+    "filament_max_volumetric_speed",
+    "filament_retraction_length",
+    "filament_retraction_speed",
+    "fan_min_speed",
+    "fan_max_speed",
+    "cool_plate_temp",
+    "eng_plate_temp",
+    "hot_plate_temp",
+})
+
+
+def _cloud_presets_to_local(upserts: list[dict]) -> list[dict]:
+    """Convert Orca Cloud sync_pull upserts to local preset format.
+
+    Filters to filament presets only (``type=filament``).  Process and
+    printer presets are excluded — they share the same sync endpoint
+    but are irrelevant for filament drift detection.
+
+    Cloud content is a flat JSON object with string values.  The local
+    OrcaSlicer preset format (and what ``match_presets`` / templates expect)
+    uses arrays for parameter fields.  This wraps known parameter fields in
+    arrays and adds ``_path`` / ``_system`` internal keys so ``match_presets``
+    works.
+    """
+    presets: list[dict] = []
+    for upsert in upserts:
+        content = upsert.get("content") or {}
+        if content.get("type") != "filament":
+            continue
+        preset: dict = {}
+        for key, value in content.items():
+            if key in _ARRAY_FIELDS and isinstance(value, str):
+                preset[key] = [value]
+            else:
+                preset[key] = value
+        preset["_path"] = upsert.get("id", "")
+        preset["_system"] = False
+        presets.append(preset)
+    return presets
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +456,7 @@ def handle_verify(session: Session, config: Config, payload: dict) -> dict:
 
 
 def handle_generate_preset(session: Session, config: Config, payload: dict) -> dict:
-    """Generate preset handler: build preset + .info, enqueue apply_preset,
+    """Generate preset handler: build preset, push directly to Orca Cloud,
     set SyncTarget(orca_preset).expected_hash.
     """
     profile_id = payload["profile_id"]
@@ -417,14 +490,6 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
 
     preset = build_standalone_preset(profile_dict, template)
 
-    # Build .info content (key=value format, empty sync_info/setting_id/base_id)
-    info_content = "\n".join([
-        "sync_info = ",
-        "setting_id = ",
-        "base_id = ",
-        f"updated_time = {int(time.time())}",
-    ]) + "\n"
-
     # Expected hash from preset identity + parameter fields
     preset_fields = {
         "name": preset["name"],
@@ -438,42 +503,82 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
     # Update profile filament_id
     profile.filament_id = preset["filament_id"]
 
-    # Set SyncTarget
+    # Set SyncTarget with cloud_id (Orca Cloud resource UUID, like setting_id)
     target = _get_or_create_target(session, profile.id, "orca_preset")
     target.expected_hash = expected_hash
+    target.cloud_id = None  # set after successful push
     target.status = "pending"
 
-    # Enqueue apply_preset for the agent queue
-    jobs.enqueue(session, "apply_preset", {
-        "profile_id": profile_id,
-        "name": preset["name"],
-        "preset": preset,
-        "info": info_content,
-    })
+    # Push preset directly to Orca Cloud
+    client = _orca_client_factory()
+    if client is None:
+        raise ValueError(
+            "Orca Cloud not configured — set up the connection in Settings"
+        )
+
+    try:
+        client.sync_push(
+            profile_id=preset["filament_id"],
+            name=preset["name"],
+            content=preset,
+        )
+    except OrcaCloudConflict as exc:
+        # Conflict means the profile already exists on Orca Cloud.
+        # Retry with the server's updated_time to force an update.
+        server_profile = exc.server_profile or {}
+        server_time = server_profile.get("updated_time", "")
+        if server_time:
+            try:
+                client.sync_push(
+                    profile_id=preset["filament_id"],
+                    name=preset["name"],
+                    content=preset,
+                    original_updated_time=str(server_time),
+                )
+            except OrcaCloudConflict:
+                log.warning(
+                    "Orca Cloud conflict for profile %s (filament_id=%s) — "
+                    "server has a newer version",
+                    profile_id, preset["filament_id"],
+                )
+                target.status = "drift"
+                return {
+                    "filament_id": preset["filament_id"],
+                    "expected_hash": expected_hash,
+                    "status": "drift",
+                }
+        else:
+            target.status = "drift"
+            return {
+                "filament_id": preset["filament_id"],
+                "expected_hash": expected_hash,
+                "status": "drift",
+            }
+    # Store cloud resource UUID for exact-match on future pulls
+    target.cloud_id = client.cloud_id(preset["filament_id"])
+    target.status = "in_sync"
+    target.last_synced_at = _now()
 
     return {
         "filament_id": preset["filament_id"],
         "expected_hash": expected_hash,
+        "status": "in_sync",
     }
 
 
 def handle_temp_sync(session: Session, config: Config, payload: dict) -> dict:
-    """Temp sync handler: compute temp_sync_targets from recent report_presets,
-    apply nozzle_temperature changes to catalog, enqueue push.
+    """Temp sync handler: pull presets from Orca Cloud, compute
+    temp_sync_targets, apply nozzle_temperature changes to catalog,
+    enqueue push.
     """
-    # Find most recent completed report_presets job
-    report_job = session.scalars(
-        select(Job)
-        .where(Job.kind == "report_presets", Job.status == "done")
-        .order_by(Job.id.desc())
-    ).first()
-    if report_job is None:
+    # Pull presets directly from Orca Cloud
+    client = _orca_client_factory()
+    if client is None:
         raise ValueError(
-            "no report_presets result available; run report_presets first"
+            "Orca Cloud not configured — set up the connection in Settings"
         )
-
-    report_result = json.loads(report_job.result) if report_job.result else {}
-    presets = report_result.get("presets", [])
+    pull_result = client.sync_pull()
+    presets = _cloud_presets_to_local(pull_result.get("upserts", []))
 
     # Build profiles_state from catalog (only pushed profiles)
     profile_ids = payload.get("profile_ids")
@@ -516,68 +621,91 @@ def handle_temp_sync(session: Session, config: Config, payload: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def refresh_preset_drift(session: Session) -> None:
-    """Update ``orca_preset`` SyncTarget status from the latest report_presets.
+    """Update ``orca_preset`` SyncTarget status from Orca Cloud sync_pull.
 
-    Two matching strategies:
-    1. If a profile has ``filament_id`` set, match by filament_id (exact).
-    2. Otherwise, match by brand/name/type via ``match_presets`` scoring
-       (same algorithm as OrcaSlicer). Creates a SyncTarget if one doesn't
-       exist yet, and sets ``profile.filament_id`` from the matched preset.
+    Matching mirrors OrcaSlicer desktop's ``setting_id`` approach:
+    1. If a SyncTarget has ``cloud_id``, match by it against the cloud
+       resource ``id`` (exact, no scoring).
+    2. If a SyncTarget has no ``cloud_id`` (legacy, pushed by the old
+       desktop agent), discover it via name matching and store the
+       cloud ``id`` as ``cloud_id`` for future exact matches.
+    3. If no match at all, mark as ``drift`` (deleted from cloud).
 
-    Stores the full matched preset dict as JSON in ``target.actual_state`` and
-    updates ``target.last_synced_at``.
+    Profiles without a SyncTarget (never pushed) are skipped — they
+    appear as ``pending`` in the drift table.
     """
     from ..presets.matching import match_presets
 
-    report_job = session.scalars(
-        select(Job)
-        .where(Job.kind == "report_presets", Job.status == "done")
-        .order_by(Job.id.desc())
-    ).first()
-    if report_job is None:
+    # Pull presets directly from Orca Cloud
+    client = _orca_client_factory()
+    if client is None:
         return
-    report_result = json.loads(report_job.result) if report_job.result else {}
-    presets = report_result.get("presets", [])
-    by_filament_id = {p.get("filament_id"): p for p in presets if p.get("filament_id")}
+    pull_result = client.sync_pull()
+    presets = _cloud_presets_to_local(pull_result.get("upserts", []))
+    deleted_ids = set(pull_result.get("deletes", []))
 
-    # Build profile→target map for existing orca_preset targets
-    existing_targets = list(session.scalars(
+    # Index by cloud resource id (the UUID in the upsert, not filament_id)
+    by_cloud_id = {upsert.get("id"): upsert for upsert in pull_result.get("upserts", [])
+                   if (upsert.get("content") or {}).get("type") == "filament"}
+    by_name = {p.get("name", ""): p for p in presets}
+
+    # Process existing orca_preset targets only
+    targets = list(session.scalars(
         select(SyncTarget).where(SyncTarget.kind == "orca_preset")
     ))
-    target_by_pid = {t.profile_id: t for t in existing_targets}
 
-    # Process all profiles — match by filament_id or brand/name/type
-    profiles = list(session.scalars(select(Profile).order_by(Profile.id)))
-    for profile in profiles:
-        target = target_by_pid.get(profile.id)
-        preset = None
+    for target in targets:
+        profile = session.get(Profile, target.profile_id)
+        if profile is None:
+            continue
 
-        # Strategy 1: match by filament_id
-        if profile.filament_id:
-            preset = by_filament_id.get(profile.filament_id)
+        upsert = None
 
-        # Strategy 2: match by brand/name/type scoring
-        if preset is None:
+        # Strategy 1: exact match by cloud_id (like OrcaSlicer's setting_id)
+        if target.cloud_id:
+            upsert = by_cloud_id.get(target.cloud_id)
+
+        # Strategy 2: legacy migration — discover cloud_id via name matching
+        if upsert is None and not target.cloud_id:
             matches, _ = match_presets(
                 presets, profile.brand, profile.name, profile.type,
             )
             if matches and matches[0]["score"] >= 30:
-                fid = matches[0]["fid"]
-                preset = by_filament_id.get(fid)
-                # Set filament_id on profile if not yet set
-                if preset and not profile.filament_id:
-                    profile.filament_id = fid
+                matched_name = matches[0]["name"]
+                preset = by_name.get(matched_name)
+                if preset:
+                    # Find the cloud resource id for this preset
+                    for up in pull_result.get("upserts", []):
+                        content = up.get("content") or {}
+                        if content.get("type") == "filament" and content.get("name") == matched_name:
+                            upsert = up
+                            # Store cloud_id for future exact matches
+                            target.cloud_id = up.get("id")
+                            break
+
+        # Check explicit deletes
+        if target.cloud_id and target.cloud_id in deleted_ids:
+            target.status = "drift"
+            target.actual_state = None
+            target.last_synced_at = _now()
+            continue
+
+        if upsert is None:
+            # Not in cloud — preset was deleted or never pushed via cloud
+            target.status = "drift"
+            target.actual_state = None
+            target.last_synced_at = _now()
+            continue
+
+        # Convert to local format for hash comparison
+        preset = None
+        for p in presets:
+            if p.get("_path") == upsert.get("id"):
+                preset = p
+                break
 
         if preset is None:
             continue
-
-        # Create target if it doesn't exist
-        if target is None:
-            target = SyncTarget(
-                profile_id=profile.id, kind="orca_preset",
-                status="pending",
-            )
-            session.add(target)
 
         # Compute drift hash if expected_hash is set
         if target.expected_hash:
@@ -656,7 +784,7 @@ def _entry_to_proposal(entry: dict) -> dict:
 
 def handle_import_scan(session: Session, config: Config, payload: dict) -> dict:
     """Import-scan handler: pull printer DB, extract all 99xxx entries as
-    migration proposals, enqueue ``report_presets`` for the agent.
+    migration proposals.
 
     In production, ``scp_pull`` fetches the live printer DB.  Tests override
     ``_import_db_path`` to point at a fixture file, bypassing SSH.
@@ -674,10 +802,6 @@ def handle_import_scan(session: Session, config: Config, payload: dict) -> dict:
 
     entries = find_custom_entries(db)
     proposals = [_entry_to_proposal(e) for e in entries]
-
-    # Request report_presets via the agent queue (agent-facing kind — stays
-    # queued until claimed via GET /api/agent/jobs).
-    jobs.enqueue(session, "report_presets", {})
 
     return {"proposals": proposals}
 

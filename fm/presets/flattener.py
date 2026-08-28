@@ -11,27 +11,27 @@ import sys
 from pathlib import Path
 
 
+# Bundled base templates (shipped with the app).
+_BUNDLED_DIR = Path(__file__).parent / "templates"
+
+# Deprecated: OrcaSlicer system profiles path. No longer used for template
+# selection (bundled templates are used instead). Kept for backward compat
+# with matching.py which imports it for load_presets().
 SYS_PROFILES = Path("/opt/orca-slicer/resources/profiles")
 
 
 def find_preset_by_name(name, hint_dir=None):
-    """Find a preset JSON by name. Prefer hint_dir, then system profiles."""
+    """Find a preset JSON by name. Prefer hint_dir, then bundled templates."""
     if not name:
         return None
-    candidates = []
     if hint_dir:
         p = hint_dir / f"{name}.json"
         if p.exists():
-            candidates.append(p)
-    base_dir = SYS_PROFILES / "OrcaFilamentLibrary" / "filament" / "base"
-    if base_dir.exists():
-        p = base_dir / f"{name}.json"
-        if p.exists() and p not in candidates:
-            candidates.append(p)
-    for p in SYS_PROFILES.rglob(f"{name}.json"):
-        if p not in candidates:
-            candidates.append(p)
-    return candidates[0] if candidates else None
+            return p
+    p = _BUNDLED_DIR / f"{name}.json"
+    if p.exists():
+        return p
+    return None
 
 
 def flatten_preset(path, _seen=None):
@@ -60,36 +60,51 @@ def flatten_preset(path, _seen=None):
     return data
 
 
-def find_system_preset(filament_type, hint_name=None):
-    """Find a system preset to use as template for the given filament type.
+# Map filament type -> bundled template filename.
+_TYPE_TO_TEMPLATE = {
+    "PLA": "fdm_filament_pla.json",
+    "PLA-Silk": "fdm_filament_pla_silk.json",
+    "PLA Silk": "fdm_filament_pla_silk.json",
+    "PETG": "fdm_filament_pet.json",
+    "ABS": "fdm_filament_abs.json",
+    "ASA": "fdm_filament_asa.json",
+    "PA": "fdm_filament_pa.json",
+    "PAHT": "fdm_filament_paht.json",
+    "PC": "fdm_filament_pc.json",
+    "PCTG": "fdm_filament_pctg.json",
+    "TPU": "fdm_filament_tpu.json",
+    "PVA": "fdm_filament_pva.json",
+    "HIPS": "fdm_filament_hips.json",
+    "PE": "fdm_filament_pe.json",
+    "PP": "fdm_filament_pp.json",
+    "PPA": "fdm_filament_ppa.json",
+    "PPS": "fdm_filament_pps.json",
+    "PHA": "fdm_filament_pha.json",
+    "EVA": "fdm_filament_eva.json",
+    "BVOH": "fdm_filament_bvoh.json",
+    "COPE": "fdm_filament_cope.json",
+    "SBS": "fdm_filament_sbs.json",
+}
 
-    Searches /opt/orca-slicer/resources/profiles for a filament preset matching
-    the given type. Prefers generic/base presets.
+
+def template_name_for_type(filament_type: str) -> str | None:
+    """Return the template filename for the given filament type, or None."""
+    return _TYPE_TO_TEMPLATE.get(filament_type)
+
+
+def find_system_preset(filament_type, hint_name=None):
+    """Find a base template for the given filament type.
+
+    Uses bundled templates first (shipped with the app), then falls back
+    to OrcaSlicer system profiles if available.  Bundled templates are
+    the OrcaFilamentLibrary base presets (fdm_filament_*.json) which
+    provide sane defaults for each filament type.
     """
-    if not SYS_PROFILES.exists():
-        return None
-    candidates = []
-    for p in SYS_PROFILES.rglob("filament/*.json"):
-        try:
-            d = json.loads(p.read_text())
-        except (json.JSONDecodeError, OSError):
-            continue
-        if d.get("type") != "filament":
-            continue
-        ft = d.get("filament_type")
-        if isinstance(ft, list) and ft:
-            ft = ft[0]
-        if ft != filament_type:
-            continue
-        d["_path"] = str(p)
-        candidates.append(d)
-    if not candidates:
-        return None
-    # Prefer presets with "Generic" in name, then "base"
-    generic = [c for c in candidates if "generic" in c.get("name", "").lower()]
-    if generic:
-        return generic[0]
-    base = [c for c in candidates if "base" in c.get("name", "").lower()]
-    if base:
-        return base[0]
-    return candidates[0]
+    # 1. Try bundled template (deterministic, no filesystem scan).
+    filename = _TYPE_TO_TEMPLATE.get(filament_type)
+    if filename:
+        p = _BUNDLED_DIR / filename
+        if p.exists():
+            return flatten_preset(p)
+
+    return None

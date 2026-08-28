@@ -10,7 +10,7 @@ class Config:
     ws_port: int = 9999; version_override: int = 9876543210
     id_range_start: int = 99001; agent_token: str = ""
 _REQUIRED = ("FM_PRINTER_IP", "FM_SSH_USER", "FM_SSH_PASSWORD",
-             "FM_DB_REMOTE_PATH", "FM_AGENT_TOKEN")
+             "FM_DB_REMOTE_PATH")
 
 def load_config(env: Mapping[str, str] = os.environ) -> Config:
     missing = [k for k in _REQUIRED if not env.get(k)]

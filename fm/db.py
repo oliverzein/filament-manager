@@ -1,5 +1,5 @@
 # fm/db.py
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import Base
@@ -34,5 +34,16 @@ def init_engine(url: str) -> Engine:
     """
     engine = create_engine(url, future=True)
     Base.metadata.create_all(engine)
+    _migrate(engine)
     SessionLocal.configure(bind=engine)
     return engine
+
+
+def _migrate(engine: Engine) -> None:
+    """Add columns to existing tables (SQLite ALTER TABLE ADD COLUMN)."""
+    with engine.connect() as conn:
+        # sync_targets.cloud_id — added for Orca Cloud resource UUID tracking
+        cols = {r[1] for r in conn.execute(text("PRAGMA table_info(sync_targets)"))}
+        if "cloud_id" not in cols:
+            conn.execute(text("ALTER TABLE sync_targets ADD COLUMN cloud_id VARCHAR(64)"))
+            conn.commit()

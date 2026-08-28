@@ -16,7 +16,7 @@ from typing import Mapping
 from .config import Config, load_config
 from .errors import FmError
 
-_REQUIRED = ("printer_ip", "ssh_user", "ssh_password", "db_remote_path", "agent_token")
+_REQUIRED = ("printer_ip", "ssh_user", "ssh_password", "db_remote_path")
 
 
 def settings_path() -> Path:
@@ -81,8 +81,10 @@ def build_config(data: dict) -> Config:
     """Build a :class:`Config` from a settings dict.
 
     Required keys: ``printer_ip``, ``ssh_user``, ``ssh_password``,
-    ``db_remote_path``, ``agent_token``.  Optional keys: ``ws_port`` (9999),
-    ``version_override`` (9876543210), ``id_range_start`` (99001).
+    ``db_remote_path``.  Optional keys: ``agent_token`` (""),
+    ``ws_port`` (9999), ``version_override`` (9876543210),
+    ``id_range_start`` (99001), ``orca_refresh_token`` (""),
+    ``orca_user_id`` (""), ``orca_sync_cursor`` (0).
     Raises :class:`FmError` if any required key is missing or empty.
     """
     missing = [k for k in _REQUIRED if not data.get(k)]
@@ -96,7 +98,7 @@ def build_config(data: dict) -> Config:
         ws_port=int(data.get("ws_port", 9999)),
         version_override=int(data.get("version_override", 9876543210)),
         id_range_start=int(data.get("id_range_start", 99001)),
-        agent_token=data["agent_token"],
+        agent_token=data.get("agent_token", ""),
     )
 
 
@@ -117,3 +119,41 @@ def load_merged_config(env: Mapping[str, str] = os.environ) -> Config | None:
         return load_config(env)
     except FmError:
         return None
+
+
+def load_orca_token() -> tuple[str, str] | None:
+    """Return ``(refresh_token, user_id)`` from settings.json, or ``None``."""
+    data = load_settings()
+    if data is None:
+        return None
+    refresh_token = data.get("orca_refresh_token", "")
+    user_id = data.get("orca_user_id", "")
+    if not refresh_token:
+        return None
+    return refresh_token, user_id
+
+
+def save_orca_token(refresh_token: str, user_id: str) -> None:
+    """Merge Orca Cloud token + user id into existing settings.json."""
+    data = load_settings() or {}
+    data["orca_refresh_token"] = refresh_token
+    data["orca_user_id"] = user_id
+    save_settings(data)
+
+
+def load_orca_cursor() -> int:
+    """Return the stored sync cursor (0 if unset)."""
+    data = load_settings()
+    if data is None:
+        return 0
+    try:
+        return int(data.get("orca_sync_cursor", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def save_orca_cursor(cursor: int) -> None:
+    """Persist the sync cursor into settings.json."""
+    data = load_settings() or {}
+    data["orca_sync_cursor"] = cursor
+    save_settings(data)

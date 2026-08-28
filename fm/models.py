@@ -63,6 +63,7 @@ class SyncTarget(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"))
     kind: Mapped[str] = mapped_column(String(32))  # 'printer_db' | 'orca_preset'
+    cloud_id: Mapped[str | None] = mapped_column(String(64), default=None)  # Orca Cloud resource UUID (like setting_id in .info files)
     expected_hash: Mapped[str | None] = mapped_column(default=None)
     actual_state: Mapped[str | None] = mapped_column(default=None)  # JSON strings
     status: Mapped[str] = mapped_column(String(16), default="pending")  # in_sync|drift|pending|error
@@ -73,7 +74,7 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    kind: Mapped[str] = mapped_column(String(32))  # push|generate_preset|apply_preset|report_presets|temp_sync|import
+    kind: Mapped[str] = mapped_column(String(32))  # push|generate_preset|temp_sync|import
     payload: Mapped[str] = mapped_column(default="{}")
     status: Mapped[str] = mapped_column(String(24), default="queued")  # queued|running|done|error|awaiting_input
     result: Mapped[str | None] = mapped_column(default=None)

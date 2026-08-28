@@ -141,21 +141,6 @@ def test_handler_receives_session_config_payload(inmemory_session, cfg):
         jobs.HANDLERS.pop("echo", None)
 
 
-def test_unknown_kind_left_queued(inmemory_session, cfg):
-    """Jobs whose kind is not in HANDLERS (agent-facing kinds like
-    apply_preset / report_presets) are left queued for the agent to claim,
-    not errored.  run_pending skips them so registered kinds behind them
-    still process."""
-    s = inmemory_session
-    j = jobs.enqueue(s, "mystery", {})
-    s.flush()
-    jobs.run_pending(s, cfg)
-    s.flush()
-    assert j.status == "queued"
-    assert j.result is None
-    # No activity log entry for skipped jobs
-    entry = _last_activity(s)
-    assert entry is None
 
 def test_unregistered_kind_skipped_registered_behind_still_runs(inmemory_session, cfg):
     """An unregistered kind queued before a registered kind must not block

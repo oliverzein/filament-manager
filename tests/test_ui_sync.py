@@ -349,15 +349,6 @@ class TestMigration:
         assert b"Polymaker" in r.content
         assert b"Bambu" in r.content
 
-    def test_migration_import_enqueues_report_presets(self, client):
-        """import_scan should enqueue a report_presets job for the agent."""
-        client.post("/migration/import")
-        with SessionLocal() as s:
-            report_job = s.scalars(
-                select(Job).where(Job.kind == "report_presets")
-            ).first()
-            assert report_job is not None
-            assert report_job.status == "queued"  # agent-facing, stays queued
 
     def test_migration_apply_creates_profiles(self, client):
         """POST /migration/apply with selected entries creates profiles."""

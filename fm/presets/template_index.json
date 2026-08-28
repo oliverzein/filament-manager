@@ -1,0 +1,2122 @@
+{
+  "templates": [
+    {
+      "name": "Anker Generic ABS",
+      "vendor": "Generic",
+      "type": "ABS",
+      "file": "Anker Generic ABS @base.json"
+    },
+    {
+      "name": "Anker Generic ASA",
+      "vendor": "Generic",
+      "type": "ASA",
+      "file": "Anker Generic ASA @base.json"
+    },
+    {
+      "name": "Anker Generic PA",
+      "vendor": "Generic",
+      "type": "PA",
+      "file": "Anker Generic PA @base.json"
+    },
+    {
+      "name": "Anker Generic PA-CF",
+      "vendor": "Generic",
+      "type": "PA-CF",
+      "file": "Anker Generic PA-CF @base.json"
+    },
+    {
+      "name": "Anker Generic PC",
+      "vendor": "Generic",
+      "type": "PC",
+      "file": "Anker Generic PC @base.json"
+    },
+    {
+      "name": "Anker Generic PETG",
+      "vendor": "Generic",
+      "type": "PETG",
+      "file": "Anker Generic PETG @base.json"
+    },
+    {
+      "name": "Anker Generic PETG-CF",
+      "vendor": "Generic",
+      "type": "PETG-CF",
+      "file": "Anker Generic PETG-CF @base.json"
+    },
+    {
+      "name": "Anker Generic PLA",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Anker Generic PLA @base.json"
+    },
+    {
+      "name": "Anker Generic PLA Silk",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Anker Generic PLA Silk @base.json"
+    },
+    {
+      "name": "Anker Generic PLA+",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Anker Generic PLA+ @base.json"
+    },
+    {
+      "name": "Anker Generic PLA-CF",
+      "vendor": "Generic",
+      "type": "PLA-CF",
+      "file": "Anker Generic PLA-CF @base.json"
+    },
+    {
+      "name": "Anker Generic PVA",
+      "vendor": "Generic",
+      "type": "PVA",
+      "file": "Anker Generic PVA @base.json"
+    },
+    {
+      "name": "Anker Generic TPU",
+      "vendor": "Generic",
+      "type": "TPU",
+      "file": "Anker Generic TPU @base.json"
+    },
+    {
+      "name": "Bambu PPA-CF",
+      "vendor": "Generic",
+      "type": "PPA-CF",
+      "file": "Bambu PPA-CF @base.json"
+    },
+    {
+      "name": "Generic ABS",
+      "vendor": "Generic",
+      "type": "ABS",
+      "file": "Generic ABS @base.json"
+    },
+    {
+      "name": "Generic ASA",
+      "vendor": "Generic",
+      "type": "ASA",
+      "file": "Generic ASA @base.json"
+    },
+    {
+      "name": "Generic BVOH",
+      "vendor": "Generic",
+      "type": "BVOH",
+      "file": "Generic BVOH @base.json"
+    },
+    {
+      "name": "Generic COPE",
+      "vendor": "Generic",
+      "type": "COPE",
+      "file": "fdm_filament_cope.json"
+    },
+    {
+      "name": "Generic EVA",
+      "vendor": "Generic",
+      "type": "EVA",
+      "file": "Generic EVA @base.json"
+    },
+    {
+      "name": "Generic HIPS",
+      "vendor": "Generic",
+      "type": "HIPS",
+      "file": "Generic HIPS @base.json"
+    },
+    {
+      "name": "Generic PA",
+      "vendor": "Generic",
+      "type": "PA",
+      "file": "Generic PA @base.json"
+    },
+    {
+      "name": "Generic PA-CF",
+      "vendor": "Generic",
+      "type": "PA-CF",
+      "file": "Generic PA-CF @base.json"
+    },
+    {
+      "name": "Generic PAHT",
+      "vendor": "Generic",
+      "type": "PAHT",
+      "file": "fdm_filament_paht.json"
+    },
+    {
+      "name": "Generic PC",
+      "vendor": "Generic",
+      "type": "PC",
+      "file": "Generic PC @base.json"
+    },
+    {
+      "name": "Generic PCTG",
+      "vendor": "Generic",
+      "type": "PCTG",
+      "file": "Generic PCTG @base.json"
+    },
+    {
+      "name": "Generic PE",
+      "vendor": "Generic",
+      "type": "PE",
+      "file": "Generic PE @base.json"
+    },
+    {
+      "name": "Generic PE-CF",
+      "vendor": "Generic",
+      "type": "PE-CF",
+      "file": "Generic PE-CF @base.json"
+    },
+    {
+      "name": "Generic PET",
+      "vendor": "Generic",
+      "type": "PET",
+      "file": "Generic PET @base.json"
+    },
+    {
+      "name": "Generic PETG",
+      "vendor": "Generic",
+      "type": "PETG",
+      "file": "Generic PETG @base.json"
+    },
+    {
+      "name": "Generic PETG HF",
+      "vendor": "Generic",
+      "type": "PETG",
+      "file": "Generic PETG HF @base.json"
+    },
+    {
+      "name": "Generic PETG-CF",
+      "vendor": "Generic",
+      "type": "PETG-CF",
+      "file": "Generic PETG-CF @base.json"
+    },
+    {
+      "name": "Generic PHA",
+      "vendor": "Generic",
+      "type": "PHA",
+      "file": "Generic PHA @base.json"
+    },
+    {
+      "name": "Generic PLA",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Generic PLA @base.json"
+    },
+    {
+      "name": "Generic PLA High Speed",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Generic PLA High Speed @base.json"
+    },
+    {
+      "name": "Generic PLA Silk",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Generic PLA Silk @base.json"
+    },
+    {
+      "name": "Generic PLA Silk",
+      "vendor": "Generic",
+      "type": "PLA Silk",
+      "file": "fdm_filament_pla_silk.json"
+    },
+    {
+      "name": "Generic PLA-CF",
+      "vendor": "Generic",
+      "type": "PLA-CF",
+      "file": "Generic PLA-CF @base.json"
+    },
+    {
+      "name": "Generic PLA-Silk",
+      "vendor": "Generic",
+      "type": "PLA-Silk",
+      "file": "fdm_filament_pla_silk.json"
+    },
+    {
+      "name": "Generic PP",
+      "vendor": "Generic",
+      "type": "PP",
+      "file": "Generic PP @base.json"
+    },
+    {
+      "name": "Generic PP-CF",
+      "vendor": "Generic",
+      "type": "PP-CF",
+      "file": "Generic PP-CF @base.json"
+    },
+    {
+      "name": "Generic PP-GF",
+      "vendor": "Generic",
+      "type": "PP-GF",
+      "file": "Generic PP-GF @base.json"
+    },
+    {
+      "name": "Generic PPA",
+      "vendor": "Generic",
+      "type": "PPA",
+      "file": "fdm_filament_ppa.json"
+    },
+    {
+      "name": "Generic PPA-CF",
+      "vendor": "Generic",
+      "type": "PPA-CF",
+      "file": "Generic PPA-CF @base.json"
+    },
+    {
+      "name": "Generic PPA-GF",
+      "vendor": "Generic",
+      "type": "PPA-GF",
+      "file": "Generic PPA-GF @base.json"
+    },
+    {
+      "name": "Generic PPS",
+      "vendor": "Generic",
+      "type": "PPS",
+      "file": "Generic PPS @base.json"
+    },
+    {
+      "name": "Generic PPS-CF",
+      "vendor": "Generic",
+      "type": "PPS-CF",
+      "file": "Generic PPS-CF @base.json"
+    },
+    {
+      "name": "Generic PVA",
+      "vendor": "Generic",
+      "type": "PVA",
+      "file": "Generic PVA @base.json"
+    },
+    {
+      "name": "Generic SBS",
+      "vendor": "Generic",
+      "type": "SBS",
+      "file": "Generic SBS @base.json"
+    },
+    {
+      "name": "Generic TPU",
+      "vendor": "Generic",
+      "type": "TPU",
+      "file": "Generic TPU @base.json"
+    },
+    {
+      "name": "Generic TPU for AMS",
+      "vendor": "Generic",
+      "type": "TPU-AMS",
+      "file": "Generic TPU for AMS @base.json"
+    },
+    {
+      "name": "OrcaArena Generic ABS",
+      "vendor": "Generic",
+      "type": "ABS",
+      "file": "OrcaArena Generic ABS @base.json"
+    },
+    {
+      "name": "OrcaArena Generic ASA",
+      "vendor": "Generic",
+      "type": "ASA",
+      "file": "OrcaArena Generic ASA @base.json"
+    },
+    {
+      "name": "OrcaArena Generic PC",
+      "vendor": "Generic",
+      "type": "PC",
+      "file": "OrcaArena Generic PC @base.json"
+    },
+    {
+      "name": "OrcaArena Generic PETG",
+      "vendor": "Generic",
+      "type": "PETG",
+      "file": "OrcaArena Generic PETG @base.json"
+    },
+    {
+      "name": "OrcaArena Generic PLA",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "OrcaArena Generic PLA @base.json"
+    },
+    {
+      "name": "OrcaArena Generic PLA Silk",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "OrcaArena Generic PLA Silk @base.json"
+    },
+    {
+      "name": "OrcaArena Generic PLA-CF",
+      "vendor": "Generic",
+      "type": "PLA-CF",
+      "file": "OrcaArena Generic PLA-CF @base.json"
+    },
+    {
+      "name": "OrcaArena Generic PVA",
+      "vendor": "Generic",
+      "type": "PVA",
+      "file": "OrcaArena Generic PVA @base.json"
+    },
+    {
+      "name": "PolyLite PLA",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "PolyLite PLA @base.json"
+    },
+    {
+      "name": "Snapmaker ABS",
+      "vendor": "Generic",
+      "type": "ABS",
+      "file": "Snapmaker ABS @base.json"
+    },
+    {
+      "name": "Snapmaker ASA",
+      "vendor": "Generic",
+      "type": "ASA",
+      "file": "Snapmaker ASA @base.json"
+    },
+    {
+      "name": "Snapmaker Dual ABS",
+      "vendor": "Generic",
+      "type": "ABS",
+      "file": "Snapmaker Dual ABS @base.json"
+    },
+    {
+      "name": "Snapmaker Dual ASA",
+      "vendor": "Generic",
+      "type": "ASA",
+      "file": "Snapmaker Dual ASA @base.json"
+    },
+    {
+      "name": "Snapmaker Dual PA-CF",
+      "vendor": "Generic",
+      "type": "PA",
+      "file": "Snapmaker Dual PA-CF @base.json"
+    },
+    {
+      "name": "Snapmaker Dual PET",
+      "vendor": "Generic",
+      "type": "PETG",
+      "file": "Snapmaker Dual PET @base.json"
+    },
+    {
+      "name": "Snapmaker Dual PLA",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Snapmaker Dual PLA @base.json"
+    },
+    {
+      "name": "Snapmaker Dual PLA Matte",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Snapmaker Dual PLA Matte @base.json"
+    },
+    {
+      "name": "Snapmaker Dual PLA Metal",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Snapmaker Dual PLA Metal @base.json"
+    },
+    {
+      "name": "Snapmaker Dual PLA Silk",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Snapmaker Dual PLA Silk @base.json"
+    },
+    {
+      "name": "Snapmaker Dual PLA-CF",
+      "vendor": "Generic",
+      "type": "PLA-CF",
+      "file": "Snapmaker Dual PLA-CF @base.json"
+    },
+    {
+      "name": "Snapmaker Dual PVA",
+      "vendor": "Generic",
+      "type": "PVA",
+      "file": "Snapmaker Dual PVA @base.json"
+    },
+    {
+      "name": "Snapmaker Dual TPU",
+      "vendor": "Generic",
+      "type": "TPU",
+      "file": "Snapmaker Dual TPU @base.json"
+    },
+    {
+      "name": "Snapmaker J1 ABS",
+      "vendor": "Generic",
+      "type": "ABS",
+      "file": "Snapmaker J1 ABS @base.json"
+    },
+    {
+      "name": "Snapmaker J1 ASA",
+      "vendor": "Generic",
+      "type": "ASA",
+      "file": "Snapmaker J1 ASA @base.json"
+    },
+    {
+      "name": "Snapmaker J1 PA-CF",
+      "vendor": "Generic",
+      "type": "PA",
+      "file": "Snapmaker J1 PA-CF @base.json"
+    },
+    {
+      "name": "Snapmaker J1 PET",
+      "vendor": "Generic",
+      "type": "PETG",
+      "file": "Snapmaker J1 PET @base.json"
+    },
+    {
+      "name": "Snapmaker J1 PLA",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Snapmaker J1 PLA @base.json"
+    },
+    {
+      "name": "Snapmaker J1 PLA Matte",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Snapmaker J1 PLA Matte @base.json"
+    },
+    {
+      "name": "Snapmaker J1 PLA Metal",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Snapmaker J1 PLA Metal @base.json"
+    },
+    {
+      "name": "Snapmaker J1 PLA Silk",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Snapmaker J1 PLA Silk @base.json"
+    },
+    {
+      "name": "Snapmaker J1 PLA-CF",
+      "vendor": "Generic",
+      "type": "PLA-CF",
+      "file": "Snapmaker J1 PLA-CF @base.json"
+    },
+    {
+      "name": "Snapmaker J1 PVA",
+      "vendor": "Generic",
+      "type": "PVA",
+      "file": "Snapmaker J1 PVA @base.json"
+    },
+    {
+      "name": "Snapmaker J1 TPU",
+      "vendor": "Generic",
+      "type": "TPU",
+      "file": "Snapmaker J1 TPU @base.json"
+    },
+    {
+      "name": "Snapmaker PA-CF",
+      "vendor": "Generic",
+      "type": "PA",
+      "file": "Snapmaker PA-CF @base.json"
+    },
+    {
+      "name": "Snapmaker PET",
+      "vendor": "Generic",
+      "type": "PETG",
+      "file": "Snapmaker PET @base.json"
+    },
+    {
+      "name": "Snapmaker PLA",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Snapmaker PLA @base.json"
+    },
+    {
+      "name": "Snapmaker PLA Silk",
+      "vendor": "Generic",
+      "type": "PLA",
+      "file": "Snapmaker PLA Silk @base.json"
+    },
+    {
+      "name": "Snapmaker PLA-CF",
+      "vendor": "Generic",
+      "type": "PLA-CF",
+      "file": "Snapmaker PLA-CF @base.json"
+    },
+    {
+      "name": "Snapmaker PVA",
+      "vendor": "Generic",
+      "type": "PVA",
+      "file": "Snapmaker PVA @base.json"
+    },
+    {
+      "name": "Snapmaker TPU",
+      "vendor": "Generic",
+      "type": "TPU",
+      "file": "Snapmaker TPU @base.json"
+    },
+    {
+      "name": "AliZ PA-CF",
+      "vendor": "Aliz",
+      "type": "PA-CF",
+      "file": "AliZ PA-CF @base.json"
+    },
+    {
+      "name": "AliZ PETG",
+      "vendor": "Aliz",
+      "type": "PETG",
+      "file": "AliZ PETG @base.json"
+    },
+    {
+      "name": "AliZ PETG-CF",
+      "vendor": "Aliz",
+      "type": "PETG-CF",
+      "file": "AliZ PETG-CF @base.json"
+    },
+    {
+      "name": "AliZ PETG-Metal",
+      "vendor": "Aliz",
+      "type": "PETG",
+      "file": "AliZ PETG-Metal @base.json"
+    },
+    {
+      "name": "AliZ PLA",
+      "vendor": "Aliz",
+      "type": "PLA",
+      "file": "AliZ PLA @base.json"
+    },
+    {
+      "name": "BETA ABS",
+      "vendor": "BETA",
+      "type": "ABS",
+      "file": "BETA ABS @base.json"
+    },
+    {
+      "name": "BETA ASA",
+      "vendor": "BETA",
+      "type": "ASA",
+      "file": "BETA ASA @base.json"
+    },
+    {
+      "name": "BETA HIPS",
+      "vendor": "BETA",
+      "type": "HIPS",
+      "file": "BETA HIPS @base.json"
+    },
+    {
+      "name": "BETA PAHT-CF",
+      "vendor": "BETA",
+      "type": "PA-CF",
+      "file": "BETA PAHT-CF @base.json"
+    },
+    {
+      "name": "BETA PEBA 90A",
+      "vendor": "BETA",
+      "type": "TPU",
+      "file": "BETA PEBA 90A @base.json"
+    },
+    {
+      "name": "BETA PETG",
+      "vendor": "BETA",
+      "type": "PETG",
+      "file": "BETA PETG @base.json"
+    },
+    {
+      "name": "BETA PETG Fluorescence",
+      "vendor": "BETA",
+      "type": "PETG",
+      "file": "BETA PETG Fluorescence @base.json"
+    },
+    {
+      "name": "BETA PETG Glitter",
+      "vendor": "BETA",
+      "type": "PETG",
+      "file": "BETA PETG Glitter @base.json"
+    },
+    {
+      "name": "BETA PETG Glow",
+      "vendor": "BETA",
+      "type": "PETG",
+      "file": "BETA PETG Glow @base.json"
+    },
+    {
+      "name": "BETA PETG Gradient",
+      "vendor": "BETA",
+      "type": "PETG",
+      "file": "BETA PETG Gradient @base.json"
+    },
+    {
+      "name": "BETA PETG HF",
+      "vendor": "BETA",
+      "type": "PETG",
+      "file": "BETA PETG HF @base.json"
+    },
+    {
+      "name": "BETA PETG Heat Color Change",
+      "vendor": "BETA",
+      "type": "PETG",
+      "file": "BETA PETG Heat Color Change @base.json"
+    },
+    {
+      "name": "BETA PETG Marble",
+      "vendor": "BETA",
+      "type": "PETG",
+      "file": "BETA PETG Marble @base.json"
+    },
+    {
+      "name": "BETA PETG Matte",
+      "vendor": "BETA",
+      "type": "PETG",
+      "file": "BETA PETG Matte @base.json"
+    },
+    {
+      "name": "BETA PETG Metallic",
+      "vendor": "BETA",
+      "type": "PETG",
+      "file": "BETA PETG Metallic @base.json"
+    },
+    {
+      "name": "BETA PETG Transparent",
+      "vendor": "BETA",
+      "type": "PETG",
+      "file": "BETA PETG Transparent @base.json"
+    },
+    {
+      "name": "BETA PETG UV Color Change",
+      "vendor": "BETA",
+      "type": "PETG",
+      "file": "BETA PETG UV Color Change @base.json"
+    },
+    {
+      "name": "BETA PETG-CF",
+      "vendor": "BETA",
+      "type": "PETG-CF",
+      "file": "BETA PETG-CF @base.json"
+    },
+    {
+      "name": "BETA PETG-GF",
+      "vendor": "BETA",
+      "type": "PETG-CF",
+      "file": "BETA PETG-GF @base.json"
+    },
+    {
+      "name": "BETA PLA Basic",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Basic @base.json"
+    },
+    {
+      "name": "BETA PLA Chameleon",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Chameleon @base.json"
+    },
+    {
+      "name": "BETA PLA Fluorescence",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Fluorescence @base.json"
+    },
+    {
+      "name": "BETA PLA Glitter",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Glitter @base.json"
+    },
+    {
+      "name": "BETA PLA Glow",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Glow @base.json"
+    },
+    {
+      "name": "BETA PLA Gradient",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Gradient @base.json"
+    },
+    {
+      "name": "BETA PLA Heat Color Change",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Heat Color Change @base.json"
+    },
+    {
+      "name": "BETA PLA High Speed",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA High Speed @base.json"
+    },
+    {
+      "name": "BETA PLA High Temp",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA High Temp @base.json"
+    },
+    {
+      "name": "BETA PLA Marble",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Marble @base.json"
+    },
+    {
+      "name": "BETA PLA Matte",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Matte @base.json"
+    },
+    {
+      "name": "BETA PLA Metal",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Metal @base.json"
+    },
+    {
+      "name": "BETA PLA Metallic",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Metallic @base.json"
+    },
+    {
+      "name": "BETA PLA PRO",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA PRO @base.json"
+    },
+    {
+      "name": "BETA PLA Silk",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Silk @base.json"
+    },
+    {
+      "name": "BETA PLA Silk+",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Silk+ @base.json"
+    },
+    {
+      "name": "BETA PLA Transparent",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Transparent @base.json"
+    },
+    {
+      "name": "BETA PLA UV Color Change",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA UV Color Change @base.json"
+    },
+    {
+      "name": "BETA PLA Wood",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Wood @base.json"
+    },
+    {
+      "name": "BETA PLA Youth",
+      "vendor": "BETA",
+      "type": "PLA",
+      "file": "BETA PLA Youth @base.json"
+    },
+    {
+      "name": "BETA PLA-CF",
+      "vendor": "BETA",
+      "type": "PLA-CF",
+      "file": "BETA PLA-CF @base.json"
+    },
+    {
+      "name": "BETA TPU 90A",
+      "vendor": "BETA",
+      "type": "TPU",
+      "file": "BETA TPU 90A @base.json"
+    },
+    {
+      "name": "BETA TPU 95A",
+      "vendor": "BETA",
+      "type": "TPU",
+      "file": "BETA TPU 95A @base.json"
+    },
+    {
+      "name": "BETA TPU 98A",
+      "vendor": "BETA",
+      "type": "TPU",
+      "file": "BETA TPU 98A @base.json"
+    },
+    {
+      "name": "BETA TPU Matte",
+      "vendor": "BETA",
+      "type": "TPU",
+      "file": "BETA TPU Matte @base.json"
+    },
+    {
+      "name": "Bambu ABS",
+      "vendor": "Bambu Lab",
+      "type": "ABS",
+      "file": "Bambu ABS @base.json"
+    },
+    {
+      "name": "Bambu ABS-GF",
+      "vendor": "Bambu Lab",
+      "type": "ABS-GF",
+      "file": "Bambu ABS-GF @base.json"
+    },
+    {
+      "name": "Bambu ASA",
+      "vendor": "Bambu Lab",
+      "type": "ASA",
+      "file": "Bambu ASA @base.json"
+    },
+    {
+      "name": "Bambu ASA-Aero",
+      "vendor": "Bambu Lab",
+      "type": "ASA-AERO",
+      "file": "Bambu ASA-Aero @base.json"
+    },
+    {
+      "name": "Bambu ASA-CF",
+      "vendor": "Bambu Lab",
+      "type": "ASA-CF",
+      "file": "Bambu ASA-CF @base.json"
+    },
+    {
+      "name": "Bambu PA-CF",
+      "vendor": "Bambu Lab",
+      "type": "PA-CF",
+      "file": "Bambu PA-CF @base.json"
+    },
+    {
+      "name": "Bambu PA6-CF",
+      "vendor": "Bambu Lab",
+      "type": "PA6-CF",
+      "file": "Bambu PA6-CF @base.json"
+    },
+    {
+      "name": "Bambu PA6-GF",
+      "vendor": "Bambu Lab",
+      "type": "PA-GF",
+      "file": "Bambu PA6-GF @base.json"
+    },
+    {
+      "name": "Bambu PAHT-CF",
+      "vendor": "Bambu Lab",
+      "type": "PA-CF",
+      "file": "Bambu PAHT-CF @base.json"
+    },
+    {
+      "name": "Bambu PC",
+      "vendor": "Bambu Lab",
+      "type": "PC",
+      "file": "Bambu PC @base.json"
+    },
+    {
+      "name": "Bambu PC FR",
+      "vendor": "Bambu Lab",
+      "type": "PC",
+      "file": "Bambu PC FR @base.json"
+    },
+    {
+      "name": "Bambu PET-CF",
+      "vendor": "Bambu Lab",
+      "type": "PET-CF",
+      "file": "Bambu PET-CF @base.json"
+    },
+    {
+      "name": "Bambu PETG Basic",
+      "vendor": "Bambu Lab",
+      "type": "PETG",
+      "file": "Bambu PETG Basic @base.json"
+    },
+    {
+      "name": "Bambu PETG HF",
+      "vendor": "Bambu Lab",
+      "type": "PETG",
+      "file": "Bambu PETG HF @base.json"
+    },
+    {
+      "name": "Bambu PETG Translucent",
+      "vendor": "Bambu Lab",
+      "type": "PETG",
+      "file": "Bambu PETG Translucent @base.json"
+    },
+    {
+      "name": "Bambu PETG-CF",
+      "vendor": "Bambu Lab",
+      "type": "PETG-CF",
+      "file": "Bambu PETG-CF @base.json"
+    },
+    {
+      "name": "Bambu PLA Aero",
+      "vendor": "Bambu Lab",
+      "type": "PLA-AERO",
+      "file": "Bambu PLA Aero @base.json"
+    },
+    {
+      "name": "Bambu PLA Basic",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Basic @base.json"
+    },
+    {
+      "name": "Bambu PLA Dynamic",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Dynamic @base.json"
+    },
+    {
+      "name": "Bambu PLA Galaxy",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Galaxy @base.json"
+    },
+    {
+      "name": "Bambu PLA Glow",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Glow @base.json"
+    },
+    {
+      "name": "Bambu PLA Impact",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Impact @base.json"
+    },
+    {
+      "name": "Bambu PLA Lite",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Lite @base.json"
+    },
+    {
+      "name": "Bambu PLA Marble",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Marble @base.json"
+    },
+    {
+      "name": "Bambu PLA Matte",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Matte @base.json"
+    },
+    {
+      "name": "Bambu PLA Metal",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Metal @base.json"
+    },
+    {
+      "name": "Bambu PLA Silk",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Silk @base.json"
+    },
+    {
+      "name": "Bambu PLA Silk+",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Silk+ @base.json"
+    },
+    {
+      "name": "Bambu PLA Sparkle",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Sparkle @base.json"
+    },
+    {
+      "name": "Bambu PLA Tough",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Tough @base.json"
+    },
+    {
+      "name": "Bambu PLA Tough+",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Tough+ @base.json"
+    },
+    {
+      "name": "Bambu PLA Translucent",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Translucent @base.json"
+    },
+    {
+      "name": "Bambu PLA Wood",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu PLA Wood @base.json"
+    },
+    {
+      "name": "Bambu PLA-CF",
+      "vendor": "Bambu Lab",
+      "type": "PLA-CF",
+      "file": "Bambu PLA-CF @base.json"
+    },
+    {
+      "name": "Bambu PPS-CF",
+      "vendor": "Bambu Lab",
+      "type": "PPS-CF",
+      "file": "Bambu PPS-CF @base.json"
+    },
+    {
+      "name": "Bambu PVA",
+      "vendor": "Bambu Lab",
+      "type": "PVA",
+      "file": "Bambu PVA @base.json"
+    },
+    {
+      "name": "Bambu Support For PA PET",
+      "vendor": "Bambu Lab",
+      "type": "PA",
+      "file": "Bambu Support For PA PET @base.json"
+    },
+    {
+      "name": "Bambu Support For PLA",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu Support For PLA @base.json"
+    },
+    {
+      "name": "Bambu Support For PLA-PETG",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu Support For PLA-PETG @base.json"
+    },
+    {
+      "name": "Bambu Support G",
+      "vendor": "Bambu Lab",
+      "type": "PA",
+      "file": "Bambu Support G @base.json"
+    },
+    {
+      "name": "Bambu Support W",
+      "vendor": "Bambu Lab",
+      "type": "PLA",
+      "file": "Bambu Support W @base.json"
+    },
+    {
+      "name": "Bambu Support for ABS",
+      "vendor": "Bambu Lab",
+      "type": "ABS",
+      "file": "Bambu Support for ABS @base.json"
+    },
+    {
+      "name": "Bambu TPU 85A",
+      "vendor": "Bambu Lab",
+      "type": "TPU",
+      "file": "Bambu TPU 85A @base.json"
+    },
+    {
+      "name": "Bambu TPU 90A",
+      "vendor": "Bambu Lab",
+      "type": "TPU",
+      "file": "Bambu TPU 90A @base.json"
+    },
+    {
+      "name": "Bambu TPU 95A",
+      "vendor": "Bambu Lab",
+      "type": "TPU",
+      "file": "Bambu TPU 95A @base.json"
+    },
+    {
+      "name": "Bambu TPU 95A HF",
+      "vendor": "Bambu Lab",
+      "type": "TPU",
+      "file": "Bambu TPU 95A HF @base.json"
+    },
+    {
+      "name": "Bambu TPU for AMS",
+      "vendor": "Bambu Lab",
+      "type": "TPU-AMS",
+      "file": "Bambu TPU for AMS @base.json"
+    },
+    {
+      "name": "COEX ABS",
+      "vendor": "COEX 3D",
+      "type": "ABS",
+      "file": "COEX ABS @base.json"
+    },
+    {
+      "name": "COEX ABS PRIME",
+      "vendor": "COEX 3D",
+      "type": "ABS",
+      "file": "COEX ABS PRIME @base.json"
+    },
+    {
+      "name": "COEX ASA PRIME",
+      "vendor": "COEX 3D",
+      "type": "ASA",
+      "file": "COEX ASA PRIME @base.json"
+    },
+    {
+      "name": "COEX NYLEX PA6-CF",
+      "vendor": "COEX 3D",
+      "type": "PA-CF",
+      "file": "COEX NYLEX PA6-CF @base.json"
+    },
+    {
+      "name": "COEX NYLEX UNFILLED",
+      "vendor": "COEX 3D",
+      "type": "PA",
+      "file": "COEX NYLEX UNFILLED @base.json"
+    },
+    {
+      "name": "COEX PCTG PRIME",
+      "vendor": "COEX 3D",
+      "type": "PCTG",
+      "file": "COEX PCTG PRIME @base.json"
+    },
+    {
+      "name": "COEX PETG",
+      "vendor": "COEX 3D",
+      "type": "PETG",
+      "file": "COEX PETG @base.json"
+    },
+    {
+      "name": "COEX PLA",
+      "vendor": "COEX 3D",
+      "type": "PLA",
+      "file": "COEX PLA @base.json"
+    },
+    {
+      "name": "COEX PLA PRIME",
+      "vendor": "COEX 3D",
+      "type": "PLA",
+      "file": "COEX PLA PRIME @base.json"
+    },
+    {
+      "name": "COEX PLA+Silk",
+      "vendor": "COEX 3D",
+      "type": "PLA",
+      "file": "COEX PLA+Silk @base.json"
+    },
+    {
+      "name": "COEX TPE 30D",
+      "vendor": "COEX 3D",
+      "type": "TPU",
+      "file": "COEX TPE 30D @base.json"
+    },
+    {
+      "name": "COEX TPE 40D",
+      "vendor": "COEX 3D",
+      "type": "TPU",
+      "file": "COEX TPE 40D @base.json"
+    },
+    {
+      "name": "COEX TPE 60D",
+      "vendor": "COEX 3D",
+      "type": "TPU",
+      "file": "COEX TPE 60D @base.json"
+    },
+    {
+      "name": "COEX TPU 60A",
+      "vendor": "COEX 3D",
+      "type": "TPU",
+      "file": "COEX TPU 60A @base.json"
+    },
+    {
+      "name": "Cubicon ABS",
+      "vendor": "Cubicon",
+      "type": "ABS",
+      "file": "Cubicon ABS @base.json"
+    },
+    {
+      "name": "Cubicon ABS-A100",
+      "vendor": "Cubicon",
+      "type": "ABS",
+      "file": "Cubicon ABS-A100 @base.json"
+    },
+    {
+      "name": "Cubicon ABSk",
+      "vendor": "Cubicon",
+      "type": "ABS",
+      "file": "Cubicon ABSk @base.json"
+    },
+    {
+      "name": "Cubicon PA-CF",
+      "vendor": "Cubicon",
+      "type": "PA",
+      "file": "Cubicon PA-CF @base.json"
+    },
+    {
+      "name": "Cubicon PC",
+      "vendor": "Cubicon",
+      "type": "PC",
+      "file": "Cubicon PC @base.json"
+    },
+    {
+      "name": "Cubicon PETG",
+      "vendor": "Cubicon",
+      "type": "PETG",
+      "file": "Cubicon PETG @base.json"
+    },
+    {
+      "name": "Cubicon PLA",
+      "vendor": "Cubicon",
+      "type": "PLA",
+      "file": "Cubicon PLA @base.json"
+    },
+    {
+      "name": "Cubicon PLA+",
+      "vendor": "Cubicon",
+      "type": "PLA",
+      "file": "Cubicon PLA+ @base.json"
+    },
+    {
+      "name": "Cubicon PLAi21",
+      "vendor": "Cubicon",
+      "type": "PLA",
+      "file": "Cubicon PLAi21 @base.json"
+    },
+    {
+      "name": "DREMC ABS",
+      "vendor": "DREMC",
+      "type": "ABS",
+      "file": "DREMC ABS @base.json"
+    },
+    {
+      "name": "DREMC ABS+",
+      "vendor": "DREMC",
+      "type": "ABS",
+      "file": "DREMC ABS+ @base.json"
+    },
+    {
+      "name": "DREMC ABS-GF",
+      "vendor": "DREMC",
+      "type": "ABS-GF",
+      "file": "DREMC ABS-GF @base.json"
+    },
+    {
+      "name": "DREMC ASA",
+      "vendor": "DREMC",
+      "type": "ASA",
+      "file": "DREMC ASA @base.json"
+    },
+    {
+      "name": "DREMC ASA CF",
+      "vendor": "DREMC",
+      "type": "ASA",
+      "file": "DREMC ASA CF @base.json"
+    },
+    {
+      "name": "DREMC ASA GF",
+      "vendor": "DREMC",
+      "type": "ASA",
+      "file": "DREMC ASA GF @base.json"
+    },
+    {
+      "name": "DREMC PA12-CF",
+      "vendor": "DREMC",
+      "type": "PA-CF",
+      "file": "DREMC PA12-CF @base.json"
+    },
+    {
+      "name": "DREMC PA6-CF",
+      "vendor": "DREMC",
+      "type": "PA6-CF",
+      "file": "DREMC PA6-CF @base.json"
+    },
+    {
+      "name": "DREMC PET-CF",
+      "vendor": "DREMC",
+      "type": "PET-CF",
+      "file": "DREMC PET-CF @base.json"
+    },
+    {
+      "name": "DREMC PETG",
+      "vendor": "DREMC",
+      "type": "PETG",
+      "file": "DREMC PETG @base.json"
+    },
+    {
+      "name": "DREMC PLA HS",
+      "vendor": "DREMC",
+      "type": "PLA",
+      "file": "DREMC PLA HS @base.json"
+    },
+    {
+      "name": "DREMC PLA+",
+      "vendor": "DREMC",
+      "type": "PLA",
+      "file": "DREMC PLA+ @base.json"
+    },
+    {
+      "name": "DREMC PPA-CF",
+      "vendor": "DREMC",
+      "type": "PPA-CF",
+      "file": "DREMC PPA-CF @base.json"
+    },
+    {
+      "name": "DREMC TPU 95A",
+      "vendor": "DREMC",
+      "type": "TPU",
+      "file": "DREMC TPU 95A @base.json"
+    },
+    {
+      "name": "Elas ASA",
+      "vendor": "Elas",
+      "type": "ASA",
+      "file": "Elas ASA @base.json"
+    },
+    {
+      "name": "Elas PETG Basic",
+      "vendor": "Elas",
+      "type": "PETG",
+      "file": "Elas PETG Basic @base.json"
+    },
+    {
+      "name": "Elas PLA Basic",
+      "vendor": "Elas",
+      "type": "PLA",
+      "file": "Elas PLA Basic @base.json"
+    },
+    {
+      "name": "Elas PLA Pro",
+      "vendor": "Elas",
+      "type": "PLA",
+      "file": "Elas PLA Pro @base.json"
+    },
+    {
+      "name": "Elegoo ABS",
+      "vendor": "Elegoo",
+      "type": "ABS",
+      "file": "Elegoo ABS @base.json"
+    },
+    {
+      "name": "Elegoo ASA",
+      "vendor": "Elegoo",
+      "type": "ASA",
+      "file": "Elegoo ASA @base.json"
+    },
+    {
+      "name": "Elegoo PAHT",
+      "vendor": "Elegoo",
+      "type": "PA",
+      "file": "Elegoo PAHT @base.json"
+    },
+    {
+      "name": "Elegoo PC",
+      "vendor": "Elegoo",
+      "type": "PC",
+      "file": "Elegoo PC @base.json"
+    },
+    {
+      "name": "Elegoo PETG",
+      "vendor": "Elegoo",
+      "type": "PETG",
+      "file": "Elegoo PETG @base.json"
+    },
+    {
+      "name": "Elegoo PLA",
+      "vendor": "Elegoo",
+      "type": "PLA",
+      "file": "Elegoo PLA @base.json"
+    },
+    {
+      "name": "Elegoo TPU",
+      "vendor": "Elegoo",
+      "type": "TPU",
+      "file": "Elegoo TPU @base.json"
+    },
+    {
+      "name": "FDplast ABS",
+      "vendor": "FDplast",
+      "type": "ABS",
+      "file": "FDplast ABS @base.json"
+    },
+    {
+      "name": "FDplast HIPS",
+      "vendor": "FDplast",
+      "type": "HIPS",
+      "file": "FDplast HIPS @base.json"
+    },
+    {
+      "name": "FDplast PETG",
+      "vendor": "FDplast",
+      "type": "PETG",
+      "file": "FDplast PETG @base.json"
+    },
+    {
+      "name": "FDplast PLA",
+      "vendor": "FDplast",
+      "type": "PLA",
+      "file": "FDplast PLA @base.json"
+    },
+    {
+      "name": "FDplast SBS",
+      "vendor": "FDplast",
+      "type": "SBS",
+      "file": "FDplast SBS @base.json"
+    },
+    {
+      "name": "FDplast TPU",
+      "vendor": "FDplast",
+      "type": "TPU",
+      "file": "FDplast TPU @base.json"
+    },
+    {
+      "name": "FILL3D PA",
+      "vendor": "FILL3D",
+      "type": "PA",
+      "file": "FILL3D PA @base.json"
+    },
+    {
+      "name": "FILL3D PETG",
+      "vendor": "FILL3D",
+      "type": "PETG",
+      "file": "FILL3D PETG @base.json"
+    },
+    {
+      "name": "FILL3D PETG CF",
+      "vendor": "FILL3D",
+      "type": "PETG-CF",
+      "file": "FILL3D PETG CF @base.json"
+    },
+    {
+      "name": "FILL3D PLA Basic",
+      "vendor": "FILL3D",
+      "type": "PLA",
+      "file": "FILL3D PLA Basic @base.json"
+    },
+    {
+      "name": "FILL3D PLA Turbo",
+      "vendor": "FILL3D",
+      "type": "PLA",
+      "file": "FILL3D PLA Turbo @base.json"
+    },
+    {
+      "name": "FILL3D PP",
+      "vendor": "FILL3D",
+      "type": "PP",
+      "file": "FILL3D PP @base.json"
+    },
+    {
+      "name": "FILL3D PPCF",
+      "vendor": "FILL3D",
+      "type": "PP",
+      "file": "FILL3D PPCF @base.json"
+    },
+    {
+      "name": "FilAr PETG",
+      "vendor": "FilAr",
+      "type": "PETG",
+      "file": "FilAr PETG @base.json"
+    },
+    {
+      "name": "FilAr PLA",
+      "vendor": "FilAr",
+      "type": "PLA",
+      "file": "FilAr PLA @base.json"
+    },
+    {
+      "name": "FilAr PLA-mate",
+      "vendor": "FilAr",
+      "type": "PLA",
+      "file": "FilAr PLA-mate @base.json"
+    },
+    {
+      "name": "FusRock ABS-GF",
+      "vendor": "FusRock",
+      "type": "ABS-GF",
+      "file": "FusRock ABS-GF @base.json"
+    },
+    {
+      "name": "GreenGate3D PETG",
+      "vendor": "GreenGate3D",
+      "type": "PETG",
+      "file": "GreenGate3D PETG @base.json"
+    },
+    {
+      "name": "NIT ABS",
+      "vendor": "NIT",
+      "type": "ABS",
+      "file": "NIT ABS @base.json"
+    },
+    {
+      "name": "NIT PETG",
+      "vendor": "NIT",
+      "type": "PETG",
+      "file": "NIT PETG @base.json"
+    },
+    {
+      "name": "NIT PLA",
+      "vendor": "NIT",
+      "type": "PLA",
+      "file": "NIT PLA @base.json"
+    },
+    {
+      "name": "Numakers PLA+",
+      "vendor": "Numakers",
+      "type": "PLA",
+      "file": "Numakers PLA+ @base.json"
+    },
+    {
+      "name": "Arena ABS",
+      "vendor": "Orca Arena",
+      "type": "ABS",
+      "file": "Arena ABS @base.json"
+    },
+    {
+      "name": "Arena PA-CF",
+      "vendor": "Orca Arena",
+      "type": "PA-CF",
+      "file": "Arena PA-CF @base.json"
+    },
+    {
+      "name": "Arena PAHT-CF",
+      "vendor": "Orca Arena",
+      "type": "PA-CF",
+      "file": "Arena PAHT-CF @base.json"
+    },
+    {
+      "name": "Arena PC",
+      "vendor": "Orca Arena",
+      "type": "PC",
+      "file": "Arena PC @base.json"
+    },
+    {
+      "name": "Arena PET-CF",
+      "vendor": "Orca Arena",
+      "type": "PET-CF",
+      "file": "Arena PET-CF @base.json"
+    },
+    {
+      "name": "Arena PETG Basic",
+      "vendor": "Orca Arena",
+      "type": "PETG",
+      "file": "Arena PETG Basic @base.json"
+    },
+    {
+      "name": "Arena PETG-CF",
+      "vendor": "Orca Arena",
+      "type": "PETG-CF",
+      "file": "Arena PETG-CF @base.json"
+    },
+    {
+      "name": "Arena PLA Basic",
+      "vendor": "Orca Arena",
+      "type": "PLA",
+      "file": "Arena PLA Basic @base.json"
+    },
+    {
+      "name": "Arena PLA Impact",
+      "vendor": "Orca Arena",
+      "type": "PLA",
+      "file": "Arena PLA Impact @base.json"
+    },
+    {
+      "name": "Arena PLA Marble",
+      "vendor": "Orca Arena",
+      "type": "PLA",
+      "file": "Arena PLA Marble @base.json"
+    },
+    {
+      "name": "Arena PLA Matte",
+      "vendor": "Orca Arena",
+      "type": "PLA",
+      "file": "Arena PLA Matte @base.json"
+    },
+    {
+      "name": "Arena PLA Metal",
+      "vendor": "Orca Arena",
+      "type": "PLA",
+      "file": "Arena PLA Metal @base.json"
+    },
+    {
+      "name": "Arena PLA Silk",
+      "vendor": "Orca Arena",
+      "type": "PLA",
+      "file": "Arena PLA Silk @base.json"
+    },
+    {
+      "name": "Arena PLA Sparkle",
+      "vendor": "Orca Arena",
+      "type": "PLA",
+      "file": "Arena PLA Sparkle @base.json"
+    },
+    {
+      "name": "Arena PLA Tough",
+      "vendor": "Orca Arena",
+      "type": "PLA",
+      "file": "Arena PLA Tough @base.json"
+    },
+    {
+      "name": "Arena PLA-CF",
+      "vendor": "Orca Arena",
+      "type": "PLA-CF",
+      "file": "Arena PLA-CF @base.json"
+    },
+    {
+      "name": "Arena Support G",
+      "vendor": "Orca Arena",
+      "type": "PA",
+      "file": "Arena Support G @base.json"
+    },
+    {
+      "name": "Arena Support W",
+      "vendor": "Orca Arena",
+      "type": "PLA",
+      "file": "Arena Support W @base.json"
+    },
+    {
+      "name": "Arena TPU 95A",
+      "vendor": "Orca Arena",
+      "type": "TPU",
+      "file": "Arena TPU 95A @base.json"
+    },
+    {
+      "name": "OrcaArena Generic PETG-CF",
+      "vendor": "Orca Arena",
+      "type": "PETG-CF",
+      "file": "OrcaArena Generic PETG-CF @base.json"
+    },
+    {
+      "name": "Overture ABS Basic",
+      "vendor": "Overture",
+      "type": "ABS",
+      "file": "Overture ABS Basic @base.json"
+    },
+    {
+      "name": "Overture ASA",
+      "vendor": "Overture",
+      "type": "ASA",
+      "file": "Overture ASA @base.json"
+    },
+    {
+      "name": "Overture Air PLA",
+      "vendor": "Overture",
+      "type": "PLA",
+      "file": "Overture Air PLA @base.json"
+    },
+    {
+      "name": "Overture Easy PLA",
+      "vendor": "Overture",
+      "type": "PLA",
+      "file": "Overture Easy PLA @base.json"
+    },
+    {
+      "name": "Overture Matte PLA",
+      "vendor": "Overture",
+      "type": "PLA",
+      "file": "Overture Matte PLA @base.json"
+    },
+    {
+      "name": "Overture PLA",
+      "vendor": "Overture",
+      "type": "PLA",
+      "file": "Overture PLA @base.json"
+    },
+    {
+      "name": "Overture PLA Pro",
+      "vendor": "Overture",
+      "type": "PLA",
+      "file": "Overture PLA Pro @base.json"
+    },
+    {
+      "name": "Overture Rock PLA",
+      "vendor": "Overture",
+      "type": "PLA",
+      "file": "Overture Rock PLA @base.json"
+    },
+    {
+      "name": "Overture Silk PLA",
+      "vendor": "Overture",
+      "type": "PLA",
+      "file": "Overture Silk PLA @base.json"
+    },
+    {
+      "name": "Overture Super PLA+",
+      "vendor": "Overture",
+      "type": "PLA",
+      "file": "Overture Super PLA+ @base.json"
+    },
+    {
+      "name": "Overture TPU",
+      "vendor": "Overture",
+      "type": "TPU",
+      "file": "Overture TPU @base.json"
+    },
+    {
+      "name": "Fiberon PA12-CF",
+      "vendor": "Polymaker",
+      "type": "PA-CF",
+      "file": "Fiberon PA12-CF @base.json"
+    },
+    {
+      "name": "Fiberon PA12-CF10",
+      "vendor": "Polymaker",
+      "type": "PA-CF",
+      "file": "Fiberon PA12-CF10 @base.json"
+    },
+    {
+      "name": "Fiberon PA6-CF",
+      "vendor": "Polymaker",
+      "type": "PA6-CF",
+      "file": "Fiberon PA6-CF @base.json"
+    },
+    {
+      "name": "Fiberon PA6-CF20",
+      "vendor": "Polymaker",
+      "type": "PA6-CF",
+      "file": "Fiberon PA6-CF20 @base.json"
+    },
+    {
+      "name": "Fiberon PA6-GF",
+      "vendor": "Polymaker",
+      "type": "PA-GF",
+      "file": "Fiberon PA6-GF @base.json"
+    },
+    {
+      "name": "Fiberon PA6-GF25",
+      "vendor": "Polymaker",
+      "type": "PA-GF",
+      "file": "Fiberon PA6-GF25 @base.json"
+    },
+    {
+      "name": "Fiberon PA612-CF",
+      "vendor": "Polymaker",
+      "type": "PA",
+      "file": "Fiberon PA612-CF @base.json"
+    },
+    {
+      "name": "Fiberon PA612-CF15",
+      "vendor": "Polymaker",
+      "type": "PA-CF",
+      "file": "Fiberon PA612-CF15 @base.json"
+    },
+    {
+      "name": "Fiberon PET-CF",
+      "vendor": "Polymaker",
+      "type": "PET-CF",
+      "file": "Fiberon PET-CF @base.json"
+    },
+    {
+      "name": "Fiberon PET-CF17",
+      "vendor": "Polymaker",
+      "type": "PET-CF",
+      "file": "Fiberon PET-CF17 @base.json"
+    },
+    {
+      "name": "Fiberon PETG-ESD",
+      "vendor": "Polymaker",
+      "type": "PETG",
+      "file": "Fiberon PETG-ESD @base.json"
+    },
+    {
+      "name": "Fiberon PETG-rCF",
+      "vendor": "Polymaker",
+      "type": "PETG-CF",
+      "file": "Fiberon PETG-rCF @base.json"
+    },
+    {
+      "name": "Fiberon PETG-rCF08",
+      "vendor": "Polymaker",
+      "type": "PETG-CF",
+      "file": "Fiberon PETG-rCF08 @base.json"
+    },
+    {
+      "name": "Panchroma CoPE",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma CoPE @base.json"
+    },
+    {
+      "name": "Panchroma PLA",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA @base.json"
+    },
+    {
+      "name": "Panchroma PLA Celestial",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA Celestial @base.json"
+    },
+    {
+      "name": "Panchroma PLA Galaxy",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA Galaxy @base.json"
+    },
+    {
+      "name": "Panchroma PLA Glow",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA Glow @base.json"
+    },
+    {
+      "name": "Panchroma PLA Luminous",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA Luminous @base.json"
+    },
+    {
+      "name": "Panchroma PLA Marble",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA Marble @base.json"
+    },
+    {
+      "name": "Panchroma PLA Matte",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA Matte @base.json"
+    },
+    {
+      "name": "Panchroma PLA Metallic",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA Metallic @base.json"
+    },
+    {
+      "name": "Panchroma PLA Neon",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA Neon @base.json"
+    },
+    {
+      "name": "Panchroma PLA Satin",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA Satin @base.json"
+    },
+    {
+      "name": "Panchroma PLA Silk",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA Silk @base.json"
+    },
+    {
+      "name": "Panchroma PLA Starlight",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA Starlight @base.json"
+    },
+    {
+      "name": "Panchroma PLA Temp Shift",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA Temp Shift @base.json"
+    },
+    {
+      "name": "Panchroma PLA Translucent",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA Translucent @base.json"
+    },
+    {
+      "name": "Panchroma PLA UV Shift",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Panchroma PLA UV Shift @base.json"
+    },
+    {
+      "name": "PolyLite ABS",
+      "vendor": "Polymaker",
+      "type": "ABS",
+      "file": "PolyLite ABS @base.json"
+    },
+    {
+      "name": "PolyLite ASA",
+      "vendor": "Polymaker",
+      "type": "ASA",
+      "file": "PolyLite ASA @base.json"
+    },
+    {
+      "name": "PolyLite CosPLA",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "PolyLite CosPLA @base.json"
+    },
+    {
+      "name": "PolyLite PETG",
+      "vendor": "Polymaker",
+      "type": "PETG",
+      "file": "PolyLite PETG @base.json"
+    },
+    {
+      "name": "PolyLite PLA Galaxy",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "PolyLite PLA Galaxy @base.json"
+    },
+    {
+      "name": "PolyLite PLA Glow",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "PolyLite PLA Glow @base.json"
+    },
+    {
+      "name": "PolyLite PLA Luminous",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "PolyLite PLA Luminous @base.json"
+    },
+    {
+      "name": "PolyLite PLA Neon",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "PolyLite PLA Neon @base.json"
+    },
+    {
+      "name": "PolyLite PLA Pro",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "PolyLite PLA Pro @base.json"
+    },
+    {
+      "name": "PolyLite PLA Starlight",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "PolyLite PLA Starlight @base.json"
+    },
+    {
+      "name": "PolyLite PLA Translucent",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "PolyLite PLA Translucent @base.json"
+    },
+    {
+      "name": "PolyTerra PLA",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "PolyTerra PLA @base.json"
+    },
+    {
+      "name": "PolyTerra PLA Marble",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "PolyTerra PLA Marble @base.json"
+    },
+    {
+      "name": "PolyTerra PLA+",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "PolyTerra PLA+ @base.json"
+    },
+    {
+      "name": "Polymaker HT-PLA",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Polymaker HT-PLA @base.json"
+    },
+    {
+      "name": "Polymaker HT-PLA-GF",
+      "vendor": "Polymaker",
+      "type": "PLA",
+      "file": "Polymaker HT-PLA-GF @base.json"
+    },
+    {
+      "name": "SUNLU Marble PLA",
+      "vendor": "SUNLU",
+      "type": "PLA",
+      "file": "SUNLU Marble PLA @base.json"
+    },
+    {
+      "name": "SUNLU PETG",
+      "vendor": "SUNLU",
+      "type": "PETG",
+      "file": "SUNLU PETG @base.json"
+    },
+    {
+      "name": "SUNLU PLA Marble",
+      "vendor": "SUNLU",
+      "type": "PLA",
+      "file": "SUNLU PLA Marble @base.json"
+    },
+    {
+      "name": "SUNLU PLA Matte",
+      "vendor": "SUNLU",
+      "type": "PLA",
+      "file": "SUNLU PLA Matte @base.json"
+    },
+    {
+      "name": "SUNLU PLA+",
+      "vendor": "SUNLU",
+      "type": "PLA",
+      "file": "SUNLU PLA+ @base.json"
+    },
+    {
+      "name": "SUNLU PLA+ 2.0",
+      "vendor": "SUNLU",
+      "type": "PLA",
+      "file": "SUNLU PLA+ 2.0 @base.json"
+    },
+    {
+      "name": "SUNLU Silk PLA+",
+      "vendor": "SUNLU",
+      "type": "PLA",
+      "file": "SUNLU Silk PLA+ @base.json"
+    },
+    {
+      "name": "SUNLU Wood PLA",
+      "vendor": "SUNLU",
+      "type": "PLA",
+      "file": "SUNLU Wood PLA @base.json"
+    },
+    {
+      "name": "Snapmaker Breakaway Support",
+      "vendor": "Snapmaker",
+      "type": "Breakaway Support",
+      "file": "Snapmaker Breakaway Support @base.json"
+    },
+    {
+      "name": "Snapmaker Dual PETG-CF",
+      "vendor": "Snapmaker",
+      "type": "PETG-CF",
+      "file": "Snapmaker Dual PETG-CF @base.json"
+    },
+    {
+      "name": "Snapmaker J1 PETG-CF",
+      "vendor": "Snapmaker",
+      "type": "PETG-CF",
+      "file": "Snapmaker J1 PETG-CF @base.json"
+    },
+    {
+      "name": "Snapmaker PETG-CF",
+      "vendor": "Snapmaker",
+      "type": "PETG-CF",
+      "file": "Snapmaker PETG-CF @base.json"
+    },
+    {
+      "name": "Valment PLA",
+      "vendor": "Valment",
+      "type": "PLA",
+      "file": "Valment PLA @base.json"
+    },
+    {
+      "name": "Valment PLA Galaxy",
+      "vendor": "Valment",
+      "type": "PLA",
+      "file": "Valment PLA Galaxy @base.json"
+    },
+    {
+      "name": "Valment PLA Silk",
+      "vendor": "Valment",
+      "type": "PLA",
+      "file": "Valment PLA Silk @base.json"
+    },
+    {
+      "name": "Valment PLA-CF",
+      "vendor": "Valment",
+      "type": "PLA-CF",
+      "file": "Valment PLA-CF @base.json"
+    },
+    {
+      "name": "eSUN PETG",
+      "vendor": "eSUN",
+      "type": "PETG",
+      "file": "eSUN PETG @base.json"
+    },
+    {
+      "name": "eSUN PLA+",
+      "vendor": "eSUN",
+      "type": "PLA",
+      "file": "eSUN PLA+ @base.json"
+    },
+    {
+      "name": "eSUN PLA-Basic",
+      "vendor": "eSUN",
+      "type": "PLA",
+      "file": "eSUN PLA-Basic @base.json"
+    },
+    {
+      "name": "eSUN PLA-Marble",
+      "vendor": "eSUN",
+      "type": "PLA",
+      "file": "eSUN PLA-Marble @base.json"
+    },
+    {
+      "name": "eSUN PLA-Matte",
+      "vendor": "eSUN",
+      "type": "PLA",
+      "file": "eSUN PLA-Matte @base.json"
+    }
+  ]
+}

@@ -404,3 +404,26 @@ def delete_spool(sid: int, db: DbSession) -> Response:
     db.delete(s)
     db.flush()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Preset template endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/templates")
+def list_templates(type: str | None = None, vendor: str | None = None) -> dict:
+    """List available preset templates, optionally filtered by type and vendor."""
+    from ..presets.template_index import load_index, all_vendors_for_type
+    idx = load_index()
+    templates = idx["templates"]
+    if type:
+        templates = [t for t in templates if t["type"] == type]
+    if vendor:
+        vendor_lower = vendor.lower()
+        templates = [t for t in templates if vendor_lower in t["vendor"].lower()]
+    templates = sorted(templates, key=lambda t: (t["vendor"] != "Generic", t["vendor"], t["name"]))
+    if type:
+        vendors = all_vendors_for_type(type)
+    else:
+        vendors = sorted({t["vendor"] for t in idx["templates"]})
+    return {"templates": templates, "vendors": vendors}

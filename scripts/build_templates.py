@@ -119,10 +119,11 @@ def main():
 
     # Add existing fdm_filament_*.json as Generic templates
     for ftype, filename in sorted(_TYPE_TO_TEMPLATE.items()):
-        # Skip duplicate type entries (e.g. "PLA Silk" and "PLA-Silk" both map to same file)
+        # Skip if an @base-derived entry already uses this exact name
+        # (e.g. "Generic PLA Silk" @base has type PLA, fdm key "PLA Silk"
+        # would collide on name — keep the @base entry, drop the fdm one).
         generic_name = f"Generic {ftype}"
-        # Avoid duplicates if a Generic @base already exists for this type
-        if any(t["name"] == generic_name and t["type"] == ftype for t in templates):
+        if any(t["name"] == generic_name for t in templates):
             continue
         templates.append({
             "name": generic_name,

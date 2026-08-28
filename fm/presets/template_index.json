@@ -211,12 +211,6 @@
       "file": "Generic PLA Silk @base.json"
     },
     {
-      "name": "Generic PLA Silk",
-      "vendor": "Generic",
-      "type": "PLA Silk",
-      "file": "fdm_filament_pla_silk.json"
-    },
-    {
       "name": "Generic PLA-CF",
       "vendor": "Generic",
       "type": "PLA-CF",

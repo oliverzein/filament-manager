@@ -395,6 +395,29 @@ class TestGeneratePresetHandler:
         assert preset["filament_flow_ratio"] == ["0.95"]
         assert preset["fan_max_speed"] == ["30"]
 
+    def test_template_override_missing_logs_warning_and_falls_back(self, inmemory_session, cfg, monkeypatch, caplog):
+        """When template_override references a missing file, log a warning and
+        fall back to the type-based default (spec Edge Case 1)."""
+        import logging
+        s = inmemory_session
+        profile = _make_profile(s, template_override="Nonexistent Template", type="PETG")
+        fake_client = MagicMock()
+        fake_client.cloud_id.return_value = "test-cloud-uuid"
+        fake_client.sync_push.return_value = {"updated_time": 12345, "created_time": 12345}
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: fake_client)
+
+        with caplog.at_level(logging.WARNING, logger=sh.log.name):
+            result = sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
+
+        # Still succeeds with the type-based default
+        assert result["filament_id"].startswith("P")
+        assert result["status"] == "in_sync"
+        # A warning was logged about the missing override
+        assert any(
+            "Nonexistent Template" in rec.message and rec.levelno == logging.WARNING
+            for rec in caplog.records
+        )
+
 
 # ---------------------------------------------------------------------------
 # temp_sync handler

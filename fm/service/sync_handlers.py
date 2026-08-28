@@ -82,7 +82,11 @@ def _preset_template_factory(profile_dict: dict) -> dict | None:
         path = find_preset_by_name(override + " @base")
         if path:
             return flatten_preset(path)
-        # Fall back to type-based default if override file not found
+        log.warning(
+            "template_override %r not found in bundled templates; "
+            "falling back to type default %r",
+            override, profile_dict["type"],
+        )
     return find_system_preset(profile_dict["type"])
 
 

@@ -312,6 +312,13 @@ def profile_create_form(
             status_code=422,
         )
 
+    # Validate template_override belongs to the submitted type
+    if template_override:
+        from ..presets.template_index import load_index
+        idx = load_index()
+        entry = next((t for t in idx["templates"] if t["name"] == template_override), None)
+        if entry is None or entry["type"] != type:
+            template_override = ""  # clear mismatched override
     now = _now()
     p = Profile(
         **_profile_from_form(
@@ -362,6 +369,13 @@ def profile_update_form(
             status_code=422,
         )
 
+    # Validate template_override belongs to the submitted type
+    if template_override:
+        from ..presets.template_index import load_index
+        idx = load_index()
+        entry = next((t for t in idx["templates"] if t["name"] == template_override), None)
+        if entry is None or entry["type"] != type:
+            template_override = ""  # clear mismatched override
     for key, val in _profile_from_form(
         brand, name, type, colors, min_temp, max_temp, density,
         drying_temp, drying_time, notes, template_override,

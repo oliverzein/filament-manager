@@ -107,3 +107,17 @@ def test_profile_form_submit_without_template(client):
     with SessionLocal() as s:
         p = s.scalars(select(Profile).order_by(Profile.id.desc())).first()
         assert p.template_override is None
+
+
+def test_type_mismatch_clears_template_override(client):
+    """Submitting type=PLA with a PETG template_override clears the override."""
+    r = client.post("/profiles/form", data={
+        "brand": "Bambu Lab", "name": "PETG Translucent", "type": "PLA",
+        "min_temp": "200", "max_temp": "240", "density": "1.24",
+        "drying_temp": "60", "drying_time": "8",
+        "template_override": "Bambu PETG Translucent",  # PETG template with PLA type
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as s:
+        p = s.scalars(select(Profile).order_by(Profile.id.desc())).first()
+        assert p.template_override is None  # cleared due to type mismatch

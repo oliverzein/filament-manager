@@ -30,7 +30,7 @@
           <span class="template-picker-indicator htmx-indicator" aria-hidden="true"></span>
         </div>
         <div id="template-picker-fields"
-             hx-get="/profiles/{{ pid_or_new }}/template-dropdown?type={{ selected_type }}&template_override={{ selected_template }}"
+             hx-get="/profiles/{{ pid_or_new }}/template-dropdown?type={{ selected_type }}&template_override={{ selected_template | urlencode }}"
              hx-trigger="load"
              hx-swap="innerHTML"
              hx-indicator="closest .template-picker">

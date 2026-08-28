@@ -241,6 +241,7 @@ def create_profile(data: ProfileCreate, db: DbSession) -> Profile:
         retraction_length=data.retraction_length,
         retraction_speed=data.retraction_speed,
         nozzle_temperature=data.nozzle_temperature,
+        template_override=data.template_override,
         notes=data.notes, created_at=now, updated_at=now,
     )
     db.add(p)

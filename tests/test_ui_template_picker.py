@@ -63,6 +63,11 @@ def test_template_dropdown_edit_profile(client):
     assert r.status_code == 201
     pid = r.json()["id"]
 
+    # Verify template_override round-trips through the API (not silently dropped).
+    detail = client.get(f"/api/profiles/{pid}")
+    assert detail.status_code == 200
+    assert detail.json()["template_override"] == "Bambu PETG Translucent"
+
     r = client.get(f"/profiles/{pid}/template-dropdown?type=PETG&template_override=Bambu+PETG+Translucent")
     assert r.status_code == 200
     assert b'selected' in r.content
@@ -121,3 +126,39 @@ def test_type_mismatch_clears_template_override(client):
     with SessionLocal() as s:
         p = s.scalars(select(Profile).order_by(Profile.id.desc())).first()
         assert p.template_override is None  # cleared due to type mismatch
+
+
+def test_edit_page_url_encodes_plus_in_template_override(client):
+    """Edit page hx-get URL-encodes template names containing '+'.
+
+    Starlette's parse_qsl uses unquote_plus, so a raw '+' in the query
+    string is decoded as a space and fails to match the saved template.
+    Jinja2's urlencode filter percent-encodes both spaces ('%20') and
+    '+' ('%2B'), so unquote_plus recovers the original name.  This test
+    guards against a regression where a saved template like 'eSUN PLA+'
+    is rendered raw and therefore fails to match on edit-page load.
+    """
+    # 'eSUN PLA+' is a real entry in template_index.json (type=PLA).
+    template_name = "eSUN PLA+"
+    r = client.post("/api/profiles", json={
+        "brand": "eSUN", "name": "PLA+ Test", "type": "PLA",
+        "min_temp": 200, "max_temp": 240, "density": 1.24,
+        "template_override": template_name,
+    })
+    assert r.status_code == 201
+    pid = r.json()["id"]
+
+    # The edit page must render the percent-encoded form inside the
+    # hx-get attribute — 'eSUN%20PLA%2B' — not the raw 'eSUN PLA+'.
+    page = client.get(f"/profiles/{pid}/edit")
+    assert page.status_code == 200
+    assert b"eSUN%20PLA%2B" in page.content
+    assert b"template_override=eSUN PLA+" not in page.content
+
+    # The fragment GET with the encoded param must select the template.
+    frag = client.get(
+        f"/profiles/{pid}/template-dropdown?type=PLA&template_override=eSUN%20PLA%2B"
+    )
+    assert frag.status_code == 200
+    assert b"selected" in frag.content
+    assert template_name.encode() in frag.content

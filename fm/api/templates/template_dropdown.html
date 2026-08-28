@@ -1,0 +1,64 @@
+{# fm/api/templates/template_dropdown.html — HTMX fragment for template picker fields #}
+<div id="template-picker-fields" class="template-picker-fields" aria-busy="false">
+  <label for="template-vendor">
+    <span>Filter by vendor</span>
+    <select id="template-vendor" name="template_vendor"
+            hx-get="/profiles/{{ pid_or_new }}/template-dropdown"
+            hx-trigger="change"
+            hx-target="#template-picker-fields"
+            hx-swap="innerHTML focus-scroll:false"
+            hx-include="[name='type'], this, [name='template_override']"
+            hx-indicator="closest .template-picker">
+      <option value="">All vendors</option>
+      {% for vendor in vendors %}
+      <option value="{{ vendor }}" {% if vendor == selected_vendor %}selected{% endif %}>{{ vendor }}</option>
+      {% endfor %}
+    </select>
+    <small>Optional filter; it is not saved with the profile.</small>
+  </label>
+
+  <label for="template-override">
+    <span>Template</span>
+    <select id="template-override" name="template_override"
+            aria-describedby="template-picker-help template-preview-note"
+            hx-get="/profiles/{{ pid_or_new }}/template-dropdown"
+            hx-trigger="change"
+            hx-target="#template-picker-fields"
+            hx-swap="innerHTML focus-scroll:false"
+            hx-include="[name='type'], [name='template_vendor'], this"
+            hx-indicator="closest .template-picker">
+      <option value="">Use Generic {{ selected_type }} defaults (recommended)</option>
+      {% for group in template_groups %}
+      <optgroup label="{{ group.vendor }}">
+        {% for template in group.templates %}
+        <option value="{{ template.name }}" {% if template.name == selected_template %}selected{% endif %}>{{ template.name }}</option>
+        {% endfor %}
+      </optgroup>
+      {% endfor %}
+    </select>
+  </label>
+
+  <div class="template-preview full-width" aria-labelledby="template-preview-title">
+    <h4 id="template-preview-title">Template preview</h4>
+    {% if preview %}
+    <dl class="template-preview-values">
+      <div><dt>Nozzle</dt><dd>{{ preview.nozzle_temperature or '—' }}{% if preview.nozzle_temperature %} °C{% endif %}</dd></div>
+      <div><dt>Flow ratio</dt><dd>{{ preview.filament_flow_ratio or '—' }}</dd></div>
+      <div><dt>Fan</dt><dd>{{ preview.fan_min_speed or '—' }}–{{ preview.fan_max_speed or '—' }}{% if preview.fan_max_speed %} %{% endif %}</dd></div>
+      <div><dt>Max volumetric</dt><dd>{{ preview.filament_max_volumetric_speed or '—' }}{% if preview.filament_max_volumetric_speed %} mm³/s{% endif %}</dd></div>
+    </dl>
+    {% else %}
+    <dl class="template-preview-values">
+      <div><dt>Nozzle</dt><dd>—</dd></div>
+      <div><dt>Flow ratio</dt><dd>—</dd></div>
+      <div><dt>Fan</dt><dd>—</dd></div>
+      <div><dt>Max volumetric</dt><dd>—</dd></div>
+    </dl>
+    {% endif %}
+    <p id="template-preview-note">Base values; profile settings may override them.</p>
+  </div>
+
+  {% if status_message %}
+  <p class="template-picker-status sr-only" role="status" aria-live="polite" aria-atomic="true">{{ status_message }}</p>
+  {% endif %}
+</div>

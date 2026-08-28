@@ -199,6 +199,82 @@ def profile_edit(request: Request, pid: int, db: DbSession) -> HTMLResponse:
         {"profile": p, "errors": [], "is_edit": True},
     )
 
+def _template_dropdown_impl(
+    request: Request, pid: int | None,
+    type: str, template_vendor: str, template_override: str, reason: str,
+) -> HTMLResponse:
+    """Shared implementation for template dropdown fragment."""
+    from ..presets.template_index import (
+        templates_for_type_and_vendor,
+        all_vendors_for_type,
+        preview_for_template,
+    )
+    from collections import OrderedDict
+
+    selected_type = type
+    selected_vendor = template_vendor if reason != "type-change" else ""
+    selected_template = template_override if reason != "type-change" else ""
+
+    vendors = all_vendors_for_type(selected_type)
+    templates = templates_for_type_and_vendor(selected_type, selected_vendor)
+
+    # Group templates by vendor
+    groups = OrderedDict()
+    for t in templates:
+        groups.setdefault(t["vendor"], []).append(t)
+    template_groups = [{"vendor": v, "templates": ts} for v, ts in groups.items()]
+
+    # Get preview for selected template
+    preview = None
+    if selected_template:
+        preview = preview_for_template(selected_template)
+
+    status_message = ""
+    if reason == "type-change":
+        status_message = f"Template reset to Generic {selected_type} defaults because material type changed."
+
+    pid_or_new = pid if pid else "new"
+
+    return _templates(request).TemplateResponse(
+        request, "template_dropdown.html",
+        {
+            "pid_or_new": pid_or_new,
+            "selected_type": selected_type,
+            "selected_vendor": selected_vendor,
+            "selected_template": selected_template,
+            "vendors": vendors,
+            "template_groups": template_groups,
+            "preview": preview,
+            "status_message": status_message,
+        },
+    )
+
+
+@router.get("/profiles/new/template-dropdown", response_class=HTMLResponse)
+def template_dropdown_new(
+    request: Request,
+    type: str = "PLA",
+    template_vendor: str = "",
+    template_override: str = "",
+    reason: str = "",
+) -> HTMLResponse:
+    """HTMX fragment for new profile (no pid)."""
+    return _template_dropdown_impl(request, None, type, template_vendor, template_override, reason)
+
+
+@router.get("/profiles/{pid}/template-dropdown", response_class=HTMLResponse)
+def template_dropdown_edit(
+    request: Request,
+    pid: int,
+    type: str = "PLA",
+    template_vendor: str = "",
+    template_override: str = "",
+    reason: str = "",
+) -> HTMLResponse:
+    """HTMX fragment for existing profile."""
+    return _template_dropdown_impl(request, pid, type, template_vendor, template_override, reason)
+
+
 
 @router.post("/profiles/form", response_class=HTMLResponse, response_model=None)
 def profile_create_form(

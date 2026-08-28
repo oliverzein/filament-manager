@@ -1,0 +1,75 @@
+# tests/test_ui_template_picker.py
+"""Tests for the template picker HTMX fragment endpoint."""
+import pytest
+from fastapi.testclient import TestClient
+
+from fm.api.app import create_app
+from fm.db import SessionLocal
+from fm.models import Profile
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("FM_DATABASE_URL", f"sqlite:///{tmp_path}/picker.db")
+    with TestClient(create_app()) as c:
+        yield c
+
+
+def test_template_dropdown_new_profile(client):
+    """Fragment for new profile with type=PETG returns vendor + template selects."""
+    r = client.get("/profiles/new/template-dropdown?type=PETG")
+    assert r.status_code == 200
+    assert b'template-vendor' in r.content
+    assert b'template-override' in r.content
+    assert b'All vendors' in r.content
+    assert b'Use Generic PETG defaults' in r.content
+    assert b'Bambu PETG Translucent' in r.content
+
+
+def test_template_dropdown_filtered_by_vendor(client):
+    """Fragment with vendor filter narrows template list."""
+    r = client.get("/profiles/new/template-dropdown?type=PETG&template_vendor=Bambu+Lab")
+    assert r.status_code == 200
+    assert b'Bambu PETG Translucent' in r.content
+    # Non-Bambu templates should not appear in optgroups
+    assert b'Creality Generic PETG' not in r.content
+
+
+def test_template_dropdown_type_change_resets(client):
+    """Type change resets vendor and template to generic default."""
+    r = client.get("/profiles/new/template-dropdown?type=PLA&reason=type-change")
+    assert r.status_code == 200
+    assert b'Use Generic PLA defaults' in r.content
+    assert b'reset' in r.content.lower() or b'Generic PLA' in r.content
+
+
+def test_template_dropdown_with_preview(client):
+    """Selecting a template shows preview values."""
+    r = client.get("/profiles/new/template-dropdown?type=PETG&template_override=Bambu+PETG+Translucent")
+    assert r.status_code == 200
+    assert b'template-preview' in r.content
+    assert b'0.95' in r.content  # flow ratio
+
+
+def test_template_dropdown_edit_profile(client):
+    """Fragment for existing profile shows saved template_override selected."""
+    # Create a profile via API
+    r = client.post("/api/profiles", json={
+        "brand": "Bambu Lab", "name": "PETG Translucent", "type": "PETG",
+        "min_temp": 230, "max_temp": 270, "density": 1.25,
+        "template_override": "Bambu PETG Translucent",
+    })
+    assert r.status_code == 201
+    pid = r.json()["id"]
+
+    r = client.get(f"/profiles/{pid}/template-dropdown?type=PETG&template_override=Bambu+PETG+Translucent")
+    assert r.status_code == 200
+    assert b'selected' in r.content
+    assert b'Bambu PETG Translucent' in r.content
+
+
+def test_profile_form_has_template_picker(client):
+    """Profile form page includes the template picker container."""
+    r = client.get("/profiles/new")
+    assert r.status_code == 200
+    assert b'template-picker' in r.content

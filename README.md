@@ -19,7 +19,7 @@ Working instructions for agents and humans are in [`AGENTS.md`](AGENTS.md).
    edited, duplicated (remaining reset to 100%), and deleted inline.
 3. **Sync** — keep the Creality K2 printer DB and OrcaSlicer presets derived
    from the catalog. Drift is detected by comparing expected vs. actual state.
-4. **Import from OrcaSlicer** — bring standard filament presets (including
+4. **Import from Orca Cloud** — bring standard filament presets (including
    inherited presets with resolved identity) into the catalog as profiles for
    spool tracking and print-settings display.
 
@@ -42,8 +42,9 @@ tuned values read-only after sync.
 │  • Printer sync: SSH/SCP push + version bump + reboot + verify         │
 │    (logic lifted from cfs.py, iron rules enforced server-side)         │
 │  • Orca Cloud sync: push starter presets + pull tuned settings         │
-│    (direct API integration, no desktop agent needed)                   │
-│  • Import from OrcaSlicer: standard presets → catalog profiles         │
+│    (direct Orca Cloud Sync API integration)                            │
+│  • Import from Orca Cloud: standard presets → catalog profiles         │
+│  • Preset templates: bundled @base presets drive preset generation     │
 │  • Settings page: printer connection + Orca Cloud connection           │
 └──────────────┬─────────────────────────────────────────────────────────┘
                │ SSH/SCP to printer (LAN-only)
@@ -63,6 +64,7 @@ tuned values read-only after sync.
 |---|---|---|
 | Web app | Unraid Docker | Python 3.12, FastAPI, SQLAlchemy + SQLite, Jinja2 + HTMX |
 | Orca Cloud sync | in app image | Direct Orca Cloud Sync API client (`fm/orca_cloud.py`), stdlib + requests |
+| Preset templates | in app image | Bundled `@base` filament presets (`fm/presets/templates/`, `template_index.json`) committed to git — no OrcaSlicer needed at runtime |
 | Shared core | in app image | Modules lifted from the skill: DB patching, version bump, preset matching, flatten, preset builder |
 
 The existing skill stays untouched and remains available for agent-driven flows.
@@ -75,7 +77,7 @@ The existing skill stays untouched and remains available for agent-driven flows.
 scripts/dev-start.sh   # uvicorn on :8404, isolated SQLite in .local/
 # ... iterate ...
 scripts/dev-stop.sh    # deterministic stop via .local/server.pid
-scripts/test.sh        # full pytest suite
+scripts/test.sh        # full pytest suite (358 tests)
 ```
 
 `dev-start.sh` exports an isolated
@@ -115,13 +117,15 @@ footer and at `GET /api/version`.
 | `FM_WS_PORT` | `9999` | Printer websocket port (busy-check). |
 | `FM_VERSION_OVERRIDE` | `9876543210` | Printer DB version override (must be `>= 9876543210`). |
 | `FM_ID_RANGE_START` | `99001` | Start of the custom printer ID range (99xxx). |
-| `FM_ORCA_REFRESH_TOKEN` | *(optional)* | Orca Cloud refresh token for Sync API authentication. Can be set via Settings page instead of env var. |
 | `FM_SETTINGS_PATH` | `.local/settings.json` (dev) / `/data/settings.json` (container) | Path to the settings.json file (printer connection config, overrides env vars). |
 
 `FM_PRINTER_IP`, `FM_SSH_USER`, `FM_SSH_PASSWORD`, and `FM_DB_REMOTE_PATH`
 are required; the rest fall back to the defaults above. If the required printer
 env vars are missing, sync endpoints return 503. Settings page values (stored
-in `settings.json`) take precedence over environment variables.
+in `settings.json`) take precedence over environment variables; the Orca Cloud
+refresh token is configured on the Settings page (email/password connect) and
+stored in `settings.json` only — there is no env var for it. The
+authoritative `FM_*` list lives in `fm/config.py`.
 
 ## Scripts
 
@@ -129,9 +133,10 @@ in `settings.json`) take precedence over environment variables.
 |---|---|
 | `scripts/dev-start.sh` | Start the app locally (uvicorn, dev config, isolated SQLite in `.local/`); waits for readiness. |
 | `scripts/dev-stop.sh` | Stop the local dev app deterministically via `.local/server.pid`. |
-| `scripts/test.sh` | Run the full pytest suite. |
+| `scripts/test.sh` | Run the full pytest suite (358 tests). |
 | `scripts/release.sh <version>` | Semver tag, build the Docker image, save a gzipped tarball to `dist/`; refuses a dirty tree. |
-| `scripts/deploy-unraid.sh <version>` | Load the released image + XML template onto Unraid, restart the container, poll for readiness. |
+| `scripts/deploy-unraid.sh <version>` | Load the released image + XML template onto Unraid, restart the container, wait for readiness. |
+| `scripts/build_templates.py` | One-off dev-time bundler: scans a local OrcaSlicer install for `@base` filament presets, copies them into `fm/presets/templates/`, and regenerates `fm/presets/template_index.json`. Output is committed to git; re-run only when OrcaSlicer updates its preset library. |
 
 Per `AGENTS.md`, any action likely to repeat goes into a script under `scripts/`
 — agents call scripts, never ad-hoc command sequences.
@@ -142,10 +147,10 @@ Per `AGENTS.md`, any action likely to repeat goes into a script under `scripts/`
 |---|---|---|
 | Dashboard | `/` | Spool count by profile, drift matrix, recent activity. |
 | Profiles | `/profiles` | Catalog of filament profiles with filter/search. |
-| Profile edit | `/profiles/{id}/edit` | Edit identity (brand, name, type, colors, density, drying, notes) + read-only OrcaSlicer print settings (synced from Orca Cloud). |
+| Profile edit | `/profiles/{id}/edit` | Edit identity (brand, name, type, colors, density, drying, notes), pick a preset source template, and view read-only OrcaSlicer print settings (synced from Orca Cloud). |
 | Spools | `/spools` | Spool inventory with inline edit, duplicate (remaining=100%), delete, and color dropdown (30 common colors + custom picker). |
-| Sync | `/sync` | Drift table, push/verify/preset actions, job progress. |
-| Import from OrcaSlicer | `/import-orca` | Import standard OrcaSlicer presets (including resolved inherited presets) as catalog profiles. |
+| Sync | `/sync` | Drift table, push/verify/preset actions, job progress, busy-printer resolution. |
+| Orca Cloud Import | `/import-orca` | Import standard Orca Cloud presets (including resolved inherited presets) as catalog profiles. |
 | Migration | `/migration` | One-time import of existing printer DB entries. |
 | Settings | `/settings` | Printer connection config + Orca Cloud connection (IP, SSH credentials, DB path, test connection, Orca Cloud auth). |
 
@@ -167,41 +172,72 @@ into the catalog on first deploy.
 Expected first-run entries: 99001 Sunlu PLA+, 99002 eSUN PETG Basic, 99003
 CAILAB PLA Silk, 99004 Cailab PLA+ Bio.
 
-## Import from OrcaSlicer
+## Import from Orca Cloud
 
-The Import page (`/import-orca`) shows OrcaSlicer presets not yet linked to a
-catalog profile. Presets are pulled directly from Orca Cloud via the Sync API.
-Inherited presets (those with an `inherits` field) are resolved at import time
-— the parent system preset's identity (filament_id, filament_vendor) and
-settings are merged into the child, with child overrides winning.
-`filament_type` is derived from the parent preset name when the system preset
-omits it.
+The Orca Cloud Import page (`/import-orca`) shows Orca Cloud presets not yet
+linked to a catalog profile. Presets are pulled directly from Orca Cloud via
+the Sync API. Inherited presets (those with an `inherits` field) are resolved
+at import time — the parent system preset's identity (filament_id,
+filament_vendor) and settings are merged into the child, with child overrides
+winning. `filament_type` is derived from the parent preset name when the
+system preset omits it.
 
 Imported profiles get `printer_db_id=None` (no push to printer — standard
 filaments are already on the printer). After import, click "Sync from Orca" on
 the profile page to populate the read-only print settings.
 
+## Preset templates
+
+Preset generation starts from a bundled `@base` filament template so starter
+presets carry realistic defaults. `scripts/build_templates.py` is a one-off
+dev-time bundler: it scans a local OrcaSlicer install
+(`/opt/orca-slicer/resources/profiles`), copies the `@base` filament presets
+into `fm/presets/templates/`, and generates `fm/presets/template_index.json`
+(352 indexed entries). Both are committed to git, so the app, repo, and Docker
+image are self-contained — servers need no OrcaSlicer installed. Re-run the
+script only when OrcaSlicer updates its preset library.
+
+The profile form has an HTMX **Preset source** picker: a type filter, a vendor
+filter ("All vendors"), and a template dropdown (optgroups, defaulting to "Use
+Generic \<type\> defaults (recommended)") with a live preview of nozzle
+temperature, flow ratio, fan range, and max volumetric flow. The chosen
+template is stored on `Profile.template_override`; brand and template vendor
+are independent, so a house brand may use a Generic preset. Changing the type
+resets the selection. Server-side validation clears a template that does not
+match the submitted type, and the builder falls back to the generic type
+default (with a warning log) if a template file is missing. Changing a
+profile's template has no effect until the next generate-preset run.
+
 ## Orca Cloud integration
 
-The Manager integrates directly with the Orca Cloud Sync API — no desktop
-agent is needed. OrcaSlicer syncs presets to/from Cloud via its built-in
-File > Sync Presets feature.
+The Manager integrates directly with the Orca Cloud Sync API. OrcaSlicer
+syncs presets to/from Cloud via its built-in File > Sync Presets feature.
 
 **Authentication**: Orca Cloud uses Supabase auth. The refresh token is
-configured on the Settings page (or via the `FM_ORCA_REFRESH_TOKEN` env var).
-The refresh token rotates on every use; the server persists the new token
-automatically after each API call.
+configured on the Settings page (Orca Cloud email/password connect,
+`POST /api/settings/orca-connect`). The refresh token rotates on every use;
+the server persists the new token automatically after each API call
+(`fm/settings_store.py`).
 
-**Push** (starter presets): when a profile is generated, the Manager pushes
-the starter preset directly to Orca Cloud via `POST /api/v1/sync/push`. The
-user then opens OrcaSlicer, runs File > Sync Presets to pull the starter,
+**Push** (starter presets): triggered from the Sync page's drift table
+(per-profile generate button) or via `POST /api/sync/preset/{profile_id}`;
+it enqueues a `generate_preset` job that builds a standalone preset
+from the catalog profile and pushes it directly to Orca Cloud via
+`OrcaCloudClient.sync_push`, setting `SyncTarget(orca_preset).expected_hash`.
+The user then opens OrcaSlicer, runs File > Sync Presets to pull the starter,
 tunes the print settings, and syncs again to push the tuned values back to
-Cloud.
+Cloud. Printer DB push is the separate `push` job.
 
 **Pull** (tuned settings): the Manager pulls tuned presets from Orca Cloud
 via `GET /api/v1/sync/pull` and stores them in `SyncTarget.actual_state` for
 read-only display on the profile page. Incremental pulls use a cursor stored
 in settings; a 410 Gone response triggers a full resync (cursor reset to 0).
+
+**Sync from Orca** (UI): "Sync from Orca" on a profile page
+(`POST /profiles/{pid}/sync-from-orca`) pulls that profile's tuned preset and
+refreshes the read-only print-settings fragment (`GET /profiles/{pid}/orca-fragment`,
+which now shows "template: \<name\>"). `POST /profiles/sync-from-orca` does the
+same for every profile at once.
 
 **Conflict handling**: if the server's `updated_time` is newer than the
 client's (409 conflict), the server returns the current version and the
@@ -212,6 +248,30 @@ the profile name + user ID (matching OrcaSlicer's `generate_uuid_for_setting_id`
 This ensures the same profile always maps to the same Cloud ID across pushes.
 
 **Payload limit**: the Sync API accepts payloads up to 1 MB per profile.
+
+## Sync jobs
+
+Sync work runs as jobs drained synchronously inside the request that triggers
+them — there is no scheduler, no background worker, and no external process
+monitoring the queue.
+`jobs.run_pending` dispatches each queued job to a registered handler
+(`fm/service/sync_handlers.py`); each handler runs inside a DB savepoint so a
+failure discards its partial writes before the error is recorded.
+
+Job kinds:
+
+| Kind | Trigger | Action |
+|---|---|---|
+| `push` | `POST /api/sync/push` | Rebuild printer DB from cache + catalog, push via SSH/SCP, bump version + reboot, enqueue `verify`. |
+| `verify` | (enqueued by `push`) | Pull fresh DB, floor-check + presence + hash compare, update `SyncTarget.status`. |
+| `generate_preset` | `POST /api/sync/preset/{profile_id}` | Build standalone preset, push directly to Orca Cloud, set `expected_hash`. |
+| `temp_sync` | `POST /api/sync/tempsync` | Pull presets from Orca Cloud, apply nozzle-temperature changes to the catalog, enqueue `push`. |
+| `import_scan` | `POST /import-orca/apply`, migration step | Pull presets/printer DB and produce import proposals. |
+
+A `push` that finds the printer busy parks the job as `awaiting_input`; the
+user resolves it from the Sync page (or `POST /api/jobs/{id}/resolve`) by
+choosing `force_reboot`, `wait`, or `no_reboot`, which re-queues and drains the
+job.
 
 ## Iron rules
 

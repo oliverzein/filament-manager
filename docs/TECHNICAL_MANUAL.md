@@ -2,7 +2,7 @@
 
 Developer and administrator reference for the Filament Manager web
 application: architecture, internal flows, data model, API surface,
-deployment, and the companion agent protocol.
+deployment, and the Orca Cloud integration.
 
 ## Table of Contents
 
@@ -16,17 +16,17 @@ deployment, and the companion agent protocol.
    - [Spool CRUD](#spool-crud)
    - [Printer DB Push](#printer-db-push)
    - [Verify](#verify)
-   - [OrcaSlicer Preset Generation](#orcaslicer-preset-generation)
-   - [Report Presets (Agent Scan)](#report-presets-agent-scan)
+   - [Orca Cloud Preset Generation](#orca-cloud-preset-generation)
+   - [Orca Cloud Sync (Profile ↔ Cloud)](#orca-cloud-sync-profile--cloud)
    - [Temperature Sync](#temperature-sync)
-   [Preset Drift Detection](#preset-drift-detection)
+   - [Preset Drift Detection](#preset-drift-detection)
    - [Migration (Import Scan)](#migration-import-scan)
-   - [Import from OrcaSlicer](#import-from-orcaslicer)
+   - [Import from Orca Cloud](#import-from-orca-cloud)
 7. [Printer DB Codec](#printer-db-codec)
 8. [Preset Builder](#preset-builder)
 9. [Preset Matching and Temp-Sync Target Selection](#preset-matching-and-temp-sync-target-selection)
-10. [Companion Agent (fm-agent)](#companion-agent-fm-agent)
-11. [Agent API Protocol](#agent-api-protocol)
+10. [Template Selection](#template-selection)
+11. [Orca Cloud Integration](#orca-cloud-integration)
 12. [Transport Layer](#transport-layer)
 13. [Push Pipeline](#push-pipeline)
 14. [Iron Rules](#iron-rules)
@@ -46,25 +46,30 @@ deployment, and the companion agent protocol.
 │  • Profiles + Spool inventory                                          │
 │  • Sync engine: derives printer DB entries + preset payloads           │
 │  • Printer sync: SSH/SCP push + version bump + reboot + verify         │
-│  • Import from OrcaSlicer: standard presets → catalog profiles         │
-│  • Settings page: printer connection config (settings.json)            │
-│  • Agent job queue: apply_preset + report_presets                      │
+│  • Orca Cloud integration: push/pull/delete presets (Supabase auth)    │
+│  • Orca Cloud Import: cloud presets → catalog profiles                 │
+│  • Settings page: printer connection + Orca Cloud credentials          │
+│  • Job queue: push/verify/generate_preset/temp_sync/import_scan        │
+│    (drained synchronously inside requests — no scheduler/worker)       │
 └──────────────┬──────────────────────────────────────┬──────────────────┘
-               │ REST API (token auth, LAN-only)       │ Agent pull API
-│                │ (Bearer token)
-┌──────────────▼───────────── Desktop ────────────────▼──────────────────┐
-│  Companion agent (fm-agent, thin Python CLI)                           │
-│  • Polls /api/agent/jobs for queued work                               │
-│  • apply_preset: writes .json + .info to OrcaSlicer user filament dir  │
-│    (refuses while OrcaSlicer runs; .info with empty sync_info)         │
-│  • report_presets: scans user presets, resolves inherited presets,     │
-│    reports 21 fields back for read-only display and temp sync          │
-└────────────────────────────────────────────────────────────────────────┘
+               │ SSH/SCP/WS (LAN-only)                │ HTTPS
+┌──────────────▼───────────────────────────┐  ┌────────▼─────────────────────┐
+│  Creality K2 printer                      │  │  Orca Cloud (Supabase-backed)│
+│  • material_database.json                 │  │  • Preset sync API           │
+│  • Version bump + reboot on every write   │  │  • Refresh-token rotation    │
+└───────────────────────────────────────────┘  └──────────────────────────────┘
 ```
 
 The catalog (SQLite) is the single source of truth. Printer DB entries
-and OrcaSlicer presets are derived views. Drift is detected by comparing
+and Orca Cloud presets are derived views. Drift is detected by comparing
 expected vs. actual state via canonical hashes.
+
+**OrcaSlicer** is the desktop slicer application. It exists only on the
+dev machine, where it is the sole editor of print settings and the
+source for preset **bundling** (see [Template Selection](#template-selection)).
+**Orca Cloud** is the cloud sync service — the runtime source/target of
+preset sync and import. The Manager never writes to OrcaSlicer directly;
+it pushes presets to Orca Cloud, which OrcaSlicer syncs on the desktop.
 
 **Key design principle:** OrcaSlicer is the sole editor of print
 settings. The Manager generates a starter preset, the user tunes in
@@ -76,7 +81,9 @@ live in `SyncTarget.actual_state` as JSON.
 
 ## Data Model
 
-SQLAlchemy models in `fm/models.py`. Database is SQLite.
+SQLAlchemy models in `fm/models.py`. Database is SQLite. Schema
+migrations are handled by `_migrate()` in `fm/db.py`, which adds new
+columns via `ALTER TABLE ADD COLUMN` on engine init.
 
 ### Profile
 
@@ -92,14 +99,15 @@ SQLAlchemy models in `fm/models.py`. Database is SQLite.
 | `density` | float | Material density (g/cm³) |
 | `drying_temp` | int | Recommended drying temperature (°C) |
 | `drying_time` | int | Recommended drying time (hours) |
-| `pa` | float \| None | Pressure advance (from OrcaSlicer sync) |
-| `flow_ratio` | float \| None | Flow ratio (from OrcaSlicer sync) |
-| `max_volumetric` | float \| None | Max volumetric speed (from OrcaSlicer sync) |
-| `retraction_length` | float \| None | Retraction length (from OrcaSlicer sync) |
-| `retraction_speed` | float \| None | Retraction speed (from OrcaSlicer sync) |
+| `pa` | float \| None | Pressure advance (from Orca Cloud sync) |
+| `flow_ratio` | float \| None | Flow ratio (from Orca Cloud sync) |
+| `max_volumetric` | float \| None | Max volumetric speed (from Orca Cloud sync) |
+| `retraction_length` | float \| None | Retraction length (from Orca Cloud sync) |
+| `retraction_speed` | float \| None | Retraction speed (from Orca Cloud sync) |
 | `nozzle_temperature` | int \| None | Mirrors `kvParam.nozzle_temperature` (temp-sync target) |
 | `printer_db_id` | str \| None | "99xxx" once pushed to printer DB |
-| `filament_id` | str \| None | OrcaSlicer `filament_id` once preset generated |
+| `filament_id` | str \| None | Orca Cloud `filament_id` once preset generated |
+| `template_override` | str(255) \| None | Selected preset template name (overrides generic type default) |
 | `notes` | str | Free-text notes |
 | `created_at` | datetime | Creation timestamp (UTC) |
 | `updated_at` | datetime | Last modification timestamp (UTC) |
@@ -131,19 +139,21 @@ Tracks sync state per profile per target kind.
 | `id` | int PK | Auto-increment |
 | `profile_id` | int FK → `profiles.id` | Referenced profile |
 | `kind` | str(32) | `printer_db` or `orca_preset` |
+| `cloud_id` | str(64) \| None | Orca Cloud resource UUID (deterministic link to a cloud preset) |
 | `expected_hash` | str \| None | Canonical hash of expected entry/preset |
-| `actual_state` | str \| None | JSON string of actual state (preset data from agent) |
-| `status` | str(16) | `in_sync` \| `pending` \| `drift_detected` \| `error` |
+| `actual_state` | str \| None | JSON string of actual state (preset data from Orca Cloud) |
+| `status` | str(16) | `in_sync` \| `pending` \| `drift` \| `error` |
 | `last_synced_at` | datetime \| None | Last sync attempt timestamp |
 
 ### Job
 
-Asynchronous job queue for sync operations and agent tasks.
+Job queue for sync operations. Jobs are drained synchronously inside
+API/UI request paths — there is no scheduler and no background worker.
 
 | Column | Type | Description |
 |---|---|---|
 | `id` | int PK | Auto-increment |
-| `kind` | str(32) | `push` \| `verify` \| `generate_preset` \| `apply_preset` \| `report_presets` \| `temp_sync` \| `import_scan` |
+| `kind` | str(32) | `push` \| `verify` \| `generate_preset` \| `temp_sync` \| `import_scan` |
 | `payload` | str | JSON string (job parameters) |
 | `status` | str(24) | `queued` \| `running` \| `done` \| `error` \| `awaiting_input` |
 | `result` | str \| None | JSON string (job result or error) |
@@ -168,16 +178,16 @@ Asynchronous job queue for sync operations and agent tasks.
 fm/
 ├── __init__.py
 ├── config.py              # Config dataclass, load_config() from env vars
-├── db.py                  # SQLAlchemy engine + SessionLocal
+├── db.py                  # SQLAlchemy engine + SessionLocal + _migrate()
 ├── errors.py              # FmError exception
 ├── models.py              # SQLAlchemy models (Profile, Spool, SyncTarget, Job, ActivityLog)
-├── settings_store.py      # settings.json read/write, load_merged_config()
+├── orca_cloud.py          # OrcaCloudClient — Orca Cloud Sync API (push/pull/delete, Supabase auth)
+├── settings_store.py      # settings.json read/write, load_merged_config(), Orca Cloud token storage
 ├── api/
 │   ├── __init__.py
 │   ├── app.py             # FastAPI factory (create_app), router mounting
-│   ├── catalog.py         # REST API: /api/profiles, /api/spools CRUD
+│   ├── catalog.py         # REST API: /api/profiles, /api/spools CRUD, /api/templates
 │   ├── sync.py            # REST API: /api/sync/* (push, preset, tempsync, drift, jobs)
-│   ├── agent.py           # Agent pull API: /api/agent/jobs, /api/agent/results
 │   ├── ui.py              # UI routes (HTML pages, HTMX fragments, form handlers)
 │   ├── templates/         # Jinja2 templates
 │   └── static/            # CSS
@@ -190,14 +200,13 @@ fm/
 │   ├── transport.py       # SshTransport (SSH/SCP/WS), PrinterTransport Protocol
 │   ├── pipeline.py        # run_push(), verify_printer(), canonical_hash()
 │   └── dbcodec.py         # Printer DB JSON codec: load/save/insert/remove/validate
-├── presets/
-│   ├── __init__.py
-│   ├── builder.py         # build_standalone_preset(), generate_filament_id()
-│   ├── matching.py        # match_presets(), temp_sync_targets(), find_orca_user_dir()
-│   └── flattener.py       # Preset flattening (inherits resolution)
-└── agent/
+└── presets/
     ├── __init__.py
-    └── cli.py             # fm-agent CLI: poll, watch, apply_preset, report_presets
+    ├── builder.py         # build_standalone_preset(), generate_filament_id()
+    ├── matching.py        # match_presets(), temp_sync_targets(), find_orca_user_dir()
+    ├── flattener.py       # Preset flattening, find_preset_by_name, find_system_preset
+    ├── template_index.py  # Runtime loader for template_index.json
+    └── templates/         # Bundled @base preset templates (committed to git)
 ```
 
 ---
@@ -216,8 +225,11 @@ class Config:
     ws_port: int = 9999
     version_override: int = 9876543210
     id_range_start: int = 99001
-    agent_token: str = ""
 ```
+
+`load_config()` reads the required printer env vars and raises `FmError`
+if any of `FM_PRINTER_IP`, `FM_SSH_USER`, `FM_SSH_PASSWORD`,
+`FM_DB_REMOTE_PATH` are missing.
 
 ### Configuration Precedence
 
@@ -241,15 +253,17 @@ endpoints return 503 in that case.
 | `FM_WS_PORT` | `9999` | Printer WebSocket port (busy check) |
 | `FM_VERSION_OVERRIDE` | `9876543210` | DB version floor |
 | `FM_ID_RANGE_START` | `99001` | Start of custom printer ID range |
-| `FM_AGENT_TOKEN` | *(secret)* | Shared token for agent auth |
-| `FM_ORCASLICER_CONFIG_DIR` | `~/.config/OrcaSlicer` | Agent-side OrcaSlicer config dir override |
 | `FM_SETTINGS_PATH` | `.local/settings.json` (dev) / `/data/settings.json` (container) | Path to settings.json |
+| `FM_CACHE_DB_PATH` | *(derived from `FM_DATABASE_URL`)* | Override printer DB cache path |
 
 ---
 
 ## Job Queue and Handler System
 
-The job queue (`fm/service/jobs.py`) drives all async operations.
+The job queue (`fm/service/jobs.py`) drives all sync operations. Jobs
+are drained **synchronously** inside API/UI request paths by
+`run_pending` — there is no scheduler, no background worker, and no
+polling process.
 
 ### Job Lifecycle
 
@@ -279,13 +293,14 @@ import (side-effect of including the sync router).
 
 ### Handler Routing
 
-`run_pending` processes jobs by kind:
+`run_pending` processes jobs by kind. All registered kinds are
+server-side handlers executed immediately within the request:
 
-- **Server-side handlers** (push, verify, generate_preset, temp_sync,
-  import_scan) — executed immediately by `run_pending`.
-- **Agent-facing kinds** (apply_preset, report_presets) — left queued;
-  the agent claims them via `GET /api/agent/jobs`. `run_pending` skips
-  kinds in `_AGENT_KINDS`.
+- **push** — rebuild printer DB, upload, reboot, enqueue verify.
+- **verify** — pull fresh DB, version-floor + presence + hash check.
+- **generate_preset** — build preset, push directly to Orca Cloud.
+- **temp_sync** — pull presets from Orca Cloud, update nozzle temps.
+- **import_scan** — pull printer DB, extract 99xxx entries as proposals.
 
 ### Injection Points (Testing)
 
@@ -297,7 +312,8 @@ override via monkeypatch:
 | `_transport_factory` | `lambda cfg: SshTransport(cfg)` | Replace SSH transport with fake |
 | `_cache_db_path` | `None` (resolved at runtime) | Override printer DB cache path |
 | `_import_db_path` | `None` | Pre-pulled DB for import_scan tests |
-| `_preset_template_factory` | `lambda p: find_system_preset(p["type"])` | Override preset template lookup |
+| `_preset_template_factory` | resolves override → flatten, else `find_system_preset` | Override preset template lookup |
+| `_orca_client_factory` | `_default_orca_client` (loads token from settings) | Replace Orca Cloud client with fake |
 | `_sleep` | `time.sleep` | No-op sleep for tests |
 
 ---
@@ -306,22 +322,25 @@ override via monkeypatch:
 
 ### Profile CRUD
 
-**Create** (`POST /profiles/form`, `ui.py:180`):
+**Create** (`POST /profiles/form`, `ui.py:283`):
 
 1. Form fields: brand, name, type, colors, min_temp, max_temp, density,
-   drying_temp, drying_time, notes.
+   drying_temp, drying_time, notes, template_override.
 2. Validation via `_validate()` → `dbcodec.validate_entry()`:
    - Required: brand, name, type, min_temp, max_temp.
    - Temp range: 100–400°C, min_temp < max_temp.
    - Density: 0.9–1.6.
    - Vendor-in-name warning (not blocking).
-3. On error: re-render form with errors (HTTP 422).
-4. On success: create `Profile` row, redirect to `/profiles` (303).
+3. Server-side template validation: if `template_override` is set, it is
+   checked against `template_index.json`; a template whose `type` does
+   not match the submitted type is cleared (set to empty).
+4. On error: re-render form with errors (HTTP 422).
+5. On success: create `Profile` row, redirect to `/profiles` (303).
 
-**Edit** (`POST /profiles/{pid}/form`, `ui.py:224`): same validation,
-updates existing profile fields.
+**Edit** (`POST /profiles/{pid}/form`, `ui.py:335`): same validation
+and template-check, updates existing profile fields.
 
-**Delete** (`DELETE /api/profiles/{pid}`, `catalog.py:285`): double
+**Delete** (`DELETE /api/profiles/{pid}`, `catalog.py:289`): double
 confirm via `confirm` query param (must match pid) or `force` flag.
 Orphans `printer_db_id` entries are cleaned up during the next push
 (`_rebuild_printer_db` removes orphaned 99xxx entries).
@@ -332,18 +351,18 @@ Orphans `printer_db_id` entries are cleaned up during the next push
 
 ### Spool CRUD
 
-**Create** (`POST /spools/form`, `ui.py:381`): validates `profile_id`
+**Create** (`POST /spools/form`, `ui.py:505`): validates `profile_id`
 exists, creates `Spool` row.
 
-**Edit** (`POST /spools/{sid}/edit`, `ui.py:421`): inline form updates
+**Edit** (`POST /spools/{sid}/edit`, `ui.py:545`): inline form updates
 profile_id, color_override, remaining_pct, location, notes.
 
-**Duplicate** (`POST /spools/{sid}/duplicate`, `ui.py:458`): copies all
+**Duplicate** (`POST /spools/{sid}/duplicate`, `ui.py:582`): copies all
 fields, resets `remaining_pct=100`.
 
-**Delete** (`POST /spools/{sid}/delete`, `ui.py:448`): removes spool.
+**Delete** (`POST /spools/{sid}/delete`, `ui.py:572`): removes spool.
 
-**Remaining update** (`POST /spools/{sid}/remaining`, `ui.py:407`):
+**Remaining update** (`POST /spools/{sid}/remaining`, `ui.py:531`):
 HTMX endpoint, updates `remaining_pct` via slider, returns inline HTML
 fragment.
 
@@ -356,16 +375,15 @@ fragment.
 **Trigger:** `POST /api/sync/push` (`sync.py:98`) or **Push to printer**
 button on Sync page.
 
-**Handler:** `handle_push` (`sync_handlers.py:274`).
+**Handler:** `handle_push` (`sync_handlers.py:368`).
 
 **Flow:**
 
 1. **Enqueue** push job with optional `profile_ids`, `force_reboot`,
-   `no_reboot`.
-2. **`_rebuild_printer_db`** (`sync_handlers.py:216`):
+   `no_reboot`. `run_pending` drains the queue synchronously.
+2. **`_rebuild_printer_db`** (`sync_handlers.py:310`):
    - Load cached printer DB (`_load_cache_db`): pulls from printer via
-     SCP on first run, then reuses local cache at
-     `~/.cache/filament-manager/printer-db.json` (resolved by
+     SCP on first run, then reuses local cache (resolved by
      `_resolve_cache_path`).
    - For each target profile:
      - If `printer_db_id` exists: remove old entry by that ID.
@@ -401,13 +419,14 @@ button on Sync page.
      + parameter fields).
    - `status = "pending"`.
    - `last_synced_at = now`.
-7. **Enqueue verify** job automatically.
+7. **Enqueue verify** job automatically (drained on the next
+   `run_pending` call).
 
 ### Verify
 
 **Trigger:** Enqueued automatically after push, or manually.
 
-**Handler:** `handle_verify` (`sync_handlers.py:318`).
+**Handler:** `handle_verify` (`sync_handlers.py:412`).
 
 **Flow:**
 
@@ -422,95 +441,123 @@ button on Sync page.
 4. Log warning if cloud rollback detected.
 5. Returns version_ok, present IDs, missing IDs, cloud_rollback flag.
 
-### OrcaSlicer Preset Generation
+### Orca Cloud Preset Generation
 
-**Trigger:** `POST /api/sync/preset/{profile_id}` (`sync.py:114`) or
-preset generate button in drift table.
+**Trigger:** the Sync page drift-table generate button (per profile) or
+`POST /api/sync/preset/{profile_id}` (`sync.py:114`).
 
-**Handler:** `handle_generate_preset` (`sync_handlers.py:385`).
+**Handler:** `handle_generate_preset` (`sync_handlers.py:479`).
 
 **Flow:**
 
-1. Load profile, build `profile_dict` with all catalog fields.
-2. Find system preset template via `_preset_template_factory` →
-   `find_system_preset(profile.type)`. Raises if no template found.
+1. Load profile, build `profile_dict` with all catalog fields including
+   `template_override`.
+2. Resolve the preset template via `_preset_template_factory`
+   (`sync_handlers.py:73`):
+   - If `template_override` is set: find the named `@base` template via
+     `find_preset_by_name(override + " @base")` and flatten it with
+     `flatten_preset`.
+   - If the override file is missing: `log.warning` and fall back to the
+     generic type default via `find_system_preset(profile.type)`.
+   - If no override: use `find_system_preset(profile.type)`.
+   - Raises if no template can be resolved.
 3. Build standalone preset via `build_standalone_preset(profile_dict,
-   template)` (`fm/presets/builder.py`):
+   template)` (`fm/presets/builder.py:61`):
    - Clones template, overlays profile identity (name, brand, type).
    - Generates `filament_id` via `generate_filament_id(name, db_id)`:
      MD5 hash with "P" prefix, 14 chars.
    - Maps catalog optional fields to `kvParam`-style overrides via
      `_KV_MAP`.
    - Clears `inherits` (standalone, not inherited).
-4. Build `.info` content: empty `sync_info`, `setting_id`, `base_id`;
-   set `updated_time`.
-5. Compute `expected_hash` from preset identity + parameter fields
+4. Compute `expected_hash` from preset identity + parameter fields
    via `canonical_hash()`.
-6. Update `profile.filament_id` with generated ID.
-7. Set `SyncTarget(orca_preset)`: `expected_hash`, `status="pending"`.
-8. Enqueue `apply_preset` job with preset JSON + .info content.
+5. Update `profile.filament_id` with generated ID.
+6. Set `SyncTarget(orca_preset)`: `expected_hash`, `status="pending"`,
+   `cloud_id=None` (set after successful push).
+7. **Push directly to Orca Cloud** via `OrcaCloudClient.sync_push`
+   (`fm/orca_cloud.py:222`):
+   - On 409 conflict: retry once with the server's `updated_time` to
+     force an update. If still conflicting, set `status="drift"`.
+   - On success: store `target.cloud_id = client.cloud_id(filament_id)`,
+     `status="in_sync"`, `last_synced_at=now`.
 
-### Report Presets (Agent Scan)
+Changing a profile's template has no effect until the next
+generate-preset run.
 
-**Trigger:** `POST /profiles/{pid}/sync-from-orca` (`ui.py:275`) or
-"Scan now" on Import page.
+### Orca Cloud Sync (Profile ↔ Cloud)
 
-**Flow (server-side):**
+**Trigger:**
 
-1. Enqueue `report_presets` job (empty payload).
-2. Return HTMX fragment with syncing spinner state.
-3. Job is agent-facing — left queued for `fm-agent` to claim.
+- `POST /profiles/sync-from-orca` (`ui.py:176`) — sync **all** profiles.
+- `POST /profiles/{pid}/sync-from-orca` (`ui.py:390`) — sync a single
+  profile, returns the orca-fragment inline.
+- `GET /profiles/{pid}/orca-fragment` (`ui.py:430`) — read-only
+  print-settings display.
 
-**Flow (agent-side):** see [Companion Agent](#companion-agent-fm-agent).
+**Flow (synchronous, server-side):**
 
-**Post-processing** (`ui.py:287` `orca_fragment`):
+1. `refresh_preset_drift(db)` (`sync_handlers.py:645`) pulls all
+   presets from Orca Cloud via `OrcaCloudClient.sync_pull` and converts
+   upserts to local preset format.
+2. For each existing `SyncTarget(orca_preset)`:
+   - If `cloud_id` is set: match by exact cloud resource UUID
+     ( mirrors OrcaSlicer's `setting_id` approach).
+   - If `cloud_id` is unset (legacy target): discover via name matching
+     (`match_presets`, score ≥ 30) and store the cloud `id` as
+     `cloud_id` for future exact matches.
+   - If matched: compare `canonical_hash` of the preset identity +
+     `nozzle_temperature` against `expected_hash`. Match → `"in_sync"`,
+     mismatch → `"drift"`. Store full preset in `actual_state` as JSON.
+   - If not in cloud (deleted): `status="drift"`, `actual_state=None`.
+3. Profiles without an `orca_preset` SyncTarget are skipped (appear as
+   `pending` in the drift table).
 
-1. HTMX polls `/profiles/{pid}/orca-fragment?job_id=N` every 3s.
-2. If job queued/running and <5 min old: show spinner.
-3. If job >5 min old: show stale state with retry button.
-4. If job done: call `refresh_preset_drift(db)` to update
-   `SyncTarget(orca_preset)` status, parse `actual_state` JSON, render
-   12 read-only print settings.
-5. If job error: show stale state.
+**Orca-fragment display** (`orca_fragment.html`):
+
+- Renders up to 12 read-only print settings from `actual_state` JSON.
+- Shows `template: <name>` — the `template_override` value, or
+  `Generic <type> defaults` when no override is set.
+- Print settings are read-only in the Manager; OrcaSlicer remains the
+  sole print-settings editor.
 
 ### Temperature Sync
 
 **Trigger:** `POST /api/sync/tempsync` (`sync.py:125`) or "Temperature
 sync" button on Sync page.
 
-**Handler:** `handle_temp_sync` (`sync_handlers.py:460`).
+**Handler:** `handle_temp_sync` (`sync_handlers.py:591`).
 
 **Flow:**
 
-1. Find most recent completed `report_presets` job. Raises if none.
-2. Parse `presets` from job result.
-3. Build `profiles_state` from catalog (only profiles with
+1. Pull presets directly from Orca Cloud via
+   `OrcaCloudClient.sync_pull` and convert to local format.
+2. Build `profiles_state` from catalog (only profiles with
    `printer_db_id`, or filtered by `profile_ids`).
-4. Call `temp_sync_targets(profiles_state, presets)`
+3. Call `temp_sync_targets(profiles_state, presets)`
    (`fm/presets/matching.py:152`):
-   - For each profile, find matching OrcaSlicer preset via
+   - For each profile, find matching Orca Cloud preset via
      `match_presets()` (vendor + name + type scoring).
    - Compare `nozzle_temperature` from preset vs catalog
      `nozzle_temperature`.
    - Returns `(updates, skipped)` where updates are profiles whose
      nozzle temp changed.
-5. Apply `nozzle_temperature` changes to catalog Profile rows.
-6. Enqueue `push` job to propagate temp changes to printer DB.
+4. Apply `nozzle_temperature` changes to catalog Profile rows.
+5. Enqueue `push` job to propagate temp changes to printer DB.
 
 ### Preset Drift Detection
 
-**Function:** `refresh_preset_drift` (`sync_handlers.py:518`).
+**Function:** `refresh_preset_drift` (`sync_handlers.py:645`).
 
-Called after `report_presets` completes. Compares each profile's
-`SyncTarget(orca_preset).expected_hash` against the hash of the
-reported preset data. Updates `status` to `in_sync` or `drift_detected`.
-Also stores the full preset data in `SyncTarget.actual_state` as JSON.
+Called after Orca Cloud sync (single or all profiles). Compares each
+profile's `SyncTarget(orca_preset).expected_hash` against the hash of
+the pulled preset data. Updates `status` to `in_sync` or `drift`. Also
+stores the full preset data in `SyncTarget.actual_state` as JSON.
 
 ### Migration (Import Scan)
 
-**Trigger:** `POST /migration/import` (`ui.py:641`).
+**Trigger:** `POST /migration/import` (`ui.py:765`).
 
-**Handler:** `handle_import_scan` (`sync_handlers.py:657`).
+**Handler:** `handle_import_scan` (`sync_handlers.py:807`).
 
 **Flow:**
 
@@ -521,11 +568,9 @@ Also stores the full preset data in `SyncTarget.actual_state` as JSON.
    - `printer_db_id`, `brand`, `name`, `type`, `min_temp`, `max_temp`,
      `density`, `drying_temp`, `drying_time`, `colors`,
      `nozzle_temperature`, `flow_ratio`, `pa`, `max_volumetric`.
-4. Enqueue `report_presets` job (to populate preset data for linked
-   profiles).
-5. Returns `{"proposals": [...]}`.
+4. Returns `{"proposals": [...]}`.
 
-**Apply** (`POST /migration/apply`, `ui.py:652`):
+**Apply** (`POST /migration/apply`, `ui.py:776`):
 
 1. Read selected `printer_db_id` values from form checkboxes.
 2. For each selected proposal:
@@ -534,20 +579,22 @@ Also stores the full preset data in `SyncTarget.actual_state` as JSON.
    - If new: create Profile with `printer_db_id` set, `filament_id=None`.
    - Create/update `SyncTarget(printer_db)` with `status="pending"`.
 
-### Import from OrcaSlicer
+### Import from Orca Cloud
 
-**Trigger:** `GET /import-orca` (`ui.py:792`) + `POST /import-orca/apply`
-(`ui.py:824`).
+**Trigger:** `GET /import-orca` (`ui.py:921`) + `POST /import-orca/apply`
+(`ui.py:953`). Nav label **"Orca Cloud Import"**, page heading
+**"Import from Orca Cloud"**.
 
 **Scan/display flow:**
 
-1. `_unmatched_orca_presets(db)` (`ui.py:759`):
-   - Load most recent completed `report_presets` job.
-   - Get all preset data from result.
-   - Filter: presets whose `filament_id` is not in any existing
-     Profile's `filament_id`.
+1. `_pull_orca_presets()` (`ui.py:874`): create an `OrcaCloudClient`
+   from stored credentials, call `sync_pull`, convert upserts to local
+   preset format. Returns `[]` if no credentials or the API call fails.
+2. `_unmatched_orca_presets(db)` (`ui.py:895`):
+   - A preset is **matched** if its `filament_id` links to an existing
+     Profile's `filament_id`. Unmatched presets are import candidates.
    - Only presets with `filament_id` + `filament_type` are importable.
-2. Display as proposal table with: name, brand, type, nozzle temp, PA,
+3. Display as proposal table with: name, brand, type, nozzle temp, PA,
    flow ratio, inherits flag, user-tuned flag.
 
 **Apply flow:**
@@ -556,7 +603,7 @@ Also stores the full preset data in `SyncTarget.actual_state` as JSON.
    - Extract vendor, type, nozzle temp from preset data.
    - Create Profile with:
      - `printer_db_id = None` (standard filaments — no push).
-     - `filament_id = fid` (links to OrcaSlicer preset).
+     - `filament_id = fid` (links to Orca Cloud preset).
      - `min_temp = max(temp - 15, 0)`, `max_temp = temp + 15`.
      - `nozzle_temperature = temp`.
 2. Redirect to `/import-orca?applied=1`.
@@ -624,7 +671,7 @@ The printer DB JSON has this shape:
 
 ## Preset Builder
 
-`fm/presets/builder.py` — builds standalone OrcaSlicer filament
+`fm/presets/builder.py` — builds standalone Orca Cloud filament
 presets from catalog profiles.
 
 ### `generate_filament_id(name, db_id="")`
@@ -657,7 +704,9 @@ same filament name after Cloud deletion + re-creation.
 
 Writes `.info` file with key=value format. `sync_info` and `setting_id`
 are empty so OrcaSlicer Cloud-Sync treats the preset as new (otherwise
-it deletes the local file as "deleted in Cloud").
+it deletes the local file as "deleted in Cloud"). This utility is kept
+for reference; the Manager pushes presets to Orca Cloud directly rather
+than writing local `.info` files.
 
 ---
 
@@ -668,24 +717,26 @@ it deletes the local file as "deleted in Cloud").
 ### `find_orca_user_dir(config_dir=None)`
 
 Finds the first `~/.config/OrcaSlicer/user/<UUID>/filament/` directory.
-Returns `Path` or `None`.
+Returns `Path` or `None`. Used by `load_presets` on the dev machine.
 
 ### `load_presets(config_dir=None)`
 
 Loads all system + user filament presets from the OrcaSlicer config
-directory.
+directory. Dev-machine utility; the running app reads presets from
+Orca Cloud instead.
 
 ### `match_presets(presets, vendor, brand_name, base_type)`
 
 Simulates `CrealityPrintAgent::match_filament_preset` scoring. Scores
 each preset by vendor match, name substring match, and type match.
-Returns `(matches, considered)`.
+Returns `(matches, considered)`. Used by `refresh_preset_drift` (legacy
+name-based discovery) and `temp_sync_targets`.
 
 ### `temp_sync_targets(profiles_state, presets)`
 
 Selects temp-sync targets across catalog profiles:
 
-1. For each profile, find best-matching OrcaSlicer preset via
+1. For each profile, find best-matching Orca Cloud preset via
    `match_presets()`.
 2. Extract `nozzle_temperature` from the matched preset.
 3. Compare against the profile's current `nozzle_temperature`.
@@ -697,141 +748,156 @@ Selects temp-sync targets across catalog profiles:
 ### `is_orcaslicer_running()`
 
 Checks for OrcaSlicer process via `pgrep`/`tasklist`. Returns bool.
-Used by the agent before writing preset files.
+Dev-machine utility lifted from the skill repo.
 
 ---
 
-## Companion Agent (fm-agent)
+## Template Selection
 
-`fm/agent/cli.py` — thin Python CLI that runs on the desktop PC and
-polls the app's agent job queue.
+Preset templates let a profile start from a brand-specific `@base`
+preset instead of the generic type default. Templates are bundled into
+the repo so the app and Docker image are self-contained — servers need
+no OrcaSlicer installation.
 
-### Configuration
+### One-off Bundler (`scripts/build_templates.py`)
 
-- Config file: `~/.config/filament-manager/agent.json`
-  ```json
-  {"base_url": "http://192.168.0.31:8404", "token": "<FM_AGENT_TOKEN>"}
-  ```
-- CLI overrides: `--base-url`, `--token`
-- Env override: `FM_ORCASLICER_CONFIG_DIR` for non-default OrcaSlicer
-  config directory.
+A **dev-time-only** script, run on the dev machine where OrcaSlicer is
+installed. It is **not** part of the runtime or the Docker image.
 
-### Subcommands
+1. Scans `/opt/orca-slicer/resources/profiles` for `@base` filament
+   presets (~356 files).
+2. Deduplicates by display name (preferring vendor-specific copies over
+   OrcaFilamentLibrary copies).
+3. Copies them into `fm/presets/templates/`.
+4. Generates `fm/presets/template_index.json` (352 indexed entries) with
+   vendor + type metadata per template.
 
-| Command | Description |
+Both `fm/presets/templates/` and `fm/presets/template_index.json` are
+**committed to git**. Re-run the script only when OrcaSlicer updates its
+preset library.
+
+### Data Model
+
+- `Profile.template_override` (`String(255)`, nullable) — the selected
+  template name, or `None` for the generic type default.
+- Added by `_migrate()` in `fm/db.py` via `ALTER TABLE` on engine init.
+
+### Template Index (`fm/presets/template_index.py`)
+
+Runtime loader for `template_index.json` (cached after first call):
+
+| Function | Description |
 |---|---|
-| `fm-agent poll` | Claim and process at most one queued job, then exit. Returns 0 on success. |
-| `fm-agent watch` | Poll loop every 60 seconds. Runs continuously until interrupted. |
+| `load_index()` | Load + cache the JSON index. |
+| `templates_for_type(type)` | Templates matching a type (Generic first). |
+| `templates_for_type_and_vendor(type, vendor)` | Filter by type + vendor (case-insensitive partial). |
+| `all_vendors_for_type(type)` | Unique vendors for a type (Generic always first). |
+| `preview_for_template(name)` | Flatten the named template, extract 5 preview values (nozzle temp, flow ratio, fan min/max, max volumetric). |
 
-### Job Handlers
+### Templates API
 
-#### `apply_preset` (`_handle_apply_preset`)
+`GET /api/templates?type=&vendor=` (`catalog.py:414`) — lists templates
+optionally filtered by type and vendor. Vendors list is Generic-first.
+Returns `{"templates": [...], "vendors": [...]}`.
 
-1. Check `is_orcaslicer_running()` — if running, return error
-   `{"error": "OrcaSlicer running"}`.
-2. Extract `name`, `preset` (dict), `info` (string) from job payload.
-3. Find OrcaSlicer user filament dir via `find_orca_user_dir()`.
-4. Write `{name}.json` (preset JSON) and `{name}.info` (info content)
-   to the filament dir.
-5. Return `{"name": name, "files": ["{name}.json", "{name}.info"]}`.
+### HTMX Picker Flow
 
-#### `report_presets` (`_handle_report_presets`)
+The profile form (`profile_form.html`) has a "Preset source" picker with
+three cascading fields, each an HTMX fragment served by
+`/profiles/new/template-dropdown` (`ui.py:257`) or
+`/profiles/{pid}/template-dropdown` (`ui.py:269`):
 
-1. Find OrcaSlicer user filament dir.
-2. Build system preset index (`_load_system_preset_index`) for
-   inheritance resolution.
-3. For each `*.json` in the filament dir:
-   - Parse JSON, skip non-filament types.
-   - If preset has `inherits` field: resolve via
-     `_resolve_inheritance(d, system_index)`:
-     - Start with parent system preset fields.
-     - Overlay child overrides (child wins).
-     - Preserve child's `name` and `inherits`.
-     - Fill missing `filament_type` from parent name via
-       `_derive_filament_type()`.
-   - Build report dict via `_preset_report()` with 21 fields:
-     `name`, `filament_type`, `filament_vendor`, `nozzle_temperature`,
-     `nozzle_temperature_initial_layer`, `inherits`, `from`,
-     `filament_id`, `_path`, `_system`, `pressure_advance`,
-     `enable_pressure_advance`, `filament_flow_ratio`,
-     `filament_max_volumetric_speed`, `filament_retraction_length`,
-     `filament_retraction_speed`, `fan_min_speed`, `fan_max_speed`,
-     `cool_plate_temp`, `eng_plate_temp`, `hot_plate_temp`.
-4. Return `{"presets": [...]}`.
+1. **Type filter** — selecting a type fires the HTMX request with
+   `reason=type-change`, which resets vendor and template to defaults
+   and shows a status message: "Template reset to Generic \<type\>
+   defaults because material type changed."
+2. **Vendor filter** — "All vendors" by default; narrows the template
+   list.
+3. **Template dropdown** — templates grouped by vendor (`<optgroup>`),
+   with a default option "Use Generic \<type\> defaults (recommended)".
+4. **Live preview** — when a template is selected, its flattened
+   preview values (nozzle temp, flow ratio, fan range, max volumetric)
+   are shown inline.
 
-### Filament Type Derivation
+### Builder Resolution
 
-`_derive_filament_type(name)` — extracts filament type from preset name
-by matching known types ordered by specificity (longer matches first to
-avoid PLA matching PLA-CF). Falls back to "PLA" for unrecognizable
-Creality preset names.
+`_preset_template_factory` (`sync_handlers.py:73`) resolves the
+template at preset-generation time:
 
-### Agent Reinstall
+1. If `template_override` is set: look up `"<override> @base"` via
+   `find_preset_by_name` and flatten the `@base` chain with
+   `flatten_preset`.
+2. If the override file is missing: `log.warning` and fall back to the
+   generic type default (`find_system_preset(type)`).
+3. If no override: use the generic type default.
 
-After changing agent code (`fm/agent/cli.py`):
+Brand and template vendor are independent — a house brand may use a
+Generic preset.
 
-```bash
-uv tool install . --force --no-cache
-```
+### Server-side Validation
 
-`--no-cache` is required to pick up code changes. Then restart the
-agent process.
+On profile create/update (`ui.py:283`, `ui.py:335`), if
+`template_override` is set, it is checked against `template_index.json`.
+A template whose `type` does not match the submitted type is cleared
+(set to empty), so a type change never leaves a stale override.
+
+### Orca-fragment Display
+
+The read-only orca-fragment shows `template: <name>` — the
+`template_override` value, or `Generic <type> defaults` when no override
+is set.
 
 ---
 
-## Agent API Protocol
+## Orca Cloud Integration
 
-`fm/api/agent.py` — token-authed endpoints for the agent job queue.
+`fm/orca_cloud.py` — `OrcaCloudClient`, a direct client for the Orca
+Cloud Sync API. Auth is via a Supabase refresh token; the token rotates
+on every refresh and the caller must persist the new token via the
+`on_token_rotated` callback.
 
 ### Authentication
 
-Bearer token via `Authorization: Bearer <token>`. Token validated
-against `config.agent_token`. Returns 401 on mismatch.
+- `login_with_password(email, password)` (classmethod,
+  `orca_cloud.py:62`) — calls Supabase's password-grant endpoint,
+  returns `(refresh_token, user_id)`. Used by the Settings page
+  connect flow (`POST /api/settings/orca-connect`, `ui.py:1125`).
+- `_refresh()` — exchanges the refresh token for an access token;
+  rotates the stored refresh token via the callback.
+- `_request()` — authenticated request; on 401, forces a refresh and
+  retries once.
 
-### Endpoints
+### Token Storage
 
-#### `GET /api/agent/jobs`
+Tokens are persisted in `settings.json` via `fm/settings_store.py`:
 
-Claims the oldest queued agent-facing job (`queued → running`).
+| Function | Description |
+|---|---|
+| `load_orca_token()` | Return `(refresh_token, user_id)` from settings.json, or `None`. |
+| `save_orca_token(refresh_token, user_id)` | Merge Orca Cloud token + user id into settings.json. |
+| `load_orca_cursor()` / `save_orca_cursor(cursor)` | Sync cursor persistence. |
 
-Agent-facing kinds: `apply_preset`, `report_presets` (defined in
-`_AGENT_KINDS`).
+`_default_orca_client()` (`sync_handlers.py:94`) builds an
+`OrcaCloudClient` from stored credentials, wiring
+`on_token_rotated` to `save_orca_token`. Returns `None` when no
+credentials are configured (sync endpoints raise in that case).
 
-Returns:
-```json
-{
-  "jobs": [{
-    "job_id": 42,
-    "kind": "apply_preset",
-    "status": "running",
-    "payload": {...},
-    "result": null
-  }]
-}
-```
+### Sync API
 
-Returns `{"jobs": []}` if no queued agent jobs.
+| Method | Description |
+|---|---|
+| `sync_push(profile_id, name, content, original_updated_time="")` | Push a preset. `profile_id` is the `filament_id`; the cloud resource UUID is derived via `cloud_id()`. Converts local array format → cloud flat-string format. Returns `{updated_time, created_time}`. Raises `OrcaCloudConflict` on 409. |
+| `sync_pull(cursor=0)` | Pull profiles. Returns `{next_cursor, upserts, deletes}`. On 410 Gone, retries without cursor (full resync). |
+| `sync_delete(ids)` | Delete profiles by cloud resource UUID. |
+| `cloud_id(filament_id)` | Deterministic Orca Cloud resource UUID (UUID v5 of user_id + filament_id) — the equivalent of OrcaSlicer's `setting_id`. |
+| `get_user_id()` | Return the authenticated user's UUID (`sub` from JWT). |
 
-#### `POST /api/agent/results`
+### Orca Cloud Settings Endpoints
 
-Records the outcome of a claimed job.
-
-Request body:
-```json
-{
-  "job_id": 42,
-  "status": "done",
-  "result": {...}
-}
-```
-
-- On `status="done"`: calls `jobs.complete(job, result)`. If kind is
-  `report_presets`, also calls `refresh_preset_drift(session)` to
-  update SyncTarget statuses and store preset data in
-  `actual_state`.
-- On `status="error"`: calls `jobs.fail(job, result)`.
-
-Returns the updated job serialization.
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/settings/orca-connect` | Email+password login → persist refresh token (`ui.py:1125`) |
+| POST | `/api/settings/orca-disconnect` | Remove stored Orca Cloud credentials (`ui.py:1143`) |
 
 ---
 
@@ -934,15 +1000,12 @@ Non-negotiable rules enforced in code, lifted from the skill
    `DELETE /api/profiles/{pid}`.
 6. **Refuse push when DB < 30 entries** (`MIN_DB_ENTRIES`) unless
    explicitly forced. Enforced in `run_push()`.
-7. **Never write OrcaSlicer presets while OrcaSlicer is running.**
-   `.info` gets empty `sync_info`/`setting_id`. Enforced in
-   `_handle_apply_preset()`.
 
 ---
 
 ## Settings Store
 
-`fm/settings_store.py` — persistent printer config in `settings.json`.
+`fm/settings_store.py` — persistent config in `settings.json`.
 
 ### Path Resolution
 
@@ -959,15 +1022,22 @@ Non-negotiable rules enforced in code, lifted from the skill
 | `save_settings(data)` | Atomic write (temp file + `os.replace`). |
 | `build_config(data)` | Build `Config` from settings dict. |
 | `load_merged_config(env)` | Try settings.json first, then env vars. Returns `Config` or `None`. |
+| `load_orca_token()` | Return `(refresh_token, user_id)` from settings.json, or `None`. |
+| `save_orca_token(refresh_token, user_id)` | Merge Orca Cloud token + user id into settings.json. |
+| `load_orca_cursor()` / `save_orca_cursor(cursor)` | Orca Cloud sync cursor persistence. |
 
 ### Settings Page Flow
 
-- `GET /settings` (`ui.py:918`): render form pre-filled from current
-  config or stored settings.
-- `POST /settings` (`ui.py:928`): validate required fields, parse ints,
+- `GET /settings` (`ui.py:1057`): render form pre-filled from current
+  config or stored settings, plus Orca Cloud connection status.
+- `POST /settings` (`ui.py:1067`): validate required fields, parse ints,
   `save_settings()`, update `app.state.config`, redirect.
-- `POST /api/settings/test-connection` (`ui.py:988`): SSH to printer,
+- `POST /api/settings/test-connection` (`ui.py:1153`): SSH to printer,
   check DB path exists. Returns `{"ok": bool, "error": str \| None}`.
+- `POST /api/settings/orca-connect` (`ui.py:1125`): email+password
+  login to Orca Cloud, persist refresh token.
+- `POST /api/settings/orca-disconnect` (`ui.py:1143`): remove stored
+  Orca Cloud credentials.
 
 ---
 
@@ -987,25 +1057,27 @@ Non-negotiable rules enforced in code, lifted from the skill
 | POST | `/api/spools` | Create spool |
 | PATCH | `/api/spools/{sid}` | Update spool |
 | DELETE | `/api/spools/{sid}` | Delete spool |
+| GET | `/api/templates?type=&vendor=` | List preset templates (filtered) |
 
 ### Sync API (`/api`)
 
 | Method | Path | Description |
 |---|---|---|
 | POST | `/api/sync/push` | Enqueue push job, drain queue |
-| POST | `/api/sync/preset/{profile_id}` | Enqueue generate_preset job |
+| POST | `/api/sync/preset/{profile_id}` | Enqueue generate_preset job (API-only) |
 | POST | `/api/sync/tempsync` | Enqueue temp_sync job |
 | GET | `/api/status/drift` | Per-profile drift matrix |
 | POST | `/api/jobs/{job_id}/resolve` | Resolve awaiting_input job |
 | GET | `/api/jobs?since={id}` | List jobs since ID |
 | GET | `/api/jobs/{job_id}` | Get single job |
 
-### Agent API (`/api/agent`)
+### Orca Cloud Settings API (`/api/settings`)
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| GET | `/api/agent/jobs` | Bearer | Claim oldest queued agent job |
-| POST | `/api/agent/results` | Bearer | Report job result |
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/settings/orca-connect` | Connect to Orca Cloud (email+password) |
+| POST | `/api/settings/orca-disconnect` | Disconnect from Orca Cloud |
+| POST | `/api/settings/test-connection` | Test SSH connection to printer |
 
 ### Meta
 
@@ -1021,10 +1093,13 @@ Non-negotiable rules enforced in code, lifted from the skill
 | GET | `/profiles` | Profiles list with filters |
 | GET | `/profiles/new` | New profile form |
 | GET | `/profiles/{pid}/edit` | Edit profile form |
+| GET | `/profiles/new/template-dropdown` | HTMX: template picker fragment (new) |
+| GET | `/profiles/{pid}/template-dropdown` | HTMX: template picker fragment (edit) |
 | POST | `/profiles/form` | Create profile (form handler) |
 | POST | `/profiles/{pid}/form` | Update profile (form handler) |
-| POST | `/profiles/{pid}/sync-from-orca` | Enqueue report_presets, return HTMX fragment |
-| GET | `/profiles/{pid}/orca-fragment` | HTMX fragment: read-only preset values |
+| POST | `/profiles/sync-from-orca` | Sync all profiles from Orca Cloud |
+| POST | `/profiles/{pid}/sync-from-orca` | Sync single profile from Orca Cloud (HTMX) |
+| GET | `/profiles/{pid}/orca-fragment` | HTMX: read-only Orca Cloud preset values |
 | GET | `/spools` | Spool inventory with filters |
 | POST | `/spools/form` | Create spool |
 | POST | `/spools/{sid}/remaining` | HTMX: update remaining_pct |
@@ -1032,16 +1107,15 @@ Non-negotiable rules enforced in code, lifted from the skill
 | POST | `/spools/{sid}/delete` | Delete spool |
 | POST | `/spools/{sid}/duplicate` | Duplicate spool (remaining=100) |
 | GET | `/sync` | Sync page (drift table, actions, job progress) |
-| GET | `/sync/progress?since={id}` | HTMX fragment: job progress table |
+| GET | `/sync/progress?since={id}` | HTMX: job progress table |
 | POST | `/sync/jobs/{job_id}/resolve` | HTMX: resolve awaiting_input job |
 | GET | `/migration` | Migration wizard |
 | POST | `/migration/import` | Start import scan |
 | POST | `/migration/apply` | Apply selected proposals |
-| GET | `/import-orca` | Import from OrcaSlicer page |
+| GET | `/import-orca` | Orca Cloud Import page |
 | POST | `/import-orca/apply` | Import selected presets |
 | GET | `/settings` | Settings page |
 | POST | `/settings` | Save settings |
-| POST | `/api/settings/test-connection` | Test SSH connection |
 
 ---
 
@@ -1092,8 +1166,9 @@ scripts/test.sh        # full pytest suite
 ```
 
 `dev-start.sh` exports:
-- Dev `FM_AGENT_TOKEN`
 - Isolated `FM_DATABASE_URL=sqlite:///.local/filaments.db`
+- Printer env defaults (`FM_PRINTER_IP`, `FM_SSH_USER`,
+  `FM_SSH_PASSWORD`, `FM_DB_REMOTE_PATH`).
 
 Override printer env vars inline if needed.
 
@@ -1106,18 +1181,17 @@ Override printer env vars inline if needed.
 3. **Skill repo is reference material**: Logic is lifted from
    `~/Dokumente/Daten/Development/skills/Creality-custom-filament`.
    Never modify that repo.
-4. **Agent reinstall**: After changing `fm/agent/cli.py`, reinstall
-   with `uv tool install . --force --no-cache`.
-5. **Dev server restart**: After changing UI routes (`fm/api/ui.py`),
+4. **Dev server restart**: After changing UI routes (`fm/api/ui.py`),
    restart the dev server to pick up new endpoints. Templates and CSS
    are picked up without restart.
-6. **OrcaSlicer is the editor**: Do not add print-settings fields to
+5. **OrcaSlicer is the editor**: Do not add print-settings fields to
    the Profile model or the profile edit form. Print settings come from
-   OrcaSlicer via `report_presets` and are stored in
+   Orca Cloud via `sync_pull` and are stored in
    `SyncTarget.actual_state`.
-7. **No model migrations**: Use existing columns and
+6. **No model migrations**: Use existing columns and
    `SyncTarget.actual_state` for new data. Do not add columns to
-   Profile or Spool models.
+   Profile or Spool models. (Schema additions for new features go
+   through `_migrate()` in `fm/db.py`.)
 
 ### Key Files
 
@@ -1126,18 +1200,19 @@ Override printer env vars inline if needed.
 | `fm/api/ui.py` | UI routes (pages, forms, HTMX fragments). Restart dev server after adding routes. |
 | `fm/api/templates/` | Jinja2 templates. Changes picked up without restart. |
 | `fm/api/static/app.css` | Stylesheet. Changes picked up without restart. |
-| `fm/agent/cli.py` | Agent CLI. Reinstall with `uv tool install . --force --no-cache` after changes. |
-| `fm/service/sync_handlers.py` | Sync logic, `refresh_preset_drift`, printer DB operations. |
+| `fm/orca_cloud.py` | Orca Cloud Sync API client (push/pull/delete, Supabase auth, token rotation). |
+| `fm/service/sync_handlers.py` | Sync logic, `refresh_preset_drift`, printer DB operations, Orca Cloud push/pull. |
 | `fm/presets/matching.py` | OrcaSlicer preset matching, `find_orca_user_dir`, `load_presets`. |
 | `fm/presets/builder.py` | Preset builder, `_KV_MAP` (catalog → Orca key mapping). |
-| `fm/settings_store.py` | settings.json read/write (printer connection config). |
+| `fm/presets/template_index.py` | Runtime loader for `template_index.json`. |
+| `fm/settings_store.py` | settings.json read/write (printer config, Orca Cloud token storage). |
 
 ---
 
 ## Testing
 
 ```bash
-scripts/test.sh        # full pytest suite
+scripts/test.sh        # full pytest suite (358 tests)
 ```
 
 ### Test Files
@@ -1146,13 +1221,22 @@ scripts/test.sh        # full pytest suite
 |---|---|
 | `tests/test_ui.py` | UI routes: profile forms, spool forms, sync page, migration, settings |
 | `tests/test_ui_sync.py` | Sync page: drift table, busy dialog, job progress, resolve |
+| `tests/test_ui_template_picker.py` | Template picker HTMX flow: type/vendor filter, preview, type-change reset |
 | `tests/test_sync_handlers.py` | Sync handlers: push, verify, generate_preset, temp_sync, import_scan, drift |
 | `tests/test_pipeline.py` | Push pipeline: MIN_DB check, busy check, backup, version bump, reboot |
 | `tests/test_transport.py` | SSH transport: run, scp_push/pull, ws_request, busy check, reboot wait |
 | `tests/test_matching.py` | Preset matching, temp_sync_targets, find_orca_user_dir |
+| `tests/test_builder.py` | Preset builder: generate_filament_id, build_standalone_preset, _KV_MAP |
+| `tests/test_dbcodec.py` | Printer DB codec: load/save/insert/remove/validate |
 | `tests/test_jobs.py` | Job queue: enqueue, claim_next, run_pending, complete, fail |
-| `tests/test_api_settings.py` | Settings API: save, load, test-connection |
-| `tests/test_settings_store.py` | settings.json: load, save, build_config, load_merged_config |
+| `tests/test_api_catalog.py` | Catalog API: profiles/spools CRUD, validation |
+| `tests/test_api_sync.py` | Sync API: push, preset, tempsync, drift, jobs |
+| `tests/test_api_templates.py` | Templates API: list/filter by type and vendor |
+| `tests/test_api_settings.py` | Settings API: save, load, test-connection, orca-connect/disconnect |
+| `tests/test_settings_store.py` | settings.json: load, save, build_config, load_merged_config, orca token |
+| `tests/test_orca_cloud.py` | OrcaCloudClient: auth, sync_push/pull/delete, cloud_id, conflict handling |
+| `tests/test_template_index.py` | Template index: load, filter by type/vendor, preview |
+| `tests/test_config.py` | Config dataclass, load_config, required env vars |
 | `tests/test_models.py` | Model instantiation and defaults |
 
 ### Test Conventions
@@ -1160,6 +1244,7 @@ scripts/test.sh        # full pytest suite
 - Tests use `pytest` with `conftest.py` providing in-memory SQLite
   fixtures and config injection.
 - Transport is faked via monkeypatch of `_transport_factory`.
-- No real SSH/SCP/WebSocket calls in tests.
+- Orca Cloud client is faked via monkeypatch of `_orca_client_factory`.
+- No real SSH/SCP/WebSocket or Orca Cloud calls in tests.
 - `conftest.py` sets up isolated database, test config, and app
   fixture.

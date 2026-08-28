@@ -1,7 +1,9 @@
 # Filament Manager — User Manual
 
 A web app to manage 3D-printing filament profiles, track spool inventory,
-and keep your Creality K2 printer and OrcaSlicer slicer in sync.
+and keep your Creality K2 printer database and Orca Cloud filament
+presets in sync. OrcaSlicer remains the sole editor of print settings;
+the Manager displays them read-only after sync.
 
 ## Table of Contents
 
@@ -9,26 +11,26 @@ and keep your Creality K2 printer and OrcaSlicer slicer in sync.
 2. [Dashboard](#dashboard)
 3. [Profiles](#profiles)
    - [Create a New Profile (New Brand/Material)](#create-a-new-profile-new-brandmaterial)
+   - [Preset Source (Template Picker)](#preset-source-template-picker)
    - [Edit a Profile](#edit-a-profile)
-   - [Sync Print Settings from OrcaSlicer](#sync-print-settings-from-orcaslicer)
+   - [Sync Print Settings from Orca Cloud](#sync-print-settings-from-orca-cloud)
 4. [Spools](#spools)
    - [Add a Spool](#add-a-spool)
    - [Edit a Spool](#edit-a-spool)
    - [Duplicate a Spool](#duplicate-a-spool)
    - [Delete a Spool](#delete-a-spool)
    - [Update Remaining Material](#update-remaining-material)
-   - [Filter Spools](#filter-spools)
+   - [Filter Spools](#filter-spool)
 5. [Sync](#sync)
    - [Push to Printer](#push-to-printer)
    - [Temperature Sync](#temperature-sync)
-   - [Generate OrcaSlicer Preset](#generate-orcaslicer-preset)
+   - [Generate Orca Cloud Preset](#generate-orca-cloud-preset)
    - [Drift Status](#drift-status)
    - [Printer Busy — Resolution Options](#printer-busy--resolution-options)
-6. [Import from OrcaSlicer](#import-from-orcaslicer)
+6. [Import from Orca Cloud](#import-from-orca-cloud)
 7. [Migration (One-Time)](#migration-one-time)
 8. [Settings](#settings)
-9. [Companion Agent (fm-agent)](#companion-agent-fm-agent)
-10. [Complete Workflow Examples](#complete-workflow-examples)
+9. [Complete Workflow Examples](#complete-workflow-examples)
 
 ---
 
@@ -38,8 +40,10 @@ The Filament Manager runs as a web app on your local network. Open it in
 your browser at the address provided by your setup (e.g.
 `http://192.168.0.31:8404`).
 
-Before using sync features, ensure the printer connection is configured
-under **Settings**.
+Before using sync features, configure the printer connection under
+**Settings**. To sync filament presets, connect your Orca Cloud account
+there as well. Nothing needs to be installed on a PC — the app talks to
+the printer over SSH and to Orca Cloud directly.
 
 ---
 
@@ -49,10 +53,10 @@ The dashboard (`/`) is the landing page. It shows:
 
 - **Profile count** — total catalog entries.
 - **Spools in stock** — total spools across all profiles.
-- **Fully synced** — profiles where both the printer DB and OrcaSlicer
+- **Fully synced** — profiles where both the printer DB and Orca Cloud
   preset are in sync.
 - **Spools by profile** — which profiles have stock.
-- **Sync drift** — per-profile status for printer DB and OrcaSlicer
+- **Sync drift** — per-profile status for printer DB and Orca Cloud
   preset (in sync / pending / drift / error).
 - **Recent activity** — timeline of sync actions and their outcomes.
 
@@ -64,7 +68,7 @@ Quick actions: click **＋ New profile** to jump to profile creation.
 
 Profiles are material definitions (brand, type, temperatures, density,
 drying info, colors, notes). They are the catalog entries that spools
-reference and that get synced to the printer and OrcaSlicer.
+reference and that get synced to the printer and Orca Cloud.
 
 ### Create a New Profile (New Brand/Material)
 
@@ -81,6 +85,7 @@ yet in your catalog.
    | Brand | Manufacturer name | Polymaker |
    | Name | Product name — **must contain the brand name** | PolyLite Galaxy |
    | Type | Material type (PLA, PETG, ABS, TPU, PA, PC, PLA-Silk, Other) | PLA |
+   | Preset source | OrcaSlicer base template used when generating a preset (see [below](#preset-source-template-picker)) | Generic PLA defaults |
    | Colors | Comma-separated hex color values | #8f42ff, #442188 |
    | Minimum temp | Safe minimum nozzle temperature (°C) | 200 |
    | Maximum temp | Safe maximum nozzle temperature (°C) | 230 |
@@ -92,11 +97,37 @@ yet in your catalog.
 4. Click **Create profile**.
 
 The profile is saved to the catalog. It does **not** automatically go to
-the printer or OrcaSlicer — use the [Sync](#sync) page for that.
+the printer or Orca Cloud — use the [Sync](#sync) page for that.
 
 > **Rule:** The profile name must contain the vendor/brand name (e.g.
 > "Sunlu PLA+", not just "PLA+"). This prevents matching conflicts in
 > OrcaSlicer.
+
+### Preset Source (Template Picker)
+
+The **Preset source** picker in the profile form chooses which OrcaSlicer
+base tuning is used when the app generates a preset for this profile. It
+has three parts:
+
+1. **Filter by vendor** — an optional dropdown (default **All vendors**)
+   that narrows the template list. It is not saved with the profile.
+2. **Template** — the dropdown that matters. The default option is
+   **Use Generic \<type\> defaults (recommended)**, which uses the
+   generic tuning for the selected material type. Below it, templates are
+   grouped by vendor (optgroups). Pick a specific template to override
+   the generic defaults.
+3. **Template preview** — a live panel showing the base values for the
+   selected template: **Nozzle** (°C), **Flow ratio**, **Fan** (min–max
+   %), and **Max volumetric** (mm³/s). A note reminds you that profile
+   settings may override these base values.
+
+Changing the **Type** field resets the picker to the generic default for
+the new type and announces a status message. The brand you enter and the
+template's vendor are independent — a house brand may use a Generic
+preset, and vice versa.
+
+The chosen template only takes effect the next time you generate a
+preset (see [Generate Orca Cloud Preset](#generate-orca-cloud-preset)).
 
 ### Edit a Profile
 
@@ -107,21 +138,20 @@ the printer or OrcaSlicer — use the [Sync](#sync) page for that.
 
 The print settings section (nozzle temperature, flow ratio, pressure
 advance, retraction, fan speeds, plate temps) is **read-only** — it
-comes from OrcaSlicer via the [Sync from Orca](#sync-print-settings-from-orcaslicer)
+comes from Orca Cloud via the [Sync from Orca](#sync-print-settings-from-orca-cloud)
 button.
 
-### Sync Print Settings from OrcaSlicer
+### Sync Print Settings from Orca Cloud
 
-After a preset exists in OrcaSlicer (either generated by the app or
-imported), you can pull the tuned print settings back into the profile
-page for read-only display:
+After a preset exists in Orca Cloud (either generated by the app or
+synced from OrcaSlicer), you can pull the tuned print settings back into
+the profile page for read-only display:
 
 1. Open the profile's edit page.
 2. In the **Print settings** section, click **Sync from Orca**.
-3. The app enqueues a scan job. The companion agent (`fm-agent`) must be
-   running on your desktop to process it.
-4. The section shows a spinner while waiting. Once the agent reports
-   back, the read-only fields populate with 12 print settings:
+3. The app pulls the preset from Orca Cloud and populates the read-only
+   fields. A toast confirms "Synced from Orca Cloud".
+4. The section shows 12 print settings:
    - Nozzle temperature
    - Initial layer temperature
    - Pressure advance (shows "Disabled" if PA is off)
@@ -131,8 +161,12 @@ page for read-only display:
    - Fan min / max speed
    - Cool / engineering / hot plate temp
 
-If the agent is not running, the section shows "Agent not running or
-sync timed out" with a **Retry sync** button.
+The section header notes the template the settings came from
+(`template: <name>`), or "Generic \<type\> defaults" when no override is
+set. A timestamp shows when the settings were last synced.
+
+You can also sync **all** profiles at once: on the **Profiles** page,
+click **Sync from Orca** in the page header.
 
 ---
 
@@ -203,7 +237,7 @@ Click **Apply filters** to update the list.
 
 ## Sync
 
-The Sync page (`/sync`) keeps your catalog, printer DB, and OrcaSlicer
+The Sync page (`/sync`) keeps your catalog, printer DB, and Orca Cloud
 presets aligned.
 
 ### Push to Printer
@@ -212,7 +246,7 @@ Pushes all catalog profiles to the Creality K2 printer's filament
 database. This writes custom entries (99xxx IDs) to the printer.
 
 1. Go to **Sync**.
-2. Click **Push to printer**.
+2. Click **Push all profiles**.
 3. The app rebuilds the printer DB from your catalog and uploads it.
    This involves:
    - Checking if the printer is busy (printing/paused).
@@ -224,42 +258,44 @@ database. This writes custom entries (99xxx IDs) to the printer.
    entries survived.
 
 > **Important:** The push reboots your printer. Do not start a push
-> while a print is running. If the printer is busy, you will get a
-> dialog with options (see [below](#printer-busy--resolution-options)).
+> while a print is running. If the printer is busy, the job parks as
+> awaiting_input and a dialog appears with options (see
+> [below](#printer-busy--resolution-options)).
 
 ### Temperature Sync
 
-Pulls nozzle temperatures from your OrcaSlicer presets and pushes them
+Pulls nozzle temperatures from your Orca Cloud presets and pushes them
 to the printer DB. This is a lighter sync that only updates temperature
 values, not the full profile.
 
 1. Go to **Sync**.
 2. Click **Temperature sync**.
-3. The app reads the latest OrcaSlicer preset scan, compares nozzle
-   temperatures, updates the catalog, and enqueues a push to propagate
-   the changes to the printer.
+3. The app pulls presets from Orca Cloud, compares nozzle temperatures,
+   updates the catalog, and enqueues a push to propagate the changes to
+   the printer.
 
-> Requires a prior **Sync from Orca** scan (the agent must have reported
-> preset data at least once).
+> Requires your Orca Cloud account to be connected under **Settings**,
+> and at least one prior **Sync from Orca** so preset data is available.
 
-### Generate OrcaSlicer Preset
+### Generate Orca Cloud Preset
 
-Creates a starter OrcaSlicer filament preset from a catalog profile and
-sends it to the companion agent to write into your OrcaSlicer config.
+Creates a standalone OrcaSlicer filament preset from a catalog profile
+and pushes it directly to Orca Cloud.
 
 1. Go to **Sync**.
 2. In the drift table, find the profile you want a preset for.
-3. Click the preset generate button (sliders icon) on that row.
-4. The app builds a standalone preset and enqueues an `apply_preset`
-   job. The companion agent writes the preset files to your OrcaSlicer
-   user filament directory.
+3. Click the generate preset button (sliders icon) on that row.
+4. The app builds the preset from the catalog profile and the selected
+   [preset source](#preset-source-template-picker) template, then pushes
+   it to Orca Cloud. A toast confirms "Preset pushed to Orca Cloud".
 
-> **OrcaSlicer must be closed** when the agent writes the preset. If
-> OrcaSlicer is running, the agent reports an error and the job fails.
+The preset appears in OrcaSlicer once it syncs from Orca Cloud. Open
+OrcaSlicer, tune the print settings as needed, then use
+[Sync from Orca](#sync-print-settings-from-orca-cloud) on the profile
+page to pull the tuned values back for read-only display.
 
-After the preset is written, open OrcaSlicer, tune the print settings as
-needed, then use [Sync from Orca](#sync-print-settings-from-orcaslicer)
-on the profile page to pull the tuned values back for read-only display.
+> Changing a profile's preset source has no effect until the next
+> generate-preset run.
 
 ### Drift Status
 
@@ -268,15 +304,16 @@ targets:
 
 | Status | Meaning |
 |---|---|
-| in_sync | Printer DB / OrcaSlicer preset matches the catalog |
+| in_sync | Printer DB / Orca Cloud preset matches the catalog |
 | pending | A sync was triggered but not yet verified |
 | drift_detected | The target diverged from the catalog |
 | error | Verification failed (entry missing or cloud-sync rollback) |
 
 ### Printer Busy — Resolution Options
 
-If the printer is printing or paused when you trigger a push, you get a
-dialog with three options:
+If the printer is printing or paused when you trigger a push, the job
+parks as `awaiting_input` and a dialog appears on the Sync page with
+three options per job:
 
 | Option | What happens |
 |---|---|
@@ -286,24 +323,29 @@ dialog with three options:
 
 ---
 
-## Import from OrcaSlicer
+## Import from Orca Cloud
 
-The Import page (`/import-orca`) brings standard OrcaSlicer filament
-presets (including inherited ones) into your catalog as profiles. This
-is useful for filaments that are already on the printer (standard
-filaments) and don't need a custom printer DB entry.
+The **Orca Cloud Import** page (`/import-orca`) brings standard Orca
+Cloud filament presets into your catalog as profiles. This is useful for
+filaments that are already on the printer (standard filaments) and don't
+need a custom printer DB entry.
 
-1. Go to **Import from OrcaSlicer**.
-2. If no scan exists yet, click **Scan now**. The companion agent scans
-   your OrcaSlicer user filament presets and reports them back.
-3. A table lists presets not yet linked to a catalog profile, showing:
-   - Name, brand, type, nozzle temperature, pressure advance, flow
-     ratio
-   - Whether the preset is **user-tuned** (no inheritance) or
-     **inherited** from a system preset
-   - A checkbox to select it for import
-4. Use the **user-tuned only** filter to show only presets you have
-   customized.
+1. Go to **Orca Cloud Import** in the navigation.
+2. The page shows Orca Cloud presets that are not yet linked to a
+   catalog profile (matched presets — those whose filament ID already
+   maps to a profile — are hidden). Three states:
+   - **No presets found** — your Orca Cloud account is not connected or
+     has no presets yet. Connect it under **Settings**, then click
+     **Sync now** to pull presets.
+   - **All presets matched** — every Orca Cloud preset with a filament
+     ID is already linked to a catalog profile.
+   - **Select presets to import** — a table lists the unmatched presets.
+3. The import table shows for each preset:
+   - Checkbox, Name, Brand, Type, Nozzle temp, PA, Flow ratio
+   - **Source** — a **User-tuned** badge (no inheritance) or an
+     **Inherits** badge (inherited from a system preset)
+4. Use the **Only user-tuned presets** filter to show only presets you
+   have customized.
 5. Select the presets you want to import and click **Import selected**.
 6. Profiles are created with:
    - `printer_db_id = None` (no push to printer — standard filaments
@@ -343,8 +385,8 @@ Select the entries to import and click **Import selected**.
 ### Step 3 — Complete
 
 Imported entries become catalog profiles with their `printer_db_id`
-preserved (so they stay linked to the printer DB without OrcaSlicer
-Cloud collisions).
+preserved (so they stay linked to the printer DB without Orca Cloud
+collisions).
 
 Expected first-run entries: 99001 Sunlu PLA+, 99002 eSUN PETG Basic,
 99003 CAILAB PLA Silk, 99004 Cailab PLA+ Bio.
@@ -354,7 +396,7 @@ Expected first-run entries: 99001 Sunlu PLA+, 99002 eSUN PETG Basic,
 ## Settings
 
 The Settings page (`/settings`) configures the printer connection and
-agent credentials.
+Orca Cloud sync.
 
 ### Printer Connection
 
@@ -368,11 +410,19 @@ agent credentials.
 Click **Test connection** to verify SSH access and that the DB path
 exists before saving.
 
-### Agent
+### Orca Cloud
+
+Connect your Orca Cloud account to sync filament presets:
 
 | Field | Description |
 |---|---|
-| Agent token | Shared authentication token for the companion agent |
+| Email | Your Orca Cloud account email |
+| Password | Your Orca Cloud password |
+
+Click **Connect**. The app authenticates against Orca Cloud and stores
+the token locally. When connected, the section shows
+**✓ Connected — user ID: \<email\>** with a **Disconnect** button to
+remove the stored credentials.
 
 ### Advanced
 
@@ -387,74 +437,6 @@ Click **Save settings** to persist. Settings are stored in
 
 ---
 
-## Companion Agent (fm-agent)
-
-The companion agent is a small command-line program that runs on your
-**desktop PC** (where OrcaSlicer is installed). It bridges the web app
-and OrcaSlicer by polling the app's job queue.
-
-### What It Does
-
-The agent handles two job types:
-
-| Job | Action |
-|---|---|
-| `apply_preset` | Writes a generated preset (`.json` + `.info`) into your OrcaSlicer user filament directory. **Refuses if OrcaSlicer is running.** |
-| `report_presets` | Scans your OrcaSlicer user filament presets, resolves inherited presets, and reports 21 print-settings fields back to the app for read-only display and temperature sync. |
-
-### Installation
-
-Install from a checkout of the repository using `uv`:
-
-```bash
-uv tool install . --force --no-cache
-```
-
-> Use `--no-cache` to pick up code changes on reinstall.
-
-### Configuration
-
-Create the agent config file:
-
-```bash
-mkdir -p ~/.config/filament-manager
-cat > ~/.config/filament-manager/agent.json <<'JSON'
-{"base_url": "http://192.168.0.31:8404", "token": "<your-agent-token>"}
-JSON
-```
-
-The `base_url` is the address of the Filament Manager web app. The
-`token` must match the agent token configured in **Settings**.
-
-You can also override per invocation with `--base-url` and `--token`.
-
-To use a non-default OrcaSlicer config directory, set the
-`FM_ORCASLICER_CONFIG_DIR` environment variable.
-
-### Usage
-
-```bash
-fm-agent poll        # Process one queued job and exit
-fm-agent watch       # Poll loop every 60 seconds (runs continuously)
-```
-
-**When to run the agent:**
-
-- After clicking **Generate preset** on the Sync page — run `poll` (or
-  have `watch` running) to write the preset to OrcaSlicer.
-- After clicking **Sync from Orca** on a profile page — run `poll` (or
-  have `watch` running) to scan and report presets back.
-- After clicking **Scan now** on the Import page — same as above.
-
-If you use `watch`, the agent handles these automatically. Otherwise,
-run `poll` manually after triggering an action in the UI.
-
-> **OrcaSlicer must be closed** when the agent writes presets. The
-> agent checks and refuses with an error if OrcaSlicer is running. For
-> `report_presets` (scanning), OrcaSlicer can be open or closed.
-
----
-
 ## Complete Workflow Examples
 
 ### Workflow 1: Add a Spool of a New Brand
@@ -462,22 +444,24 @@ run `poll` manually after triggering an action in the UI.
 1. **Create the profile:**
    - Profiles → ＋ New profile
    - Enter brand, name (include brand), type, temps, density, drying
+   - Pick a [preset source](#preset-source-template-picker) (or leave the
+     generic default)
    - Click **Create profile**
 
-2. **(Optional) Generate an OrcaSlicer preset:**
-   - Sync → click preset generate button for the new profile
-   - Close OrcaSlicer
-   - Run `fm-agent poll` on your desktop
-   - The starter preset appears in OrcaSlicer
+2. **Generate an Orca Cloud preset:**
+   - Sync → click the generate preset button (sliders icon) for the new
+     profile
+   - The starter preset is pushed to Orca Cloud
+   - Open OrcaSlicer and let it sync from Orca Cloud — the preset appears
 
 3. **(Optional) Tune and sync back:**
    - Open OrcaSlicer, adjust print settings in the preset
+   - Let OrcaSlicer sync the changes to Orca Cloud
    - Profiles → edit the profile → **Sync from Orca**
-   - Run `fm-agent poll` on your desktop
    - Read-only print settings populate on the profile page
 
 4. **Push to the printer:**
-   - Sync → **Push to printer**
+   - Sync → **Push all profiles**
    - Printer reboots; verify runs automatically
 
 5. **Add the spool:**
@@ -490,10 +474,11 @@ run `poll` manually after triggering an action in the UI.
      custom ID assigned by the app (visible in the drift table or
      profile details).
 
-### Workflow 2: Import an Existing OrcaSlicer Preset
+### Workflow 2: Import an Existing Orca Cloud Preset
 
-1. Import from OrcaSlicer → **Scan now**
-2. Run `fm-agent poll` on your desktop
+1. Settings → connect your Orca Cloud account
+2. Orca Cloud Import → the page lists unmatched presets
+   (if empty, click **Sync now** to pull presets first)
 3. Select the preset(s) from the table → **Import selected**
 4. Profiles → edit the imported profile → **Sync from Orca** to
    populate read-only print settings
@@ -505,11 +490,12 @@ run `poll` manually after triggering an action in the UI.
 2. Migration → **Start import scan**
 3. Review proposals → select entries → **Import selected**
 4. Profiles → review imported profiles
-5. Sync → **Push to printer** to verify everything is consistent
+5. Sync → **Push all profiles** to verify everything is consistent
 
 ### Workflow 4: Update Nozzle Temperatures from OrcaSlicer
 
 1. Tune nozzle temperature in OrcaSlicer for a preset
-2. Profiles → edit the profile → **Sync from Orca** (run agent)
-3. Sync → **Temperature sync**
-4. The updated temperature propagates to the catalog and the printer DB
+2. Let OrcaSlicer sync the change to Orca Cloud
+3. Profiles → edit the profile → **Sync from Orca**
+4. Sync → **Temperature sync**
+5. The updated temperature propagates to the catalog and the printer DB

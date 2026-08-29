@@ -20,6 +20,7 @@ deployment, and the Orca Cloud integration.
    - [Orca Cloud Sync (Profile ↔ Cloud)](#orca-cloud-sync-profile--cloud)
    - [Temperature Sync](#temperature-sync)
    - [Preset Drift Detection](#preset-drift-detection)
+   - [Printer DB Drift Detection (Live)](#printer-db-drift-detection-live)
    - [Migration (Import Scan)](#migration-import-scan)
    - [Import from Orca Cloud](#import-from-orca-cloud)
 7. [Printer DB Codec](#printer-db-codec)
@@ -62,7 +63,11 @@ deployment, and the Orca Cloud integration.
 
 The catalog (SQLite) is the single source of truth. Printer DB entries
 and Orca Cloud presets are derived views. Drift is detected by comparing
-expected vs. actual state via canonical hashes.
+expected vs. actual state via canonical hashes. The printer DB drift
+column additionally pulls live status from the printer via SSH on each
+page load (with cache-file fallback), so profiles pushed before the
+Manager existed show their true status rather than stale sync
+bookkeeping.
 
 **OrcaSlicer** is the desktop slicer application. It exists only on the
 dev machine, where it is the sole editor of print settings and the
@@ -145,6 +150,11 @@ Tracks sync state per profile per target kind.
 | `status` | str(16) | `in_sync` \| `pending` \| `drift` \| `error` |
 | `last_synced_at` | datetime \| None | Last sync attempt timestamp |
 
+> **Note:** The drift table printer DB column uses live statuses
+> (`new`/`in_sync`/`modified`/`missing`/`stock`) from
+> `compute_printer_db_drift`; `SyncTarget.status` is the fallback when
+> no printer DB is available.
+
 ### Job
 
 Job queue for sync operations. Jobs are drained synchronously inside
@@ -194,7 +204,7 @@ fm/
 ├── service/
 │   ├── __init__.py
 │   ├── jobs.py            # Job queue: enqueue, claim_next, run_pending, complete, fail
-│   └── sync_handlers.py   # Handlers: push, verify, generate_preset, temp_sync, import_scan
+│   └── sync_handlers.py   # Handlers: push, verify, generate_preset, temp_sync, import_scan, compute_printer_db_drift, load_printer_db_for_drift
 ├── printer/
 │   ├── __init__.py
 │   ├── transport.py       # SshTransport (SSH/SCP/WS), PrinterTransport Protocol
@@ -552,6 +562,32 @@ Called after Orca Cloud sync (single or all profiles). Compares each
 profile's `SyncTarget(orca_preset).expected_hash` against the hash of
 the pulled preset data. Updates `status` to `in_sync` or `drift`. Also
 stores the full preset data in `SyncTarget.actual_state` as JSON.
+
+### Printer DB Drift Detection (Live)
+
+**Function:** `compute_printer_db_drift` (`sync_handlers.py`).
+
+Called by `drift_status` (`sync.py`) on each page load. Pulls the
+printer DB live via `load_printer_db_for_drift` (SCP to a temp file,
+cache-file fallback, returns None if neither available). For each
+profile, computes a live status:
+
+| Status | Condition |
+|---|---|
+| `stock` | `_is_stock_rfid(profile)` — Creality RFID-tagged |
+| `new` | No `printer_db_id` — never pushed |
+| `missing` | `printer_db_id` set but `find_entry` returns None |
+| `in_sync` | Entry exists and `_entry_drift_detail(entry, expected)` is empty |
+| `modified` | Entry exists but differs — detail string shows changed fields |
+
+`_entry_drift_detail` compares hash fields (brand, name, type, temps,
+density, drying, PA, flow ratio, max volumetric speed) with
+float-normalized comparison (`_values_differ`) to avoid false positives
+from ORM float coercion (e.g. `21.0` vs `21`).
+
+When `load_printer_db_for_drift` returns None (printer unreachable, no
+cache), `drift_status` falls back to the existing SyncTarget-based
+status chain.
 
 ### Migration (Import Scan)
 
@@ -1065,8 +1101,7 @@ Non-negotiable rules enforced in code, lifted from the skill
 |---|---|---|
 | POST | `/api/sync/push` | Enqueue push job, drain queue |
 | POST | `/api/sync/preset/{profile_id}` | Enqueue generate_preset job (API-only) |
-| POST | `/api/sync/tempsync` | Enqueue temp_sync job |
-| GET | `/api/status/drift` | Per-profile drift matrix |
+| GET | `/api/status/drift` | Per-profile drift matrix (live printer DB status + Orca preset status) |
 | POST | `/api/jobs/{job_id}/resolve` | Resolve awaiting_input job |
 | GET | `/api/jobs?since={id}` | List jobs since ID |
 | GET | `/api/jobs/{job_id}` | Get single job |
@@ -1200,8 +1235,7 @@ Override printer env vars inline if needed.
 | `fm/api/ui.py` | UI routes (pages, forms, HTMX fragments). Restart dev server after adding routes. |
 | `fm/api/templates/` | Jinja2 templates. Changes picked up without restart. |
 | `fm/api/static/app.css` | Stylesheet. Changes picked up without restart. |
-| `fm/orca_cloud.py` | Orca Cloud Sync API client (push/pull/delete, Supabase auth, token rotation). |
-| `fm/service/sync_handlers.py` | Sync logic, `refresh_preset_drift`, printer DB operations, Orca Cloud push/pull. |
+| `fm/service/sync_handlers.py` | Sync logic, `refresh_preset_drift`, `compute_printer_db_drift`, `load_printer_db_for_drift`, printer DB operations, Orca Cloud push/pull. |
 | `fm/presets/matching.py` | OrcaSlicer preset matching, `find_orca_user_dir`, `load_presets`. |
 | `fm/presets/builder.py` | Preset builder, `_KV_MAP` (catalog → Orca key mapping). |
 | `fm/presets/template_index.py` | Runtime loader for `template_index.json`. |
@@ -1211,8 +1245,7 @@ Override printer env vars inline if needed.
 
 ## Testing
 
-```bash
-scripts/test.sh        # full pytest suite (356 tests)
+scripts/test.sh        # full pytest suite (379 tests)
 ```
 
 ### Test Files

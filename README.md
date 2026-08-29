@@ -18,7 +18,7 @@ Working instructions for agents and humans are in [`AGENTS.md`](AGENTS.md).
    common colors + custom picker), remaining amount, location. Spools can be
    edited, duplicated (remaining reset to 100%), and deleted inline.
 3. **Sync** — keep the Creality K2 printer DB and OrcaSlicer presets derived
-   from the catalog. Drift is detected by comparing expected vs. actual state.
+   from the catalog. Drift is detected by comparing expected vs. actual state; the printer DB column pulls live status from the printer (with cache fallback) rather than relying on sync bookkeeping.
 4. **Import from Orca Cloud** — bring standard filament presets (including
    inherited presets with resolved identity) into the catalog as profiles for
    spool tracking and print-settings display.
@@ -30,7 +30,7 @@ multi-printer support, multi-user/auth.
 
 Catalog is the single source of truth. Printer DB entries and OrcaSlicer
 presets are derived views; drift is detected by comparing expected vs. actual
-state. OrcaSlicer is the sole editor of print settings — the Manager generates
+state. The printer DB drift column pulls live status from the printer via SSH on each page load (with cache-file fallback) so profiles pushed before the Manager existed show their true status. OrcaSlicer is the sole editor of print settings — the Manager generates
 a starter preset, the user tunes in OrcaSlicer, and the Manager displays the
 tuned values read-only after sync.
 
@@ -77,7 +77,7 @@ The existing skill stays untouched and remains available for agent-driven flows.
 scripts/dev-start.sh   # uvicorn on :8404, isolated SQLite in .local/
 # ... iterate ...
 scripts/dev-stop.sh    # deterministic stop via .local/server.pid
-scripts/test.sh        # full pytest suite (356 tests)
+scripts/test.sh        # full pytest suite (379 tests)
 ```
 
 `dev-start.sh` exports an isolated
@@ -133,7 +133,7 @@ authoritative `FM_*` list lives in `fm/config.py`.
 |---|---|
 | `scripts/dev-start.sh` | Start the app locally (uvicorn, dev config, isolated SQLite in `.local/`); waits for readiness. |
 | `scripts/dev-stop.sh` | Stop the local dev app deterministically via `.local/server.pid`. |
-| `scripts/test.sh` | Run the full pytest suite (356 tests). |
+| `scripts/test.sh` | Run the full pytest suite (379 tests). |
 | `scripts/release.sh <version>` | Semver tag, build the Docker image, save a gzipped tarball to `dist/`; refuses a dirty tree. |
 | `scripts/deploy-unraid.sh <version>` | Load the released image + XML template onto Unraid, restart the container, wait for readiness. |
 | `scripts/build_templates.py` | One-off dev-time bundler: scans a local OrcaSlicer install for `@base` filament presets, copies them into `fm/presets/templates/`, and regenerates `fm/presets/template_index.json`. Output is committed to git; re-run only when OrcaSlicer updates its preset library. |

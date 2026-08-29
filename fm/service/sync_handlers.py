@@ -57,6 +57,7 @@ from ..presets.flattener import find_system_preset
 from ..presets.matching import temp_sync_targets
 from ..orca_cloud import OrcaCloudClient, OrcaCloudConflict, OrcaCloudError
 from ..settings_store import load_orca_token, save_orca_token
+from ..errors import FmError
 from . import jobs
 
 log = __import__("logging").getLogger(__name__)
@@ -235,11 +236,11 @@ def _is_stock_rfid(profile: Profile) -> bool:
     return (profile.brand or "").strip().lower() in STOCK_RFID_BRANDS
 
 
-def _entry_hash(entry: dict) -> str:
-    """Canonical hash of an entry's identity + parameter fields."""
+def _entry_hash_fields(entry: dict) -> dict:
+    """Extract the canonical-hash input dict from a printer-DB entry."""
     b = entry["base"]
     kv = entry.get("kvParam", {})
-    return canonical_hash({
+    return {
         "id": b["id"],
         "brand": b["brand"],
         "name": b["name"],
@@ -253,7 +254,31 @@ def _entry_hash(entry: dict) -> str:
         "pa": kv.get("pressure_advance"),
         "flow_ratio": kv.get("filament_flow_ratio"),
         "max_volumetric": kv.get("filament_max_volumetric_speed"),
-    })
+    }
+
+
+def _entry_hash(entry: dict) -> str:
+    """Canonical hash of an entry's identity + parameter fields."""
+    return canonical_hash(_entry_hash_fields(entry))
+
+
+_HASH_FIELD_LABELS = {
+    "brand": "Brand", "name": "Name", "type": "Type",
+    "minTemp": "Min temp", "maxTemp": "Max temp",
+    "nozzle_temperature": "Nozzle temp", "density": "Density",
+    "dryingTemp": "Drying temp", "dryingTime": "Drying time",
+    "pa": "Pressure advance", "flow_ratio": "Flow ratio",
+    "max_volumetric": "Max volumetric speed",
+}
+
+
+def _entry_drift_detail(actual: dict, expected: dict) -> str:
+    """Human-readable diff of hash fields, '' when equal. id always equal."""
+    a, e = _entry_hash_fields(actual), _entry_hash_fields(expected)
+    return "; ".join(
+        f"{_HASH_FIELD_LABELS[k]}: {a[k]} → {e[k]}"
+        for k in e if k in _HASH_FIELD_LABELS and a.get(k) != e.get(k)
+    )
 
 
 def _sqlite_path_from_url(url: str) -> Path | None:
@@ -310,6 +335,68 @@ def _load_cache_db(config: Config, transport: PrinterTransport) -> dict:
         path.parent.mkdir(parents=True, exist_ok=True)
         save_db(path, db)
     return db
+
+
+def load_printer_db_for_drift(config: Config | None) -> dict | None:
+    """Fresh printer DB for drift checks; cache file as fallback.
+
+    Returns None when config is None, the pull fails, and no cache file
+    exists — callers then keep the SyncTarget-based status.
+    """
+    if config is None:
+        return None
+    path = _cache_db_path if _cache_db_path is not None else _resolve_cache_path()
+    transport = _get_transport(config)
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp = Path(f.name)
+    try:
+        transport.scp_pull(tmp)
+        db = load_db(tmp)
+    except (FmError, ValueError, OSError):
+        if path is not None and Path(path).exists():
+            return load_db(path)
+        return None
+    else:
+        if path is not None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            save_db(path, db)
+        return db
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def compute_printer_db_drift(session: Session, config: Config | None) -> dict[int, dict] | None:
+    """Live printer_db drift per profile id: {"status", "detail"}.
+
+    Statuses: stock | new | in_sync | modified | missing.
+    Returns None when no printer DB is available (live or cache).
+    """
+    db = load_printer_db_for_drift(config)
+    if db is None:
+        return None
+    drift: dict[int, dict] = {}
+    for profile in session.scalars(select(Profile).order_by(Profile.id)):
+        if _is_stock_rfid(profile):
+            drift[profile.id] = {"status": "stock", "detail": ""}
+        elif not profile.printer_db_id:
+            drift[profile.id] = {"status": "new", "detail": ""}
+        else:
+            entry = find_entry(db, profile.printer_db_id)
+            if entry is None:
+                drift[profile.id] = {
+                    "status": "missing",
+                    "detail": f"entry {profile.printer_db_id} not on printer",
+                }
+            else:
+                expected = build_entry(
+                    db, _profile_to_values(profile, profile.printer_db_id)
+                )
+                detail = _entry_drift_detail(entry, expected)
+                drift[profile.id] = {
+                    "status": "in_sync" if not detail else "modified",
+                    "detail": detail,
+                }
+    return drift
 
 
 # ---------------------------------------------------------------------------

@@ -225,6 +225,15 @@ def _profile_to_values(profile: Profile, entry_id: str) -> dict:
         values["maxVolumetric"] = profile.max_volumetric
     return values
 
+# Brands whose spool RFID tags already match stock 01xxx printer DB
+# entries (tag carries "1" + stock entry ID — direct ID lookup, no
+# name matching).  A 99xxx duplicate would never match a tag.
+STOCK_RFID_BRANDS = {"creality"}
+
+
+def _is_stock_rfid(profile: Profile) -> bool:
+    return (profile.brand or "").strip().lower() in STOCK_RFID_BRANDS
+
 
 def _entry_hash(entry: dict) -> str:
     """Canonical hash of an entry's identity + parameter fields."""
@@ -310,7 +319,7 @@ def _load_cache_db(config: Config, transport: PrinterTransport) -> dict:
 def _rebuild_printer_db(
     session: Session, config: Config, transport: PrinterTransport,
     profile_ids: list[int] | None = None,
-) -> tuple[dict, list[tuple[Profile, dict]]]:
+) -> tuple[dict, list[tuple[Profile, dict]], list[int]]:
     """Rebuild the local printer DB from cache copy + catalog.
 
     For each target profile: remove any existing custom entry (by
@@ -319,18 +328,26 @@ def _rebuild_printer_db(
     custom entries (99xxx IDs with no matching catalog profile) are removed so
     deleted profiles don't linger on the printer forever.
 
-    Returns ``(db, pushed)`` where ``pushed`` is a list of
-    ``(profile, entry)`` tuples.
+    Stock-RFID profiles (e.g. Creality) are excluded from the push set —
+    their spool tags already match stock 01xxx entries, so a 99xxx
+    duplicate would never match a tag.  They are reported as skipped IDs.
+
+    Returns ``(db, pushed, skipped_ids)`` where ``pushed`` is a list of
+    ``(profile, entry)`` tuples and ``skipped_ids`` is a list of profile
+    IDs that were not pushed.
     """
     db = _load_cache_db(config, transport)
 
     if profile_ids:
-        profiles = list(session.scalars(
+        all_profiles = list(session.scalars(
             select(Profile).where(Profile.id.in_(profile_ids))
             .order_by(Profile.id)
         ))
     else:
-        profiles = list(session.scalars(select(Profile).order_by(Profile.id)))
+        all_profiles = list(session.scalars(select(Profile).order_by(Profile.id)))
+
+    profiles = [p for p in all_profiles if not _is_stock_rfid(p)]
+    skipped_ids = [p.id for p in all_profiles if _is_stock_rfid(p)]
 
     pushed: list[tuple[Profile, dict]] = []
     for profile in profiles:
@@ -358,7 +375,7 @@ def _rebuild_printer_db(
         if eid not in current_db_ids:
             remove_entry(db, eid)
 
-    return db, pushed
+    return db, pushed, skipped_ids
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +391,7 @@ def handle_push(session: Session, config: Config, payload: dict) -> dict:
     no_reboot = payload.get("no_reboot", False)
 
     transport = _get_transport(config)
-    db, pushed = _rebuild_printer_db(session, config, transport, profile_ids)
+    db, pushed, skipped = _rebuild_printer_db(session, config, transport, profile_ids)
 
     cache_path = _cache_db_path if _cache_db_path is not None else _resolve_cache_path()
     local_path = Path(cache_path) if cache_path is not None else Path(
@@ -406,7 +423,7 @@ def handle_push(session: Session, config: Config, payload: dict) -> dict:
     # Enqueue verify
     jobs.enqueue(session, "verify", {})
 
-    return {"status": result["status"], "pushed": len(pushed)}
+    return {"status": result["status"], "pushed": len(pushed), "skipped": skipped}
 
 
 def handle_verify(session: Session, config: Config, payload: dict) -> dict:

@@ -24,9 +24,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
-
+from ..models import Profile, Spool, SyncTarget
 from ..db import SessionLocal
-from ..models import Profile, Spool
 from ..printer.dbcodec import validate_entry
 
 router = APIRouter(prefix="/api", tags=["catalog"])
@@ -286,13 +285,22 @@ def patch_profile(pid: int, data: ProfileUpdate, db: DbSession) -> Profile:
     return p
 
 
-@router.delete("/profiles/{pid}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_profile(
+def perform_delete(
+    db: Session,
     pid: int,
-    db: DbSession,
-    force: bool = Query(False),
-    confirm: str | None = Query(None),
-) -> Response:
+    force: bool = False,
+    confirm: str | None = None,
+) -> None:
+    """Shared delete semantics (spec §6 + Iron Rule 5/7).
+
+    Raises ``HTTPException``:
+      * 404 when the profile does not exist.
+      * 409 when referenced by spools, unless ``force`` (cascades spools).
+      * 409 when the profile has a ``printer_db_id``, unless ``confirm``
+        matches the profile name exactly (typed-token double-confirm).
+    Also removes the profile's sync targets — the FK has no cascade, so
+    skipping this orphans rows for every pushed profile.
+    """
     p = db.get(Profile, pid)
     if p is None:
         raise HTTPException(status_code=404, detail="profile not found")
@@ -324,10 +332,20 @@ def delete_profile(
     if spool_count > 0 and force:
         db.execute(delete(Spool).where(Spool.profile_id == pid))
 
+    db.execute(delete(SyncTarget).where(SyncTarget.profile_id == pid))
     db.delete(p)
     db.flush()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+
+@router.delete("/profiles/{pid}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_profile(
+    pid: int,
+    db: DbSession,
+    force: bool = Query(False),
+    confirm: str | None = Query(None),
+) -> Response:
+    perform_delete(db, pid, force=force, confirm=confirm)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.post("/profiles/{pid}/validate")
 def validate_profile(pid: int, db: DbSession) -> dict:

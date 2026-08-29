@@ -86,6 +86,8 @@ svg { display: block; }
 .text-link { color: var(--text-secondary); font-size: 12px; transition: color .15s; }.text-link:hover { color: var(--accent); }
 .icon-button { display: inline-grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-alt); color: var(--text-secondary); cursor: pointer; }
 .icon-button:hover { border-color: var(--accent); color: var(--text); }.icon-button svg { width: 16px; height: 16px; fill: currentColor; }
+.icon-button.danger:hover { border-color: rgba(255,90,101,.6); color: #ff9ba2; }
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
 .panel { border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow-card); }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 24px 28px; border-bottom: 1px solid var(--border); }
 .panel-heading h2, .panel-heading p { margin-bottom: 0; }
@@ -113,7 +115,7 @@ tbody tr:last-child td { border-bottom: 0; }tbody tr { transition: background .1
 .status-pending, .status-queued, .status-waiting, .status-awaiting_input { color: #ffd070; background: rgba(253,181,42,.1); }
 .status-drifted, .status-error, .status-failed, .status-missing { color: #ff8d95; background: rgba(255,90,101,.1); }
 .status-running, .status-in_progress { color: #77c3ff; background: rgba(56,160,255,.1); }
-.status-unknown { color: var(--text-secondary); background: rgba(174,185,225,.1); }
+.status-stock, .status-unknown { color: var(--text-secondary); background: rgba(174,185,225,.1); }
 .muted { color: var(--text-muted); }.activity-mark { display: inline-block; width: 7px; height: 7px; margin-right: 10px; border-radius: 50%; background: var(--accent); }
 .empty-state { display: flex; min-height: 260px; align-items: center; justify-content: center; flex-direction: column; padding: 36px; text-align: center; }.empty-state > span { margin-bottom: 10px; color: var(--text-muted); font-size: 30px; }.empty-state p { max-width: 360px; margin-bottom: 18px; }.empty-state.compact { min-height: 130px; }.empty-state.compact p { margin: 0; }
 

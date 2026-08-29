@@ -23,9 +23,10 @@ from ..db import SessionLocal
 from ..config import Config
 from ..models import ActivityLog, Job, Profile, Spool, SyncTarget
 from ..service import jobs
+from ..service import sync_handlers
 from ..service.sync_handlers import _entry_hash, refresh_preset_drift, _cloud_presets_to_local
-from .catalog import _validate
 from .sync import drift_status, _get_config
+from .catalog import _validate, perform_delete
 from ..settings_store import (
     load_settings, save_settings, build_config,
     load_orca_token, save_orca_token,
@@ -160,6 +161,8 @@ def profiles_page(
     types = sorted({p.type for p in rows} | ({type} if type else set()))
 
     orca_synced = request.query_params.get("orca_synced") == "1"
+    deleted = request.query_params.get("deleted") == "1"
+    cloud_failed = request.query_params.get("cloud_failed") == "1"
     return _templates(request).TemplateResponse(
         request, "profiles.html",
         {
@@ -169,6 +172,8 @@ def profiles_page(
             "brands": brands,
             "types": types,
             "orca_synced": orca_synced,
+            "deleted": deleted,
+            "cloud_failed": cloud_failed,
         },
     )
 
@@ -385,6 +390,119 @@ def profile_update_form(
     db.flush()
     return RedirectResponse(url="/profiles", status_code=303)
 
+
+
+@router.get("/profiles/{pid}/delete", response_class=HTMLResponse)
+def profile_delete_confirm(request: Request, pid: int, db: DbSession) -> HTMLResponse:
+    """Confirmation page — Rule 5 double-confirm for destructive delete."""
+    p = db.get(Profile, pid)
+    if p is None:
+        raise HTTPException(status_code=404, detail="profile not found")
+    spool_count = db.scalar(
+        select(func.count(Spool.id)).where(Spool.profile_id == pid)
+    ) or 0
+    has_orca_cloud = db.scalar(
+        select(SyncTarget.id).where(
+            SyncTarget.profile_id == pid,
+            SyncTarget.kind == "orca_preset",
+            SyncTarget.cloud_id.isnot(None),
+        )
+    ) is not None
+    return _templates(request).TemplateResponse(
+        request, "profile_delete.html",
+        {
+            "profile": p,
+            "spool_count": spool_count,
+            "has_orca_cloud": has_orca_cloud,
+            "errors": [],
+        },
+    )
+
+
+@router.post("/profiles/{pid}/delete", response_class=HTMLResponse, response_model=None)
+def profile_delete_form(
+    request: Request,
+    pid: int,
+    db: DbSession,
+    confirm: str | None = Form(None),
+    force: str | None = Form(None),
+    delete_cloud: str | None = Form(None),
+) -> Response:
+    """Delete a profile from the catalog UI (mirrors API delete semantics).
+
+    When ``delete_cloud`` is checked, also attempt to remove the Orca Cloud
+    preset via ``sync_delete``.  Cloud failures are fail-soft: the catalog
+    delete proceeds, the redirect carries ``cloud_failed=1``, and a warn
+    ActivityLog row is recorded.
+    """
+    p = db.get(Profile, pid)
+    if p is None:
+        raise HTTPException(status_code=404, detail="profile not found")
+    spool_count = db.scalar(
+        select(func.count(Spool.id)).where(Spool.profile_id == pid)
+    ) or 0
+
+    errors: list[str] = []
+    if p.printer_db_id and (confirm or "") != p.name:
+        errors.append(
+            f'Typed confirmation must match the profile name exactly: "{p.name}".'
+        )
+    if spool_count > 0 and not force:
+        errors.append(
+            f"Profile has {spool_count} spool(s) in stock — tick the checkbox to "
+            "delete them together with the profile."
+        )
+    if errors:
+        has_orca_cloud = db.scalar(
+            select(SyncTarget.id).where(
+                SyncTarget.profile_id == pid,
+                SyncTarget.kind == "orca_preset",
+                SyncTarget.cloud_id.isnot(None),
+            )
+        ) is not None
+        return _templates(request).TemplateResponse(
+            request, "profile_delete.html",
+            {
+                "profile": p,
+                "spool_count": spool_count,
+                "has_orca_cloud": has_orca_cloud,
+                "errors": errors,
+            },
+        )
+
+    # Resolve cloud IDs before perform_delete wipes the SyncTarget rows.
+    cloud_ids = list(db.scalars(
+        select(SyncTarget.cloud_id).where(
+            SyncTarget.profile_id == pid,
+            SyncTarget.kind == "orca_preset",
+            SyncTarget.cloud_id.isnot(None),
+        )
+    ))
+
+    perform_delete(db, pid, force=bool(force), confirm=confirm)
+
+    # Opt-in cloud preset deletion (fail-soft).
+    cloud_failed = False
+    if delete_cloud and cloud_ids:
+        try:
+            client = sync_handlers._orca_client_factory()
+            if client is None:
+                cloud_failed = True
+            else:
+                client.sync_delete(cloud_ids)
+        except OrcaCloudError:
+            cloud_failed = True
+        jobs.log_activity(
+            db, "orca_cloud_delete", "warn" if cloud_failed else "ok",
+            {"profile_id": pid, "cloud_ids": cloud_ids,
+             "error": "cloud unavailable" if cloud_failed else None},
+        )
+        db.commit()
+
+    target = "/profiles?deleted=1"
+    if cloud_failed:
+        target += "&cloud_failed=1"
+    return RedirectResponse(url=target, status_code=303)
 
 
 @router.post("/profiles/{pid}/sync-from-orca", response_class=HTMLResponse)

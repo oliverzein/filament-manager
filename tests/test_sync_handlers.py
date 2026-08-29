@@ -178,6 +178,41 @@ class TestPushHandler:
 
         assert profile.printer_db_id == "99001"  # unchanged
 
+    def test_skips_creality_stock_profiles(self, inmemory_session, cfg, tmp_path, sample_db, monkeypatch):
+        s = inmemory_session
+        sunlu = _make_profile(s)
+        creality = _make_profile(s, brand="Creality", name="Creality Hyper PLA Optimized")
+        cache = _cache_file(tmp_path, sample_db)
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: FakeTransport())
+
+        result = sh.handle_push(s, cfg, {})
+
+        assert result["status"] == "ok"
+        assert result["pushed"] == 1
+        assert result["skipped"] == [creality.id]
+        assert creality.printer_db_id is None
+        # pushed DB contains no custom entry for the Creality profile
+        db = json.loads(cache.read_text())
+        assert not any(
+            e.get("base", {}).get("name", "") == "Creality Hyper PLA Optimized"
+            for e in db["result"]["list"]
+        )
+
+    def test_explicit_creality_profile_id_skipped(self, inmemory_session, cfg, tmp_path, sample_db, monkeypatch):
+        s = inmemory_session
+        creality = _make_profile(s, brand="Creality", name="Creality Hyper PLA Optimized")
+        cache = _cache_file(tmp_path, sample_db)
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: FakeTransport())
+
+        result = sh.handle_push(s, cfg, {"profile_ids": [creality.id]})
+
+        assert result["status"] == "ok"
+        assert result["pushed"] == 0
+        assert result["skipped"] == [creality.id]
+        assert creality.printer_db_id is None
+
 
 # ---------------------------------------------------------------------------
 # verify handler

@@ -148,6 +148,7 @@ Per `AGENTS.md`, any action likely to repeat goes into a script under `scripts/`
 | Dashboard | `/` | Spool count by profile, drift matrix, recent activity. |
 | Profiles | `/profiles` | Catalog of filament profiles with filter/search. |
 | Profile edit | `/profiles/{id}/edit` | Edit identity (brand, name, type, colors, density, drying, notes), pick a preset source template, and view read-only OrcaSlicer print settings (synced from Orca Cloud). |
+| Profile delete | `/profiles/{id}/delete` | Confirmation page (Iron Rule 5): typed-token confirm for pushed profiles, spool cascade checkbox, sync-target cleanup. Orca Cloud presets are not auto-deleted. |
 | Spools | `/spools` | Spool inventory with inline edit, duplicate (remaining=100%), delete, and color dropdown (30 common colors + custom picker). |
 | Sync | `/sync` | Drift table, push/verify/preset actions, job progress, busy-printer resolution. |
 | Orca Cloud Import | `/import-orca` | Import standard Orca Cloud presets (including resolved inherited presets) as catalog profiles. |

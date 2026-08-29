@@ -463,6 +463,16 @@ class TestDriftStatus:
         matrix = r.json()
         assert matrix[0]["orca_preset"]["status"] == "drift"
 
+    def test_stock_rfid_profile_shows_stock_status(self, client):
+        """Creality profile with no printer_db target → stock status, not pending."""
+        p = _make_profile(client, brand="Creality", name="Creality Hyper PLA")
+        r = client.get("/api/status/drift")
+        assert r.status_code == 200
+        matrix = r.json()
+        entry = next(e for e in matrix if e["profile_id"] == p["id"])
+        assert entry["printer_db"]["status"] == "stock"
+        assert entry["orca_preset"]["status"] == "pending"
+
 
 # ---------------------------------------------------------------------------
 # Job query endpoint

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Delete profile — Filament Manager{% endblock %}
+{% block content %}
+<section id="profile-delete">
+  <header class="page-header"><div><p class="eyebrow">Catalog / Profiles</p><h1>Delete profile</h1><p>Irreversible. The printer database entry is removed on the next push; existing RFID tags become invalid.</p></div><a href="/profiles" class="button button-ghost">← Back to profiles</a></header>
+
+  {% if errors %}<div class="alert alert-danger"><strong>Deletion blocked</strong><ul class="errors">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}
+
+  <section class="panel">
+    <div class="table-wrap"><table><tbody>
+      <tr><th>Profile</th><td><span class="cell-main">{{ profile.brand }} {{ profile.name }}</span> <span class="cell-sub">ID {{ profile.id }}</span></td></tr>
+      <tr><th>Material</th><td><span class="badge badge-purple">{{ profile.type }}</span></td></tr>
+      <tr><th>Printer DB</th><td>{% if profile.printer_db_id %}Entry <code>{{ profile.printer_db_id }}</code> — removed on the next push{% else %}<span class="muted">not pushed</span>{% endif %}</td></tr>
+      <tr><th>Orca Cloud</th><td>{% if has_orca_cloud %}preset exists — <span class="muted">tick the checkbox below to also remove it from Orca Cloud</span>{% else %}<span class="muted">no cloud preset</span>{% endif %}</td></tr>
+      <tr><th>Spools</th><td>{{ spool_count }}</td></tr>
+    </tbody></table></div>
+
+    <form method="post" action="/profiles/{{ profile.id }}/delete" class="profile-editor">
+      {% if profile.printer_db_id %}
+      <div class="form-grid">
+        <label><span>Type "{{ profile.name }}" to confirm</span><input name="confirm" required placeholder="{{ profile.name }}" autocomplete="off"></label>
+      </div>
+      {% endif %}
+      {% if spool_count %}
+      <label class="check-row"><input type="checkbox" name="force" value="1"> Also delete {{ spool_count }} spool{{ "s" if spool_count != 1 }} referencing this profile</label>
+      {% endif %}
+      {% if has_orca_cloud %}
+      <label class="check-row"><input type="checkbox" name="delete_cloud" value="1"> Also delete the OrcaSlicer Cloud preset</label>
+      {% endif %}
+      <div class="form-actions"><a href="/profiles" class="button button-ghost">Cancel</a><button type="submit" class="button button-danger">Delete profile</button></div>
+    </form>
+  </section>
+</section>
+{% endblock %}

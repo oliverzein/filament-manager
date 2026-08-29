@@ -305,3 +305,16 @@ def test_delete_spool(client, seeded_profile):
 
 def test_delete_spool_404(client):
     assert client.delete("/api/spools/9999").status_code == 404
+
+
+def test_delete_profile_removes_sync_targets(client, profile_with_printer):
+    """Regression: sync_targets rows must not outlive the profile (no FK cascade)."""
+    from fm.db import SessionLocal
+    from fm.models import SyncTarget
+    pid = profile_with_printer["id"]
+    with SessionLocal() as s:
+        s.add(SyncTarget(profile_id=pid, kind="printer_db", status="in_sync"))
+        s.add(SyncTarget(profile_id=pid, kind="orca_preset", cloud_id="abc-123"))
+    assert client.delete(f"/api/profiles/{pid}?confirm=Sunlu PLA%2B").status_code == 204
+    with SessionLocal() as s:
+        assert s.query(SyncTarget).filter_by(profile_id=pid).count() == 0

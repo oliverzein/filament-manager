@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock
-from pathlib import Path
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from conftest import FakeTransport
 from fm.api.app import create_app, Settings
 from fm.config import Config
-from fm.models import Job, Profile, SyncTarget
+from fm.errors import FmError
 from fm.service import sync_handlers as sh
 
 
@@ -138,7 +138,7 @@ class TestPushEndpoint:
         matrix = r.json()
         assert len(matrix) == 1
         assert matrix[0]["profile_id"] == p["id"]
-        assert matrix[0]["printer_db"]["status"] == "pending"
+        assert matrix[0]["printer_db"]["status"] == "in_sync"
 
     def test_push_with_profile_ids(self, client):
         p1 = _make_profile(client, name="Sunlu PLA+")
@@ -373,7 +373,7 @@ class TestDriftStatus:
         assert len(matrix) == 1
         entry = matrix[0]
         assert entry["profile_id"] == p["id"]
-        assert entry["printer_db"]["status"] == "pending"
+        assert entry["printer_db"]["status"] == "in_sync"
         assert entry["orca_preset"]["status"] == "in_sync"
         assert entry["printer_db"]["expected_hash"] is not None
         assert entry["orca_preset"]["expected_hash"] is not None
@@ -472,6 +472,75 @@ class TestDriftStatus:
         entry = next(e for e in matrix if e["profile_id"] == p["id"])
         assert entry["printer_db"]["status"] == "stock"
         assert entry["orca_preset"]["status"] == "pending"
+
+    def test_legacy_entry_shows_in_sync(self, client):
+        """A profile matching an existing printer-DB entry (no SyncTarget)
+        shows in_sync — the CAILAB legacy scenario."""
+        from fm.db import SessionLocal
+        from fm.models import Profile as ProfileModel
+        with SessionLocal() as s:
+            s.add(ProfileModel(
+                brand="Sunlu", name="Sunlu PLA+", type="PLA", colors="[]",
+                min_temp=205, max_temp=215, density=1.23,
+                drying_temp=50, drying_time=8, nozzle_temperature=215,
+                flow_ratio=0.998, pa=0.032,
+                printer_db_id="99001",
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            ))
+            s.commit()
+        r = client.get("/api/status/drift")
+        assert r.status_code == 200
+        entry = r.json()[0]
+        assert entry["printer_db"]["status"] == "in_sync"
+        assert entry["printer_db"]["detail"] == ""
+
+    def test_modified_entry_shows_modified_with_detail(self, client):
+        """A profile whose printer-DB entry differs shows modified with a
+        drift detail naming the changed field and both values."""
+        from fm.db import SessionLocal
+        from fm.models import Profile as ProfileModel
+        with SessionLocal() as s:
+            s.add(ProfileModel(
+                brand="Sunlu", name="Sunlu PLA+", type="PLA", colors="[]",
+                min_temp=205, max_temp=220, density=1.23,
+                drying_temp=50, drying_time=8, nozzle_temperature=215,
+                flow_ratio=0.998, pa=0.032,
+                printer_db_id="99001",
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            ))
+            s.commit()
+        r = client.get("/api/status/drift")
+        assert r.status_code == 200
+        entry = r.json()[0]
+        assert entry["printer_db"]["status"] == "modified"
+        detail = entry["printer_db"]["detail"]
+        assert "Max temp" in detail
+        assert "215" in detail
+        assert "220" in detail
+
+    def test_new_profile_shows_new(self, client):
+        """A profile with no printer_db_id shows new (never pushed)."""
+        _make_profile(client)
+        r = client.get("/api/status/drift")
+        assert r.status_code == 200
+        assert r.json()[0]["printer_db"]["status"] == "new"
+
+    def test_drift_falls_back_without_printer_and_cache(self, client, monkeypatch, tmp_path):
+        """When the printer is unreachable and no cache exists, drift falls
+        back to SyncTarget bookkeeping — an unpushed profile shows pending."""
+        from types import SimpleNamespace
+        _make_profile(client)
+        # scp_pull raises inside load_printer_db_for_drift's try/except → cache
+        # fallback; the cache path points at a non-existent file → None → the
+        # SyncTarget-based chain runs (unpushed profile → pending).
+        monkeypatch.setattr(sh, "_transport_factory",
+                            lambda c: SimpleNamespace(scp_pull=lambda p: (_ for _ in ()).throw(FmError(2, "down"))))
+        monkeypatch.setattr(sh, "_cache_db_path", tmp_path / "missing.json")
+        r = client.get("/api/status/drift")
+        assert r.status_code == 200
+        assert r.json()[0]["printer_db"]["status"] == "pending"
 
 
 # ---------------------------------------------------------------------------

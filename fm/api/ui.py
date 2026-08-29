@@ -125,7 +125,7 @@ def dashboard(request: Request, db: DbSession) -> HTMLResponse:
         .limit(10)
     ).all()
 
-    drift = drift_status(db)
+    drift = drift_status(request, db)
 
     activity = list(
         db.scalars(
@@ -726,7 +726,7 @@ def spool_duplicate_form(sid: int, db: DbSession) -> RedirectResponse:
 def sync_page(request: Request, db: DbSession) -> HTMLResponse:
     """Drift table per profile, HTMX action buttons, busy dialog for
     awaiting_input jobs, and a job progress area."""
-    drift = drift_status(db)
+    drift = drift_status(request, db)
     awaiting_jobs = list(db.scalars(
         select(Job).where(Job.status == "awaiting_input").order_by(Job.id)
     ))

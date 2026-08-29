@@ -19,7 +19,7 @@ from ..config import Config
 from ..db import SessionLocal
 from ..models import Job, Profile, SyncTarget
 from ..service import jobs
-from ..service.sync_handlers import refresh_preset_drift, register_handlers, _is_stock_rfid  # noqa: F401 — register_handlers side-effect import stays
+from ..service.sync_handlers import compute_printer_db_drift, refresh_preset_drift, register_handlers, _is_stock_rfid  # noqa: F401 — register_handlers side-effect import stays
 
 router = APIRouter(prefix="/api", tags=["sync"])
 
@@ -135,9 +135,18 @@ def sync_tempsync(body: TempSyncRequest, request: Request, db: DbSession) -> dic
 
 
 @router.get("/status/drift")
-def drift_status(db: DbSession) -> list[dict]:
-    """Per-profile drift matrix: printer_db + orca_preset SyncTarget status."""
+def drift_status(request: Request, db: DbSession) -> list[dict]:
+    """Per-profile drift matrix: printer_db + orca_preset SyncTarget status.
+
+    printer_db status is computed live from the actual printer DB (with a
+    cache-file fallback) when a config is available; otherwise it falls back
+    to SyncTarget bookkeeping.  Each status dict carries a ``detail`` field
+    (a drift description for ``modified`` entries, ``""`` otherwise) so the
+    response shape is uniform across both columns.
+    """
     refresh_preset_drift(db)
+    config = getattr(request.app.state, "config", None)
+    live = compute_printer_db_drift(db, config)
     profiles = list(db.scalars(select(Profile).order_by(Profile.id)))
     result = []
     for p in profiles:
@@ -154,12 +163,22 @@ def drift_status(db: DbSession) -> list[dict]:
                     SyncTarget.kind == kind,
                 )
             ).first()
-            if target:
-                entry[kind] = {"status": target.status, "expected_hash": target.expected_hash}
+            if kind == "printer_db" and live is not None:
+                entry[kind] = {
+                    "status": live[p.id]["status"],
+                    "expected_hash": target.expected_hash if target else None,
+                    "detail": live[p.id]["detail"],
+                }
+            elif target:
+                entry[kind] = {
+                    "status": target.status,
+                    "expected_hash": target.expected_hash,
+                    "detail": "",
+                }
             elif kind == "printer_db" and _is_stock_rfid(p):
-                entry[kind] = {"status": "stock", "expected_hash": None}
+                entry[kind] = {"status": "stock", "expected_hash": None, "detail": ""}
             else:
-                entry[kind] = {"status": "pending", "expected_hash": None}
+                entry[kind] = {"status": "pending", "expected_hash": None, "detail": ""}
         result.append(entry)
     return result
 

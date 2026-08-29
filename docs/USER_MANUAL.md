@@ -57,7 +57,10 @@ The dashboard (`/`) is the landing page. It shows:
   preset are in sync.
 - **Spools by profile** — which profiles have stock.
 - **Sync drift** — per-profile status for printer DB and Orca Cloud
-  preset (in sync / pending / drift / error).
+  preset. The printer DB column shows live status from the printer:
+  **New** (never pushed), **In Sync** (entry matches catalog),
+  **Modified** (entry differs — hover for detail), **Missing** (ID set
+  but entry absent), **Stock** (Creality profile).
 - **Recent activity** — timeline of sync actions and their outcomes.
 
 Quick actions: click **＋ New profile** to jump to profile creation.
@@ -295,19 +298,35 @@ OrcaSlicer, tune the print settings as needed, then use
 page to pull the tuned values back for read-only display.
 
 > Changing a profile's preset source has no effect until the next
-> generate-preset run.
+generate-preset run.
 
 ### Drift Status
 
 The drift table on the Sync page shows per-profile status for two sync
 targets:
 
+**Printer DB** (live — pulled from the printer on each page load, with
+cache-file fallback):
+
 | Status | Meaning |
 |---|---|
-| in_sync | Printer DB / Orca Cloud preset matches the catalog |
-| pending | A sync was triggered but not yet verified |
-| drift_detected | The target diverged from the catalog |
-| error | Verification failed (entry missing or cloud-sync rollback) |
+| New | Profile has never been pushed to the printer (no printer DB ID) |
+| In Sync | Printer DB entry matches the catalog profile |
+| Modified | Printer DB entry differs from the catalog — hover the badge for a detail tooltip (e.g. "Nozzle temp: 240 → 250") |
+| Missing | Profile has a printer DB ID but the entry is absent from the printer |
+| Stock | Creality stock filament (RFID-tagged, not managed by the app) |
+
+If the printer is unreachable and no cache file exists, the column
+falls back to the last known sync status (pending / in_sync / error).
+
+**Orca Cloud preset** (sync bookkeeping):
+
+| Status | Meaning |
+|---|---|
+| in_sync | Orca Cloud preset matches the catalog |
+| pending | A preset was generated but not yet verified |
+| drift | The preset diverged from the catalog |
+| error | Verification failed |
 
 ### Printer Busy — Resolution Options
 

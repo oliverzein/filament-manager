@@ -272,14 +272,26 @@ _HASH_FIELD_LABELS = {
 }
 
 
+def _values_differ(a: object, e: object) -> bool:
+    """True when ``a`` and ``e`` differ, normalizing numeric coercion.
+
+    Float ORM columns can stringify differently than the printer DB
+    (e.g. ``21`` vs ``21.0``); parse both as float when possible so
+    numerically-equal values are not reported as drift.
+    """
+    try:
+        return float(a) != float(e)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return a != e
+
+
 def _entry_drift_detail(actual: dict, expected: dict) -> str:
     """Human-readable diff of hash fields, '' when equal. id always equal."""
     a, e = _entry_hash_fields(actual), _entry_hash_fields(expected)
     return "; ".join(
         f"{_HASH_FIELD_LABELS[k]}: {a[k]} → {e[k]}"
-        for k in e if k in _HASH_FIELD_LABELS and a.get(k) != e.get(k)
+        for k in e if k in _HASH_FIELD_LABELS and _values_differ(a.get(k), e.get(k))
     )
-
 
 def _sqlite_path_from_url(url: str) -> Path | None:
     """Extract the filesystem path from a ``sqlite:///`` URL."""

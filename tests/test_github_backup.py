@@ -354,3 +354,101 @@ class TestHandleGithubBackup:
         files = call_args[0][0]
         assert "presets/PLA-.json" in files
         assert "presets/PLA-_0.json" in files
+
+
+from fm.presets.builder import build_standalone_preset
+
+
+def _preset_template():
+    """Minimal system preset template for build_standalone_preset."""
+    return {
+        "type": "filament",
+        "filament_type": ["PLA"],
+        "name": "Generic PLA",
+        "from": "System",
+        "inherits": "",
+        "filament_vendor": ["Generic"],
+        "filament_density": "1.24",
+        "nozzle_temperature": ["210"],
+        "nozzle_temperature_range_low": ["190"],
+        "nozzle_temperature_range_high": ["240"],
+        "version": "2.4.0.3",
+    }
+
+
+class TestAutoTrigger:
+    def test_generate_preset_enqueues_backup_when_configured(
+        self, inmemory_session, cfg, monkeypatch, tmp_path,
+    ):
+        """generate_preset enqueues github_backup when GitHub is configured."""
+        s = inmemory_session
+        profile = _make_profile(s)
+
+        # Mock preset template
+        monkeypatch.setattr(sh, "_preset_template_factory", lambda d: _preset_template())
+
+        # Mock Orca Cloud client
+        mock_orca = MagicMock()
+        mock_orca.sync_push.return_value = {"updated_time": "2026-09-01"}
+        mock_orca.cloud_id.return_value = "cloud-uuid-1"
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: mock_orca)
+
+        # Mock GitHub as configured
+        mock_github = MagicMock()
+        monkeypatch.setattr(sh, "_github_client_factory", lambda: mock_github)
+
+        sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
+
+        # Verify github_backup job was enqueued
+        backup_jobs = list(s.scalars(
+            select(Job).where(Job.kind == "github_backup")
+        ))
+        assert len(backup_jobs) == 1
+        assert backup_jobs[0].status == "queued"
+
+    def test_generate_preset_no_backup_when_github_unconfigured(
+        self, inmemory_session, cfg, monkeypatch, tmp_path,
+    ):
+        """generate_preset does NOT enqueue github_backup when GitHub is None."""
+        s = inmemory_session
+        profile = _make_profile(s)
+
+        monkeypatch.setattr(sh, "_preset_template_factory", lambda d: _preset_template())
+
+        mock_orca = MagicMock()
+        mock_orca.sync_push.return_value = {"updated_time": "2026-09-01"}
+        mock_orca.cloud_id.return_value = "cloud-uuid-1"
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: mock_orca)
+
+        # GitHub not configured
+        monkeypatch.setattr(sh, "_github_client_factory", lambda: None)
+
+        sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
+
+        backup_jobs = list(s.scalars(
+            select(Job).where(Job.kind == "github_backup")
+        ))
+        assert len(backup_jobs) == 0
+
+    def test_temp_sync_enqueues_backup_when_configured(
+        self, inmemory_session, cfg, monkeypatch,
+    ):
+        """temp_sync enqueues github_backup when GitHub is configured."""
+        s = inmemory_session
+        _make_profile(s, filament_id="Pabc123")
+
+        mock_orca = MagicMock()
+        mock_orca.sync_pull.return_value = {
+            "next_cursor": 0, "upserts": [], "deletes": [],
+        }
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: mock_orca)
+
+        mock_github = MagicMock()
+        monkeypatch.setattr(sh, "_github_client_factory", lambda: mock_github)
+
+        sh.handle_temp_sync(s, cfg, {})
+
+        backup_jobs = list(s.scalars(
+            select(Job).where(Job.kind == "github_backup")
+        ))
+        assert len(backup_jobs) == 1

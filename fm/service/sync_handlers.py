@@ -711,6 +711,7 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
     target.status = "in_sync"
     target.last_synced_at = _now()
 
+    _enqueue_github_backup(session)
     return {
         "filament_id": preset["filament_id"],
         "expected_hash": expected_hash,
@@ -765,6 +766,8 @@ def handle_temp_sync(session: Session, config: Config, payload: dict) -> dict:
     # Enqueue push to propagate temp changes to printer DB
     jobs.enqueue(session, "push", {})
 
+    _enqueue_github_backup(session)
+
     return {"updates": updates, "skipped": skipped}
 
 # ---------------------------------------------------------------------------
@@ -780,6 +783,12 @@ def _sanitize_filename(name: str) -> str:
     """Replace filesystem-unsafe characters with '-'."""
     return _UNSAFE_CHARS.sub('-', name)
 
+
+def _enqueue_github_backup(session: Session) -> None:
+    """Enqueue a github_backup job if GitHub is configured. No-op otherwise."""
+    if _github_client_factory() is None:
+        return
+    jobs.enqueue(session, "github_backup", {})
 
 def handle_github_backup(session: Session, config: Config, payload: dict) -> dict:
     """GitHub backup handler: pull all Orca Cloud presets, write each as a

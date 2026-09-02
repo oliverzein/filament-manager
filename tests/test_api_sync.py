@@ -1,5 +1,5 @@
 # tests/test_api_sync.py
-"""Sync API tests — push, preset, tempsync, drift status, job resolve.
+"""Sync API tests — push, preset, drift status, job resolve.
 
 Uses FakeTransport from conftest.  The busy-flow test pins the spec behavior
 from the task brief.
@@ -281,53 +281,6 @@ class TestPresetEndpoint:
         # handler raises ValueError → job error
         assert data["status"] == "error"
 
-# ---------------------------------------------------------------------------
-# Tempsync endpoint
-# ---------------------------------------------------------------------------
-class TestTempsyncEndpoint:
-    def test_tempsync_no_orca_client_errors(self, client, monkeypatch):
-        """Tempsync errors when Orca Cloud is not configured."""
-        _make_profile(client, printer_db_id=None)
-        monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
-        r = client.post("/api/sync/tempsync", json={})
-        assert r.status_code == 200
-        assert r.json()["status"] == "error"
-
-    def test_tempsync_with_orca_pull(self, client, fake_orca_client):
-        # Create a profile with printer_db_id via push
-        p = _make_profile(client)
-        client.post("/api/sync/push", json={})
-        # Re-fetch profile to get printer_db_id
-        profiles = client.get("/api/profiles").json()
-        pid = profiles[0]["id"]
-        assert profiles[0]["printer_db_id"] is not None
-
-        # Override sync_pull to return a cloud-format preset with different temp
-        fake_orca_client.sync_pull.return_value = {
-            "next_cursor": 0,
-            "upserts": [{
-                "id": "uuid1",
-                "name": "Sunlu PLA+",
-                "content": {
-                    "type": "filament",
-                    "name": "Sunlu PLA+",
-                    "filament_type": "PLA",
-                    "filament_vendor": "Sunlu",
-                    "filament_id": "P1234567890123",
-                    "nozzle_temperature": "220",
-                    "nozzle_temperature_initial_layer": "220",
-                },
-            }],
-            "deletes": [],
-        }
-
-        r = client.post("/api/sync/tempsync", json={})
-        assert r.status_code == 200
-        data = r.json()
-        # temp_sync enqueues a push, which runs and succeeds
-        # The temp_sync job itself should be done
-        assert data["status"] == "done"
-
 
 # ---------------------------------------------------------------------------
 # Drift status endpoint
@@ -378,8 +331,9 @@ class TestDriftStatus:
         assert entry["printer_db"]["expected_hash"] is not None
         assert entry["orca_preset"]["expected_hash"] is not None
 
-    def test_preset_drift_surfaces_in_drift_status(self, client, fake_orca_client):
-        """Orca_preset drift computed from sync_pull must surface in drift output."""
+    def test_preset_drift_shown_when_cloud_temp_differs(self, client, fake_orca_client):
+        """drift_status is read-only: Cloud temp ≠ expected_hash → drift,
+        nozzle_temperature not written back to profile."""
         from fm.db import SessionLocal
         from fm.models import Profile as ProfileModel
         p = _make_profile(client)
@@ -388,8 +342,9 @@ class TestDriftStatus:
         with SessionLocal() as s:
             prof = s.get(ProfileModel, p["id"])
             fid = prof.filament_id
+            original_nozzle_temp = prof.nozzle_temperature
 
-        # Override sync_pull to return a drifting preset (cloud format)
+        # Override sync_pull to return a preset with a different temp (cloud format)
         fake_orca_client.sync_pull.return_value = {
             "next_cursor": 0,
             "upserts": [{
@@ -410,7 +365,12 @@ class TestDriftStatus:
         r = client.get("/api/status/drift")
         assert r.status_code == 200
         matrix = r.json()
+        # Cloud hash ≠ expected_hash → drift (read-only, no adopt)
         assert matrix[0]["orca_preset"]["status"] == "drift"
+        # nozzle_temperature not written back
+        with SessionLocal() as s:
+            prof = s.get(ProfileModel, p["id"])
+            assert prof.nozzle_temperature == original_nozzle_temp
 
     def test_preset_in_sync_surfaces_in_drift_status(self, client, fake_orca_client):
         """Matching pulled preset → in_sync in drift output."""

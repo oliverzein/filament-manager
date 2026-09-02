@@ -182,7 +182,6 @@ class TestSyncPage:
     def test_sync_page_shows_actions(self, client):
         r = client.get("/sync")
         assert b"Push all" in r.content
-        assert b"Temperature sync" in r.content
         assert b"hx-post" in r.content
 
     def test_sync_page_job_progress_polling(self, client):

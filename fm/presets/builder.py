@@ -80,7 +80,7 @@ def build_standalone_preset(profile_dict, template):
     # Preset fields that are arrays must stay arrays; scalar fields stay scalar.
     preset_name = b['name'] if b['name'].lower().startswith(b['brand'].lower()) else f"{b['brand']} {b['name']}"
     flat["name"] = preset_name
-    flat["filament_id"] = generate_filament_id(preset_name, b.get("printer_db_id") or "")
+    flat["filament_id"] = b.get("filament_id") or generate_filament_id(preset_name, b.get("printer_db_id") or "")
     flat["filament_vendor"] = [b["brand"]]  # array in OrcaSlicer presets
     flat["filament_type"] = [b["type"]]  # array in OrcaSlicer presets
     flat["inherits"] = ""

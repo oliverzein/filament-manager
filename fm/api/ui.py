@@ -24,7 +24,7 @@ from ..config import Config
 from ..models import ActivityLog, Job, Profile, Spool, SyncTarget
 from ..service import jobs
 from ..service import sync_handlers
-from ..service.sync_handlers import _entry_hash, refresh_preset_drift, _cloud_presets_to_local
+from ..service.sync_handlers import _entry_hash, refresh_preset_drift, _cloud_presets_to_local, canonical_hash
 from .sync import drift_status, _get_config
 from .catalog import _validate, perform_delete
 from ..settings_store import (
@@ -183,7 +183,7 @@ def profiles_page(
 @router.post("/profiles/sync-from-orca")
 def profiles_sync_from_orca(db: DbSession) -> RedirectResponse:
     """Pull all Orca Cloud presets and match against all profiles."""
-    refresh_preset_drift(db)
+    refresh_preset_drift(db, adopt=True)
     db.flush()
     return RedirectResponse(url="/profiles?orca_synced=1", status_code=303)
 
@@ -510,7 +510,7 @@ def profile_delete_form(
 @router.post("/profiles/{pid}/sync-from-orca", response_class=HTMLResponse)
 def sync_from_orca(pid: int, request: Request, db: DbSession) -> HTMLResponse:
     """Pull Orca Cloud presets synchronously and return the fragment."""
-    refresh_preset_drift(db)
+    refresh_preset_drift(db, adopt=True)
     db.flush()
 
     profile = db.get(Profile, pid)
@@ -1121,6 +1121,28 @@ def import_orca_apply(
         )
         db.add(profile)
         db.flush()
+
+        # Create SyncTarget(orca_preset) so the profile is visible to the
+        # sync system — analog to migration_apply's printer_db target.
+        # cloud_id is the Orca Cloud resource UUID (_path from sync_pull);
+        # expected_hash uses the same identity fields as refresh_preset_drift
+        # so the first drift check is consistent.
+        target = SyncTarget(
+            profile_id=profile.id,
+            kind="orca_preset",
+            cloud_id=p.get("_path"),
+            expected_hash=canonical_hash({
+                "name": p.get("name"),
+                "filament_id": p.get("filament_id"),
+                "filament_vendor": p.get("filament_vendor"),
+                "filament_type": p.get("filament_type"),
+                "nozzle_temperature": p.get("nozzle_temperature"),
+            }),
+            actual_state=json.dumps(p),
+            status="pending",
+            last_synced_at=now,
+        )
+        db.add(target)
 
     return RedirectResponse(url="/import-orca?applied=1", status_code=303)
 

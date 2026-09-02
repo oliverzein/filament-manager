@@ -20,7 +20,7 @@
     </div>
     <p class="muted">Connect your Orca Cloud account in <a href="/settings">Settings</a>, then use Pull from Cloud in the <a href="/sync">Sync Hub</a>.</p>
   </section>
-  {% elif not proposals %}
+  {% elif not orca_proposals %}
   <section class="panel">
     <div class="empty-state">
       <span>✓</span>
@@ -35,7 +35,7 @@
         <p class="eyebrow">Step 2</p>
         <h2>Select presets to import</h2>
       </div>
-      <span class="result-count">{{ proposals | length }} available</span>
+      <span class="result-count">{{ orca_proposals | length }} available</span>
     </div>
 
     <div class="filter-bar">
@@ -61,7 +61,7 @@
             </tr>
           </thead>
           <tbody>
-            {% for p in proposals %}
+            {% for p in orca_proposals %}
             <tr class="import-row {% if not p.user_tuned %}inheriting-row{% endif %}" data-user-tuned="{{ p.user_tuned }}">
               <td><input type="checkbox" name="include" value="{{ p.filament_id }}" {% if p.user_tuned %}checked{% endif %}></td>
               <td class="cell-main">{{ p.name }}</td>

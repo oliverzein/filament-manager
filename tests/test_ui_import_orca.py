@@ -136,6 +136,20 @@ class TestImportOrcaApply:
         assert matrix[0]["orca_preset"]["status"] == "in_sync"
         assert matrix[0]["orca_preset"]["expected_hash"] is not None
 
+    def test_import_orca_tab_shows_unmatched_presets(self, client):
+        """GET /import?tab=orca renders unmatched Orca presets from
+        orca_proposals (not the printer-DB proposals context key)."""
+        r = client.get("/import?tab=orca")
+        assert r.status_code == 200
+        # The unmatched preset name must appear in the Orca tab
+        assert b"Sunlu PLA+" in r.content
+        # "All presets matched" empty-state must NOT appear (we have 1 unmatched)
+        assert b"All presets matched" not in r.content
+        # Printer-DB proposal fields must NOT leak into the Orca tab
+        # (99001 is a printer_db_id that only appears in printer proposals;
+        #  no printer scan was run, so it should be absent regardless)
+        assert b"99001" not in r.content
+
 
 # ---------------------------------------------------------------------------
 # Sync from Orca — adopt path

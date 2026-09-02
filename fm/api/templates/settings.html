@@ -32,6 +32,12 @@
       <label><span>Version override</span><div class="input-unit"><input type="number" name="version_override" value="{{ version_override }}"><b>ver</b></div></label>
       <label><span>ID range start</span><div class="input-unit"><input type="number" name="id_range_start" value="{{ id_range_start }}"><b>id</b></div></label>
     </div></fieldset>
+    <fieldset class="form-section"><div class="form-section-heading"><span>04</span><div><legend>GitHub backup</legend><p>Back up Orca Cloud presets to a private GitHub repository.</p></div></div><div class="form-grid">
+      <label class="full-width"><span>Token</span><input type="password" name="github_token" value="{{ github_token }}" placeholder="ghp_... (Personal Access Token)"></label>
+      <label><span>Repository</span><input name="github_repo" value="{{ github_repo }}" placeholder="owner/repo"></label>
+      <label><span>Branch</span><input name="github_branch" value="{{ github_branch }}" placeholder="main"></label>
+      <div class="full-width"><button type="button" id="github-test-btn" class="button button-secondary">Test connection</button></div>
+    </div></fieldset>
     <div class="form-actions"><button type="submit" class="button button-primary">Save settings</button></div>
   </form>
 </section>
@@ -155,5 +161,28 @@
     }
   });
 })();
+
+// GitHub test connection
+document.getElementById('github-test-btn')?.addEventListener('click', async function() {
+  const token = document.querySelector('[name="github_token"]').value;
+  const repo = document.querySelector('[name="github_repo"]').value;
+  const branch = document.querySelector('[name="github_branch"]').value || 'main';
+  if (!token || !repo) { alert('Enter token and repo first.'); return; }
+  this.disabled = true; this.textContent = 'Testing…';
+  try {
+    const r = await fetch('/api/settings/github-test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({github_token: token, github_repo: repo, github_branch: branch}),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      alert('Connected! Repo: ' + data.repo + ' (default branch: ' + data.default_branch + ')');
+    } else {
+      alert('Error: ' + data.error);
+    }
+  } catch (e) { alert('Request failed: ' + e.message); }
+  this.disabled = false; this.textContent = 'Test connection';
+});
 </script>
 {% endblock %}

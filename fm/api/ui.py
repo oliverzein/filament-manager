@@ -737,7 +737,12 @@ def sync_page(request: Request, db: DbSession) -> HTMLResponse:
     ))
     return _templates(request).TemplateResponse(
         request, "sync.html",
-        {"drift": drift, "awaiting_jobs": awaiting_jobs, "recent_jobs": recent_jobs},
+        {
+            "drift": drift,
+            "awaiting_jobs": awaiting_jobs,
+            "recent_jobs": recent_jobs,
+            "github_configured": load_github_config() is not None,
+        },
     )
 
 

@@ -17,9 +17,6 @@ Handlers:
   * ``generate_preset`` — build preset dict via Task 6, push directly to
     Orca Cloud via ``OrcaCloudClient.sync_push``, set
     ``SyncTarget(orca_preset).expected_hash``.
-  * ``temp_sync`` — pull presets from Orca Cloud via ``sync_pull``, compute
-    ``temp_sync_targets``, apply ``nozzle_temperature`` changes to catalog,
-    enqueue ``push``.
 
 Transport / cache DB / preset template / Orca Cloud client are injected via
 module-level factories so tests can substitute ``FakeTransport`` and mock
@@ -55,7 +52,6 @@ from ..printer.pipeline import canonical_hash, run_push
 from ..printer.transport import PrinterTransport, SshTransport
 from ..presets.builder import build_standalone_preset
 from ..presets.flattener import find_system_preset
-from ..presets.matching import temp_sync_targets
 from ..orca_cloud import OrcaCloudClient, OrcaCloudConflict, OrcaCloudError
 from ..github_backup import GitHubBackupClient
 from ..settings_store import load_github_config, load_orca_token, save_orca_token
@@ -632,6 +628,7 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
         "retraction_speed": profile.retraction_speed,
         "nozzle_temperature": profile.nozzle_temperature,
         "printer_db_id": profile.printer_db_id,
+        "filament_id": profile.filament_id,
         "template_override": profile.template_override,
     }
 
@@ -719,57 +716,6 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
         "status": "in_sync",
     }
 
-
-def handle_temp_sync(session: Session, config: Config, payload: dict) -> dict:
-    """Temp sync handler: pull presets from Orca Cloud, compute
-    temp_sync_targets, apply nozzle_temperature changes to catalog,
-    enqueue push.
-    """
-    # Pull presets directly from Orca Cloud
-    client = _orca_client_factory()
-    if client is None:
-        raise ValueError(
-            "Orca Cloud not configured — set up the connection in Settings"
-        )
-    pull_result = client.sync_pull()
-    presets = _cloud_presets_to_local(pull_result.get("upserts", []))
-
-    # Build profiles_state from catalog (only pushed profiles)
-    profile_ids = payload.get("profile_ids")
-    if profile_ids:
-        profiles = list(session.scalars(
-            select(Profile).where(Profile.id.in_(profile_ids))
-            .order_by(Profile.id)
-        ))
-    else:
-        profiles = list(session.scalars(
-            select(Profile).where(Profile.printer_db_id.isnot(None))
-            .order_by(Profile.id)
-        ))
-
-    profiles_state = [{
-        "id": p.id,
-        "brand": p.brand,
-        "name": p.name,
-        "type": p.type,
-        "nozzle_temperature": p.nozzle_temperature,
-        "printer_db_id": p.printer_db_id,
-    } for p in profiles]
-
-    updates, skipped = temp_sync_targets(profiles_state, presets)
-
-    # Apply nozzle_temperature changes to catalog
-    for update in updates:
-        profile = session.get(Profile, update["profile_id"])
-        if profile is not None:
-            profile.nozzle_temperature = update["orca_temp"]
-
-    # Enqueue push to propagate temp changes to printer DB
-    jobs.enqueue(session, "push", {})
-
-    _enqueue_github_backup(session)
-
-    return {"updates": updates, "skipped": skipped}
 
 # ---------------------------------------------------------------------------
 # GitHub backup
@@ -864,7 +810,9 @@ def handle_github_backup(session: Session, config: Config, payload: dict) -> dic
 # Preset drift computation
 # ---------------------------------------------------------------------------
 
-def refresh_preset_drift(session: Session) -> None:
+def refresh_preset_drift(
+    session: Session, *, adopt: bool = False, profile_id: int | None = None,
+) -> None:
     """Update ``orca_preset`` SyncTarget status from Orca Cloud sync_pull.
 
     Matching mirrors OrcaSlicer desktop's ``setting_id`` approach:
@@ -877,6 +825,18 @@ def refresh_preset_drift(session: Session) -> None:
 
     Profiles without a SyncTarget (never pushed) are skipped — they
     appear as ``pending`` in the drift table.
+
+    ``adopt=False`` (default, used by ``drift_status`` / page loads):
+    read-only drift check.  ``actual_state`` and ``last_synced_at`` are
+    refreshed so badges stay current, but ``expected_hash`` and
+    ``Profile.nozzle_temperature`` are never mutated.  Status is set by
+    comparing the Cloud canonical hash against ``expected_hash``:
+    equal → ``in_sync``, different → ``drift``.
+
+    ``adopt=True`` (explicit "Sync from Orca"): OrcaSlicer is the editor
+    — Cloud values are adopted as the new baseline.  ``expected_hash``
+    is set to the Cloud hash, status becomes ``in_sync``, and
+    ``nozzle_temperature`` is written back to the profile.
     """
     from ..presets.matching import match_presets
 
@@ -894,9 +854,10 @@ def refresh_preset_drift(session: Session) -> None:
     by_name = {p.get("name", ""): p for p in presets}
 
     # Process existing orca_preset targets only
-    targets = list(session.scalars(
-        select(SyncTarget).where(SyncTarget.kind == "orca_preset")
-    ))
+    stmt = select(SyncTarget).where(SyncTarget.kind == "orca_preset")
+    if profile_id is not None:
+        stmt = stmt.where(SyncTarget.profile_id == profile_id)
+    targets = list(session.scalars(stmt))
 
     for target in targets:
         profile = session.get(Profile, target.profile_id)
@@ -951,18 +912,38 @@ def refresh_preset_drift(session: Session) -> None:
         if preset is None:
             continue
 
-        # Compute drift hash if expected_hash is set
-        if target.expected_hash:
-            actual_hash = canonical_hash({
-                "name": preset.get("name"),
-                "filament_id": preset.get("filament_id"),
-                "filament_vendor": preset.get("filament_vendor"),
-                "filament_type": preset.get("filament_type"),
-                "nozzle_temperature": preset.get("nozzle_temperature"),
-            })
-            target.status = "in_sync" if actual_hash == target.expected_hash else "drift"
-        else:
+        actual_hash = canonical_hash({
+            "name": preset.get("name"),
+            "filament_id": preset.get("filament_id"),
+            "filament_vendor": preset.get("filament_vendor"),
+            "filament_type": preset.get("filament_type"),
+            "nozzle_temperature": preset.get("nozzle_temperature"),
+        })
+
+        if adopt:
+            # OrcaSlicer is the editor — adopt Cloud values as the new
+            # baseline: update expected_hash, mark in_sync, and write
+            # nozzle_temperature back to the profile.
+            target.expected_hash = actual_hash
             target.status = "in_sync"
+
+            # nozzle_temperature is an array of strings in the local preset
+            # format (e.g. ['215']); Profile stores it as int.  Extract the
+            # first value, coercing to int.  Leave the profile unchanged
+            # when the value is missing or non-numeric.
+            temps = preset.get("nozzle_temperature")
+            if isinstance(temps, list) and temps:
+                try:
+                    profile.nozzle_temperature = int(temps[0])
+                except (ValueError, TypeError):
+                    pass
+        else:
+            # Read-only drift check: compare Cloud hash against the
+            # stored expected_hash.  Do not mutate expected_hash or
+            # profile.nozzle_temperature.
+            target.status = (
+                "in_sync" if actual_hash == target.expected_hash else "drift"
+            )
 
         target.actual_state = json.dumps(preset)
         target.last_synced_at = _now()
@@ -1059,7 +1040,6 @@ def register_handlers() -> None:
     jobs.HANDLERS["push"] = handle_push
     jobs.HANDLERS["verify"] = handle_verify
     jobs.HANDLERS["generate_preset"] = handle_generate_preset
-    jobs.HANDLERS["temp_sync"] = handle_temp_sync
     jobs.HANDLERS["import_scan"] = handle_import_scan
     jobs.HANDLERS["github_backup"] = handle_github_backup
 

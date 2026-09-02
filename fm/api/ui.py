@@ -180,14 +180,6 @@ def profiles_page(
     )
 
 
-@router.post("/profiles/sync-from-orca")
-def profiles_sync_from_orca(db: DbSession) -> RedirectResponse:
-    """Pull all Orca Cloud presets and match against all profiles."""
-    refresh_preset_drift(db, adopt=True)
-    db.flush()
-    return RedirectResponse(url="/profiles?orca_synced=1", status_code=303)
-
-
 # ---------------------------------------------------------------------------
 # Profile form — new / edit
 # ---------------------------------------------------------------------------

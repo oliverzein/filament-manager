@@ -157,9 +157,8 @@ class TestImportOrcaApply:
 
 class TestSyncFromOrcaAdopt:
     def test_sync_from_orca_adopts_baseline_and_writes_temp(self, client, fake_orca_client):
-        """Explicit 'Sync from Orca' (POST /profiles/sync-from-orca) uses
-        adopt=True: expected_hash updated to Cloud hash, nozzle_temperature
-        written back to profile."""
+        """Explicit pull (POST /api/sync/pull) uses adopt=True: expected_hash
+        updated to Cloud hash, nozzle_temperature written back to profile."""
         from fm.service.sync_handlers import canonical_hash
 
         # Import a profile with a SyncTarget (expected_hash = Cloud hash for 220)
@@ -188,10 +187,9 @@ class TestSyncFromOrcaAdopt:
             "deletes": [],
         }
 
-        # Explicit sync-from-orca → adopt path
-        r = client.post("/profiles/sync-from-orca", follow_redirects=False)
-        assert r.status_code == 303
-
+        # Explicit pull → adopt path
+        r = client.post("/api/sync/pull")
+        assert r.status_code == 200
         # Expected hash should now be the Cloud hash (for temp 999)
         cloud_hash = canonical_hash({
             "name": "Sunlu PLA+",

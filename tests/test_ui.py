@@ -199,3 +199,36 @@ def test_spools_filter_non_numeric_profile_id(client, seeded_profile):
     r = client.get("/spools?profile_id=abc")
     assert r.status_code == 200
     assert b"Add spool" in r.content
+
+
+# ---------------------------------------------------------------------------
+# Sync Hub redesign — label cleanup
+# ---------------------------------------------------------------------------
+
+def test_profiles_page_no_sync_from_orca(client, seeded_profile):
+    """Profiles page must not contain 'Sync from Orca' button."""
+    r = client.get("/profiles")
+    assert r.status_code == 200
+    assert b"Sync from Orca" not in r.content
+    # Should have a link to sync hub instead
+    assert b"Sync status" in r.content or b"/sync" in r.content
+
+
+def test_profiles_page_no_orca_toast(client, seeded_profile):
+    """Profiles page must not contain the Orca toast script."""
+    r = client.get("/profiles")
+    assert b"Synced from Orca Cloud" not in r.content
+
+
+def test_orca_fragment_has_pull_from_cloud_label(client, seeded_profile):
+    """Orca fragment button says 'Pull from Cloud', not 'Sync from Orca'."""
+    r = client.get(f"/profiles/{seeded_profile['id']}/orca-fragment")
+    assert r.status_code == 200
+    assert b"Pull from Cloud" in r.content
+    assert b"Sync from Orca" not in r.content
+
+
+def test_profiles_sync_from_orca_route_removed(client):
+    """POST /profiles/sync-from-orca returns 404 (route removed)."""
+    r = client.post("/profiles/sync-from-orca")
+    assert r.status_code == 404

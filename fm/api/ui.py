@@ -736,7 +736,7 @@ def sync_page(request: Request, db: DbSession) -> HTMLResponse:
         select(Job).order_by(Job.id.desc()).limit(20)
     ))
     return _templates(request).TemplateResponse(
-        request, "sync.html",
+        request, "sync_hub.html",
         {
             "drift": drift,
             "awaiting_jobs": awaiting_jobs,

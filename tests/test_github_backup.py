@@ -540,8 +540,9 @@ class TestUIRoutes:
         assert r.status_code == 200
         assert b"Backup to GitHub" in r.content
 
-    def test_sync_page_hides_backup_button_when_unconfigured(self, client):
-        """Sync page does NOT show 'Backup to GitHub' when GitHub is not configured."""
+    def test_sync_page_disables_backup_button_when_unconfigured(self, client):
+        """Sync page shows 'Backup to GitHub' disabled when GitHub is not configured."""
         r = client.get("/sync")
         assert r.status_code == 200
-        assert b"Backup to GitHub" not in r.content
+        assert b"Backup to GitHub" in r.content
+        assert b"disabled" in r.content

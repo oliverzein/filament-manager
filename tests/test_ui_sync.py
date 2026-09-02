@@ -176,13 +176,27 @@ class TestSyncPage:
     def test_sync_page_renders(self, client):
         r = client.get("/sync")
         assert r.status_code == 200
-        assert b"Sync" in r.content
+        assert b"Sync Hub" in r.content
         assert b"drift-table" in r.content
 
-    def test_sync_page_shows_actions(self, client):
+    def test_sync_page_has_direction_clear_labels(self, client):
+        """No old labels; new direction-clear labels present."""
         r = client.get("/sync")
-        assert b"Push all" in r.content
-        assert b"hx-post" in r.content
+        assert b"Push to Printer" in r.content
+        assert b"Push to Cloud" in r.content
+        assert b"Pull from Cloud" in r.content
+        assert b"Backup to GitHub" in r.content
+        # Old labels must NOT appear
+        assert b"Sync from Orca" not in r.content
+        assert b"Push all" not in r.content
+        assert b"Sync now" not in r.content
+
+    def test_sync_page_has_target_cards(self, client):
+        """M3 layout: three target cards (Printer DB, Orca Cloud, Backup)."""
+        r = client.get("/sync")
+        assert b"Printer DB" in r.content
+        assert b"Orca Cloud" in r.content
+        assert b"GitHub backup" in r.content
 
     def test_sync_page_job_progress_polling(self, client):
         r = client.get("/sync")

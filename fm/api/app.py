@@ -50,6 +50,21 @@ def _package_version() -> str:
     except PackageNotFoundError:
         return "0.1.0"
 
+_STATUS_CLASS_MAP = {
+    "drift": "drifted",
+    "done": "completed",
+}
+
+
+def status_class(value: str) -> str:
+    """Map internal status values to app.css badge class names.
+
+    Only ``drift`` → ``drifted`` and ``done`` → ``completed`` need mapping;
+    all other status values (in_sync, pending, error, modified, missing,
+    new, stock, queued, running, awaiting_input) have direct CSS classes.
+    """
+    return _STATUS_CLASS_MAP.get(value, value)
+
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the FastAPI application.
@@ -77,6 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Parse Profile.colors (JSON string) -> list for template rendering.
     templates.env.filters["colors_list"] = lambda v: json.loads(v) if isinstance(v, str) else (v or [])
     templates.env.filters["from_json"] = lambda v: json.loads(v) if isinstance(v, str) else (v or {})
+    templates.env.filters["status_class"] = status_class
     app.state.templates = templates
     app.state.config = app_config
     app.mount("/static", StaticFiles(directory=str(_DIR / "static")), name="static")

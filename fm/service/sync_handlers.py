@@ -56,7 +56,8 @@ from ..presets.builder import build_standalone_preset
 from ..presets.flattener import find_system_preset
 from ..presets.matching import temp_sync_targets
 from ..orca_cloud import OrcaCloudClient, OrcaCloudConflict, OrcaCloudError
-from ..settings_store import load_orca_token, save_orca_token
+from ..github_backup import GitHubBackupClient, GitHubBackupError
+from ..settings_store import load_github_config, load_orca_token, save_orca_token
 from ..errors import FmError
 from . import jobs
 
@@ -108,6 +109,19 @@ def _default_orca_client() -> OrcaCloudClient | None:
 # Production default loads refresh token from settings; returns None when
 # no Orca Cloud credentials are configured.
 _orca_client_factory: Callable[[], OrcaCloudClient | None] = _default_orca_client
+
+
+def _default_github_client() -> GitHubBackupClient | None:
+    """Create a GitHubBackupClient from stored settings, or None if unconfigured."""
+    config = load_github_config()
+    if config is None:
+        return None
+    token, repo, branch = config
+    return GitHubBackupClient(token, repo, branch)
+
+
+# GitHub client factory — tests override via monkeypatch.
+_github_client_factory: Callable[[], GitHubBackupClient | None] = _default_github_client
 
 
 def _now() -> datetime:
@@ -753,6 +767,89 @@ def handle_temp_sync(session: Session, config: Config, payload: dict) -> dict:
 
     return {"updates": updates, "skipped": skipped}
 
+# ---------------------------------------------------------------------------
+# GitHub backup
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+_UNSAFE_CHARS = _re.compile(r'[/\\:*?"<>|+ ]')
+
+
+def _sanitize_filename(name: str) -> str:
+    """Replace filesystem-unsafe characters with '-'."""
+    return _UNSAFE_CHARS.sub('-', name)
+
+
+def handle_github_backup(session: Session, config: Config, payload: dict) -> dict:
+    """GitHub backup handler: pull all Orca Cloud presets, write each as a
+    JSON file plus an index.json, commit atomically to GitHub.
+    """
+    client = _github_client_factory()
+    if client is None:
+        raise ValueError(
+            "GitHub not configured — set up the connection in Settings"
+        )
+
+    orca = _orca_client_factory()
+    if orca is None:
+        raise ValueError(
+            "Orca Cloud not connected — set up the connection in Settings"
+        )
+
+    # Full pull from Orca Cloud (cursor=0 → all presets)
+    pull_result = orca.sync_pull(cursor=0)
+    upserts = pull_result.get("upserts", [])
+    presets = _cloud_presets_to_local(upserts)
+
+    # Build file dict: presets/{safe_name}.json + index.json
+    files: dict[str, str] = {}
+    index: list[dict] = []
+    seen_names: dict[str, int] = {}
+
+    for preset in presets:
+        raw_name = preset.get("name", "")
+        if not raw_name:
+            continue  # skip empty names
+        safe = _sanitize_filename(raw_name)
+        if safe in seen_names:
+            suffix = seen_names[safe]
+            seen_names[safe] += 1
+            safe = f"{safe}_{suffix}"
+        else:
+            seen_names[safe] = 0
+
+        path = f"presets/{safe}.json"
+        files[path] = json.dumps(preset, indent=2, sort_keys=True)
+        index.append({
+            "name": raw_name,
+            "filament_id": preset.get("filament_id", ""),
+            "cloud_id": preset.get("_path", ""),
+            "updated_time": preset.get("updated_time", ""),
+            "file": path,
+        })
+
+    index.sort(key=lambda e: e["name"])
+    files["index.json"] = json.dumps(index, indent=2, sort_keys=True)
+
+    message = f"Backup: {_now().isoformat()} — {len(presets)} presets"
+    result = client.backup(files, message)
+
+    jobs.log_activity(
+        session, "github_backup", "ok",
+        {
+            "commit_sha": result["commit_sha"],
+            "files_written": result["files_written"],
+            "preset_count": len(presets),
+        },
+    )
+
+    return {
+        "commit_sha": result["commit_sha"],
+        "files_written": result["files_written"],
+        "preset_count": len(presets),
+    }
+
 
 # ---------------------------------------------------------------------------
 # Preset drift computation
@@ -955,6 +1052,7 @@ def register_handlers() -> None:
     jobs.HANDLERS["generate_preset"] = handle_generate_preset
     jobs.HANDLERS["temp_sync"] = handle_temp_sync
     jobs.HANDLERS["import_scan"] = handle_import_scan
+    jobs.HANDLERS["github_backup"] = handle_github_backup
 
 
 # Auto-register on import so including the sync router wires handlers.

@@ -427,28 +427,6 @@ class TestAutoTrigger:
         ))
         assert len(backup_jobs) == 0
 
-    def test_temp_sync_enqueues_backup_when_configured(
-        self, inmemory_session, cfg, monkeypatch,
-    ):
-        """temp_sync enqueues github_backup when GitHub is configured."""
-        s = inmemory_session
-        _make_profile(s, filament_id="Pabc123")
-
-        mock_orca = MagicMock()
-        mock_orca.sync_pull.return_value = {
-            "next_cursor": 0, "upserts": [], "deletes": [],
-        }
-        monkeypatch.setattr(sh, "_orca_client_factory", lambda: mock_orca)
-
-        mock_github = MagicMock()
-        monkeypatch.setattr(sh, "_github_client_factory", lambda: mock_github)
-
-        sh.handle_temp_sync(s, cfg, {})
-
-        backup_jobs = list(s.scalars(
-            select(Job).where(Job.kind == "github_backup")
-        ))
-        assert len(backup_jobs) == 1
 from fastapi.testclient import TestClient
 from fm.api.app import create_app, Settings
 
@@ -562,8 +540,9 @@ class TestUIRoutes:
         assert r.status_code == 200
         assert b"Backup to GitHub" in r.content
 
-    def test_sync_page_hides_backup_button_when_unconfigured(self, client):
-        """Sync page does NOT show 'Backup to GitHub' when GitHub is not configured."""
+    def test_sync_page_disables_backup_button_when_unconfigured(self, client):
+        """Sync page shows 'Backup to GitHub' disabled when GitHub is not configured."""
         r = client.get("/sync")
         assert r.status_code == 200
-        assert b"Backup to GitHub" not in r.content
+        assert b"Backup to GitHub" in r.content
+        assert b"disabled" in r.content

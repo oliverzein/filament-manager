@@ -1,9 +1,9 @@
 # tests/test_ui_sync.py
-"""UI sync page + migration wizard tests.
+"""UI sync page + import page tests.
 
-Pins the two brief-specified tests:
-  * test_migration_proposes_99001_to_99004
-  * test_migration_import_preserves_filament_id
+Pins the brief-specified tests:
+  * test_import_printer_scan_proposes_99001_to_99004
+  * test_import_printer_apply_creates_profiles
 """
 from __future__ import annotations
 
@@ -154,7 +154,7 @@ def single_client(tmp_path, monkeypatch, cfg, fake_transport, single_entry_db):
 @pytest.fixture
 def proposal(single_client):
     """Run import_scan and return the first proposal dict."""
-    single_client.post("/migration/import")
+    single_client.post("/import/printer/scan")
     with SessionLocal() as s:
         job = s.scalars(
             select(Job).where(
@@ -176,14 +176,27 @@ class TestSyncPage:
     def test_sync_page_renders(self, client):
         r = client.get("/sync")
         assert r.status_code == 200
-        assert b"Sync" in r.content
+        assert b"Sync Hub" in r.content
         assert b"drift-table" in r.content
 
-    def test_sync_page_shows_actions(self, client):
+    def test_sync_page_has_direction_clear_labels(self, client):
+        """No old labels; new direction-clear labels present."""
         r = client.get("/sync")
-        assert b"Push all" in r.content
-        assert b"Temperature sync" in r.content
-        assert b"hx-post" in r.content
+        assert b"Push to Printer" in r.content
+        assert b"Push to Cloud" in r.content
+        assert b"Pull from Cloud" in r.content
+        assert b"Backup to GitHub" in r.content
+        # Old labels must NOT appear
+        assert b"Sync from Orca" not in r.content
+        assert b"Push all" not in r.content
+        assert b"Sync now" not in r.content
+
+    def test_sync_page_has_target_cards(self, client):
+        """M3 layout: three target cards (Printer DB, Orca Cloud, Backup)."""
+        r = client.get("/sync")
+        assert b"Printer DB" in r.content
+        assert b"Orca Cloud" in r.content
+        assert b"GitHub backup" in r.content
 
     def test_sync_page_job_progress_polling(self, client):
         r = client.get("/sync")
@@ -321,39 +334,56 @@ class TestSyncPage:
 
 
 # ---------------------------------------------------------------------------
-# Migration wizard
+# Import page (merged migration + import-orca)
 # ---------------------------------------------------------------------------
 
-class TestMigration:
-    def test_migration_step1_no_import(self, client):
-        """With no prior import_scan, /migration shows step 1."""
-        r = client.get("/migration")
+class TestImportPage:
+    def test_import_page_default_tab(self, client):
+        """GET /import defaults to printer tab."""
+        r = client.get("/import")
         assert r.status_code == 200
-        assert b"Step 1" in r.content
+        assert b"From Printer DB" in r.content
+        assert b"From Orca Cloud" in r.content
+
+    def test_import_page_printer_tab(self, client):
+        """GET /import?tab=printer shows printer DB import content."""
+        r = client.get("/import?tab=printer")
+        assert r.status_code == 200
         assert b"Start import scan" in r.content
 
-    def test_migration_proposes_99001_to_99004(self, fake_transport, client):
-        """After import_scan, /migration shows proposals for 99001–99004."""
-        r = client.post("/migration/import", follow_redirects=False)
-        assert r.status_code == 303
-        assert r.headers["location"] == "/migration"
+    def test_import_page_orca_tab(self, client):
+        """GET /import?tab=orca shows Orca Cloud import content."""
+        r = client.get("/import?tab=orca")
+        assert r.status_code == 200
 
+    def test_old_migration_route_404(self, client):
+        """GET /migration returns 404 (route removed)."""
         r = client.get("/migration")
+        assert r.status_code == 404
+
+    def test_old_import_orca_route_404(self, client):
+        """GET /import-orca returns 404 (route removed)."""
+        r = client.get("/import-orca")
+        assert r.status_code == 404
+
+    def test_import_printer_scan_redirects(self, client):
+        """POST /import/printer/scan enqueues import_scan and redirects."""
+        r = client.post("/import/printer/scan", follow_redirects=False)
+        assert r.status_code == 303
+        assert r.headers["location"] == "/import?tab=printer"
+
+    def test_import_printer_scan_proposes_99001_to_99004(self, client):
+        """After scan, /import?tab=printer shows proposals."""
+        client.post("/import/printer/scan")
+        r = client.get("/import?tab=printer")
         assert r.status_code == 200
         assert b"99001" in r.content
-        assert b"99002" in r.content
-        assert b"99003" in r.content
-        assert b"99004" in r.content
         assert b"Sunlu" in r.content
-        assert b"eSUN" in r.content
-        assert b"Polymaker" in r.content
-        assert b"Bambu" in r.content
 
-
-    def test_migration_apply_creates_profiles(self, client):
-        """POST /migration/apply with selected entries creates profiles."""
-        client.post("/migration/import")
-        r = client.post("/migration/apply", data={
+    def test_import_printer_apply_creates_profiles(self, client):
+        """POST /import/printer/apply with selected entries creates profiles."""
+        client.post("/import/printer/scan")
+        r = client.post("/import/printer/apply", data={
             "include": ["99001", "99003"],
         }, follow_redirects=False)
         assert r.status_code == 303
@@ -364,64 +394,7 @@ class TestMigration:
             ids = {p.printer_db_id for p in profiles}
             assert ids == {"99001", "99003"}
 
-    def test_migration_apply_creates_sync_targets(self, client):
-        """Applied profiles get a SyncTarget(printer_db)."""
-        client.post("/migration/import")
-        client.post("/migration/apply", data={"include": "99001"})
-
-        with SessionLocal() as s:
-            targets = list(s.scalars(select(SyncTarget)))
-            assert len(targets) == 1
-            assert targets[0].kind == "printer_db"
-
-    def test_migration_import_preserves_filament_id(self, single_client, proposal):
-        """When a profile with the same printer_db_id already exists,
-        migration apply must preserve its filament_id (Cloud-collision
-        avoidance)."""
-        pid = proposal["printer_db_id"]  # "99001"
-
-        # Create an existing profile with the same printer_db_id
-        resp = single_client.post("/api/profiles", json={
-            "brand": "Old", "name": "Old Name", "type": "PLA",
-            "min_temp": 200, "max_temp": 210, "density": 1.2,
-        })
-        assert resp.status_code == 201
-        profile_id = resp.json()["id"]
-
-        # Set printer_db_id + filament_id directly (API doesn't expose these)
-        with SessionLocal() as s:
-            p = s.get(Profile, profile_id)
-            p.printer_db_id = pid
-            p.filament_id = "P1234567890123"
-
-        # Apply migration with this entry selected
-        r = single_client.post("/migration/apply", data={"include": pid},
-                               follow_redirects=False)
-        assert r.status_code == 303
-
-        # filament_id must be preserved, not overwritten
-        with SessionLocal() as s:
-            p = s.get(Profile, profile_id)
-            assert p.filament_id == "P1234567890123"
-            # Profile fields should be updated from the proposal
-            assert p.brand == proposal["brand"]
-            assert p.name == proposal["name"]
-            assert p.min_temp == proposal["min_temp"]
-            assert p.max_temp == proposal["max_temp"]
-
-    def test_migration_apply_new_profile_has_no_filament_id(self, client):
-        """A brand-new profile created by migration has filament_id=None."""
-        client.post("/migration/import")
-        client.post("/migration/apply", data={"include": "99001"})
-
-        with SessionLocal() as s:
-            p = s.scalars(
-                select(Profile).where(Profile.printer_db_id == "99001")
-            ).first()
-            assert p is not None
-            assert p.filament_id is None
-
-    def test_migration_apply_no_import_404(self, client):
-        """POST /migration/apply without a prior import_scan → 404."""
-        r = client.post("/migration/apply", data={"include": "99001"})
+    def test_import_printer_apply_no_scan_404(self, client):
+        """POST /import/printer/apply without a prior scan → 404."""
+        r = client.post("/import/printer/apply", data={"include": "99001"})
         assert r.status_code == 404

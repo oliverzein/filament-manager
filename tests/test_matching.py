@@ -1,8 +1,7 @@
 # tests/test_matching.py
-"""Tests for fm.presets.matching — preset scoring + temp-sync target selection.
+"""Tests for fm.presets.matching — preset scoring.
 
-Skip-rule cases ported from skill tests/test_sync.py (TestSyncSkips), adapted
-to the catalog profile-state dict input shape consumed by temp_sync_targets.
+Skip-rule cases ported from skill tests/test_sync.py (TestSyncSkips).
 """
 import json
 from pathlib import Path
@@ -136,127 +135,6 @@ def test_preset_temp_non_numeric_returns_default():
 def test_preset_temp_scalar_string():
     assert matching.get_preset_temp({"nozzle_temperature": "215"}, "nozzle_temperature") == 215
 
-
-# === temp_sync_targets: skip rules (ported from skill TestSyncSkips) ===
-
-def test_score30_user_preset_wins(user_preset):
-    # brand(20)+vendor(10)=30, user preset, db_temp 215 != orca_temp 220 -> update
-    profiles = [_profile(nozzle_temperature=215)]
-    updates, skipped = matching.temp_sync_targets(profiles, [user_preset])
-    assert skipped == []
-    assert len(updates) == 1
-    u = updates[0]
-    assert u["profile_id"] == 1
-    assert u["db_temp"] == 215
-    assert u["orca_temp"] == 220
-    assert u["initial_layer_warning"] is False
-
-
-def test_initial_layer_warning_flagged():
-    preset = _preset("Sunlu PLA+", nozzle_temperature=220,
-                     nozzle_temperature_initial_layer=225)
-    profiles = [_profile(nozzle_temperature=215)]
-    updates, skipped = matching.temp_sync_targets(profiles, [preset])
-    assert skipped == []
-    assert updates[0]["initial_layer_warning"] is True
-
-
-def test_tie_skipped():
-    # two user presets with the same score -> ambiguous
-    presets = [
-        _preset("Sunlu PLA+ A", nozzle_temperature=220),
-        _preset("Sunlu PLA+ B", nozzle_temperature=220),
-    ]
-    profiles = [_profile(nozzle_temperature=215)]
-    updates, skipped = matching.temp_sync_targets(profiles, presets)
-    assert updates == []
-    assert len(skipped) == 1
-    assert skipped[0]["reason"] == "ambiguous"
-    assert skipped[0]["profile_id"] == 1
-
-
-def test_system_winner_skipped():
-    # only a system preset matches -> system
-    presets = [_preset("Sunlu PLA+ @System", system=True, nozzle_temperature=220)]
-    profiles = [_profile(nozzle_temperature=215)]
-    updates, skipped = matching.temp_sync_targets(profiles, presets)
-    assert updates == []
-    assert len(skipped) == 1
-    assert skipped[0]["reason"] == "system"
-
-
-def test_score_below_thirty_skipped():
-    # vendor-only match (score 10) < 30 -> no_match
-    presets = [_preset("Sunlu Generic", nozzle_temperature=220)]  # name has "Sunlu" not "Sunlu PLA+"
-    profiles = [_profile(brand="Sunlu", name="Sunlu PLA+", nozzle_temperature=215)]
-    updates, skipped = matching.temp_sync_targets(profiles, presets)
-    assert updates == []
-    assert len(skipped) == 1
-    assert skipped[0]["reason"] == "no_match"
-
-
-def test_no_match_skipped():
-    # no preset matches at all
-    presets = [_preset("Other PLA", nozzle_temperature=220)]
-    profiles = [_profile(brand="Sunlu", name="Sunlu PLA+", nozzle_temperature=215)]
-    updates, skipped = matching.temp_sync_targets(profiles, presets)
-    assert updates == []
-    assert len(skipped) == 1
-    assert skipped[0]["reason"] == "no_match"
-
-
-def test_missing_temp_skipped_db():
-    # profile has no nozzle_temperature -> missing_temp
-    preset = _preset("Sunlu PLA+", nozzle_temperature=220)
-    profiles = [_profile(nozzle_temperature=None)]
-    updates, skipped = matching.temp_sync_targets(profiles, [preset])
-    assert updates == []
-    assert len(skipped) == 1
-    assert skipped[0]["reason"] == "missing_temp"
-
-
-def test_missing_temp_skipped_preset():
-    # matched preset lacks nozzle_temperature -> missing_temp
-    preset = _preset("Sunlu PLA+", nozzle_temperature=None)
-    profiles = [_profile(nozzle_temperature=215)]
-    updates, skipped = matching.temp_sync_targets(profiles, [preset])
-    assert updates == []
-    assert len(skipped) == 1
-    assert skipped[0]["reason"] == "missing_temp"
-
-
-def test_non_custom_printer_db_id_ignored():
-    # printer_db_id not starting with 99 is skipped entirely (not even in skipped)
-    preset = _preset("Sunlu PLA+", nozzle_temperature=220)
-    profiles = [_profile(printer_db_id="01001")]
-    updates, skipped = matching.temp_sync_targets(profiles, [preset])
-    assert updates == []
-    assert skipped == []
-
-
-def test_matched_equal_temps_still_an_update():
-    # db_temp == orca_temp: still returned as an update (caller decides mismatch)
-    preset = _preset("Sunlu PLA+", nozzle_temperature=215)
-    profiles = [_profile(nozzle_temperature=215)]
-    updates, skipped = matching.temp_sync_targets(profiles, [preset])
-    assert skipped == []
-    assert len(updates) == 1
-    assert updates[0]["db_temp"] == updates[0]["orca_temp"] == 215
-
-
-def test_multiple_profiles_split():
-    # one update, one skipped (no_match), one ignored (non-custom)
-    good = _preset("Sunlu PLA+", nozzle_temperature=220)
-    profiles = [
-        _profile(id=1, nozzle_temperature=215, printer_db_id="99001"),   # update
-        _profile(id=2, brand="eSUN", name="eSUN PETG", ftype="PETG",
-                 nozzle_temperature=240, printer_db_id="99002"),          # no_match
-        _profile(id=3, nozzle_temperature=215, printer_db_id="01001"),    # ignored
-    ]
-    updates, skipped = matching.temp_sync_targets(profiles, [good])
-    assert [u["profile_id"] for u in updates] == [1]
-    assert [s["profile_id"] for s in skipped] == [2]
-    assert skipped[0]["reason"] == "no_match"
 
 
 # === load_presets (filesystem) ===

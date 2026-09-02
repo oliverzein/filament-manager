@@ -1,5 +1,5 @@
 # fm/api/sync.py
-"""Sync orchestration API router — push, preset, tempsync, drift status,
+"""Sync orchestration API router — push, preset, drift status,
 job resolve.
 
 Importing this module registers the sync handlers into ``jobs.HANDLERS``
@@ -64,10 +64,6 @@ class PushRequest(BaseModel):
     no_reboot: bool = False
 
 
-class TempSyncRequest(BaseModel):
-    profile_ids: list[int] | None = None
-
-
 class ResolveChoice(BaseModel):
     choice: str  # "force_reboot" | "wait" | "no_reboot"
 
@@ -96,13 +92,17 @@ def _job_response(job: Job) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.post("/sync/push")
-def sync_push(body: PushRequest, request: Request, db: DbSession) -> dict:
+async def sync_push(request: Request, db: DbSession) -> dict:
     """Enqueue a push job and drain the queue."""
     config = _get_config(request)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
     payload = {
-        "profile_ids": body.profile_ids,
-        "force_reboot": body.force_reboot,
-        "no_reboot": body.no_reboot,
+        "profile_ids": data.get("profile_ids"),
+        "force_reboot": data.get("force_reboot", False),
+        "no_reboot": data.get("no_reboot", False),
     }
     job = jobs.enqueue(db, "push", payload)
     db.flush()
@@ -122,17 +122,6 @@ def sync_preset(profile_id: int, request: Request, db: DbSession) -> dict:
     return _job_response(job)
 
 
-@router.post("/sync/tempsync")
-def sync_tempsync(body: TempSyncRequest, request: Request, db: DbSession) -> dict:
-    """Enqueue a temp_sync job and drain the queue."""
-    config = _get_config(request)
-    payload = {"profile_ids": body.profile_ids}
-    job = jobs.enqueue(db, "temp_sync", payload)
-    db.flush()
-    jobs.run_pending(db, config)
-    db.flush()
-    return _job_response(job)
-
 @router.post("/sync/backup-github")
 def sync_backup_github(request: Request, db: DbSession) -> dict:
     """Enqueue a github_backup job and drain the queue."""
@@ -143,6 +132,27 @@ def sync_backup_github(request: Request, db: DbSession) -> dict:
     db.flush()
     return _job_response(job)
 
+
+@router.post("/sync/pull")
+def sync_pull_all(db: DbSession) -> dict:
+    """Pull all Orca Cloud presets and adopt (replaces /profiles/sync-from-orca)."""
+    refresh_preset_drift(db, adopt=True)
+    db.flush()
+    return {"status": "ok"}
+
+
+@router.post("/sync/pull/{profile_id}")
+def sync_pull_profile(profile_id: int, db: DbSession) -> dict:
+    """Pull a single profile's preset from Orca Cloud (adopt=True)."""
+    profile = db.get(Profile, profile_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="profile not found",
+        )
+    refresh_preset_drift(db, adopt=True, profile_id=profile_id)
+    db.flush()
+    return {"status": "ok", "profile_id": profile_id}
 
 @router.get("/status/drift")
 def drift_status(request: Request, db: DbSession) -> list[dict]:

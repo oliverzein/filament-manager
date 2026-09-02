@@ -1,5 +1,5 @@
 # tests/test_sync_handlers.py
-"""Sync orchestration handler tests — push, verify, generate_preset, temp_sync.
+"""Sync orchestration handler tests — push, verify, generate_preset.
 
 Tests the handlers directly (not through the API) using FakeTransport from
 conftest and in-memory sessions.  The busy-flow / resolve path is tested
@@ -455,79 +455,6 @@ class TestGeneratePresetHandler:
 
 
 # ---------------------------------------------------------------------------
-# temp_sync handler
-# ---------------------------------------------------------------------------
-
-class TestTempSyncHandler:
-    def _cloud_preset(self, name="Sunlu PLA+", vendor="Sunlu", ftype="PLA",
-                      fid="P1234567890123", temp="220"):
-        """Build a cloud-format preset (flat string values)."""
-        return {
-            "id": "uuid1",
-            "name": name,
-            "content": {
-                "type": "filament",
-                "name": name,
-                "filament_type": ftype,
-                "filament_vendor": vendor,
-                "filament_id": fid,
-                "nozzle_temperature": temp,
-                "nozzle_temperature_initial_layer": temp,
-            },
-        }
-
-    def _fake_client(self, upserts):
-        client = MagicMock()
-        client.cloud_id.return_value = "test-cloud-uuid"
-        client.sync_pull.return_value = {
-            "next_cursor": 0,
-            "upserts": upserts,
-            "deletes": [],
-        }
-        return client
-
-    def test_applies_temp_changes_and_enqueues_push(
-        self, inmemory_session, cfg, monkeypatch
-    ):
-        s = inmemory_session
-        profile = _make_profile(s, printer_db_id="99001", nozzle_temperature=215)
-        upserts = [self._cloud_preset(temp="220")]
-        monkeypatch.setattr(sh, "_orca_client_factory",
-                            lambda: self._fake_client(upserts))
-
-        result = sh.handle_temp_sync(s, cfg, {})
-
-        assert len(result["updates"]) == 1
-        assert result["updates"][0]["profile_id"] == profile.id
-        assert result["updates"][0]["orca_temp"] == 220
-        # nozzle_temperature updated on profile
-        assert profile.nozzle_temperature == 220
-        # push job enqueued
-        push_job = s.scalars(
-            select(Job).where(Job.kind == "push")
-        ).first()
-        assert push_job is not None
-
-    def test_no_orca_client_raises(self, inmemory_session, cfg, monkeypatch):
-        s = inmemory_session
-        _make_profile(s, printer_db_id="99001")
-        monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
-        with pytest.raises(ValueError, match="Orca Cloud not configured"):
-            sh.handle_temp_sync(s, cfg, {})
-
-    def test_skips_non_pushed_profiles(self, inmemory_session, cfg, monkeypatch):
-        s = inmemory_session
-        # Profile without printer_db_id — should be filtered out
-        _make_profile(s, printer_db_id=None, nozzle_temperature=200)
-        upserts = [self._cloud_preset(temp="220")]
-        monkeypatch.setattr(sh, "_orca_client_factory",
-                            lambda: self._fake_client(upserts))
-
-        result = sh.handle_temp_sync(s, cfg, {})
-
-        assert result["updates"] == []
-
-# ---------------------------------------------------------------------------
 # _cloud_presets_to_local helper
 # ---------------------------------------------------------------------------
 
@@ -694,9 +621,11 @@ class TestPresetDriftComputation:
     """[P2] Finding 4: orca_preset expected_hash must be compared against
     pulled presets from Orca Cloud, updating status to in_sync / drift."""
 
-    def test_drift_detected_when_preset_temp_differs(
+    def test_preset_found_in_cloud_updates_temp_and_syncs(
         self, inmemory_session, cfg, monkeypatch
     ):
+        """adopt=True: Cloud values adopted as baseline, nozzle_temperature
+        written back to profile."""
         s = inmemory_session
         profile = _make_profile(s)
         monkeypatch.setattr(sh, "_preset_template_factory",
@@ -707,7 +636,7 @@ class TestPresetDriftComputation:
         monkeypatch.setattr(sh, "_orca_client_factory", lambda: fake_client)
         sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
 
-        # Override sync_pull to return a drifting preset (cloud format)
+        # Override sync_pull to return a preset with a different temp (cloud format)
         fake_client.sync_pull.return_value = {
             "next_cursor": 0,
             "upserts": [{
@@ -725,13 +654,70 @@ class TestPresetDriftComputation:
             "deletes": [],
         }
 
-        sh.refresh_preset_drift(s)
+        sh.refresh_preset_drift(s, adopt=True)
 
         target = s.scalars(select(SyncTarget).where(
             SyncTarget.profile_id == profile.id,
             SyncTarget.kind == "orca_preset",
         )).first()
+        # Preset found in Cloud → in_sync (OrcaSlicer is the editor)
+        assert target.status == "in_sync"
+        # Cloud nozzle_temperature written to profile
+        assert profile.nozzle_temperature == 999
+
+    def test_read_only_drift_check_shows_drift_on_hash_mismatch(
+        self, inmemory_session, cfg, monkeypatch
+    ):
+        """adopt=False (default): Cloud hash ≠ expected_hash → drift status,
+        expected_hash and nozzle_temperature unchanged."""
+        s = inmemory_session
+        profile = _make_profile(s)
+        monkeypatch.setattr(sh, "_preset_template_factory",
+                            lambda p: _preset_template())
+        fake_client = MagicMock()
+        fake_client.cloud_id.return_value = "test-cloud-uuid"
+        fake_client.sync_push.return_value = {"updated_time": 12345, "created_time": 12345}
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: fake_client)
+        sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
+
+        # Capture expected_hash set by handle_generate_preset
+        target = s.scalars(select(SyncTarget).where(
+            SyncTarget.profile_id == profile.id,
+            SyncTarget.kind == "orca_preset",
+        )).first()
+        original_expected_hash = target.expected_hash
+        original_nozzle_temp = profile.nozzle_temperature
+
+        # Override sync_pull to return a preset with a different temp (cloud format)
+        fake_client.sync_pull.return_value = {
+            "next_cursor": 0,
+            "upserts": [{
+                "id": "test-cloud-uuid",
+                "name": "Sunlu PLA+",
+                "content": {
+                    "type": "filament",
+                    "name": "Sunlu PLA+",
+                    "filament_type": "PLA",
+                    "filament_vendor": "Sunlu",
+                    "filament_id": profile.filament_id,
+                    "nozzle_temperature": "999",  # differs from generated preset
+                },
+            }],
+            "deletes": [],
+        }
+
+        sh.refresh_preset_drift(s)  # adopt=False (default)
+
+        target = s.scalars(select(SyncTarget).where(
+            SyncTarget.profile_id == profile.id,
+            SyncTarget.kind == "orca_preset",
+        )).first()
+        # Cloud hash ≠ expected_hash → drift (not in_sync)
         assert target.status == "drift"
+        # expected_hash untouched
+        assert target.expected_hash == original_expected_hash
+        # nozzle_temperature not written back
+        assert profile.nozzle_temperature == original_nozzle_temp
 
     def test_in_sync_when_pulled_preset_matches(
         self, inmemory_session, cfg, monkeypatch
@@ -849,3 +835,126 @@ class TestImportScanTempFileCleanup:
 
         assert len(pulled_path) == 1
         assert not pulled_path[0].exists()  # temp file cleaned up
+
+
+class TestRefreshPresetDriftProfileId:
+    """Tests for the profile_id parameter of refresh_preset_drift."""
+
+    def test_profile_id_filters_to_one_profile(self, inmemory_session, monkeypatch):
+        """When profile_id is set, only that profile's orca_preset target
+        is processed — other profiles' targets remain untouched."""
+        from fm.models import Profile, SyncTarget
+        from fm.service.sync_handlers import refresh_preset_drift
+
+        # Create two profiles with orca_preset targets
+        now = datetime.now(timezone.utc)
+        p1 = Profile(brand="Sunlu", name="Sunlu PLA+", type="PLA",
+                     min_temp=205, max_temp=215, density=1.24,
+                     nozzle_temperature=220, filament_id="Paaa111",
+                     created_at=now, updated_at=now)
+        p2 = Profile(brand="eSUN", name="eSUN PETG", type="PETG",
+                     min_temp=230, max_temp=240, density=1.27,
+                     nozzle_temperature=240, filament_id="Pbbb222",
+                     created_at=now, updated_at=now)
+        inmemory_session.add_all([p1, p2])
+        inmemory_session.flush()
+
+        t1 = SyncTarget(profile_id=p1.id, kind="orca_preset",
+                        cloud_id="cloud-1", expected_hash="hash_old_1",
+                        status="in_sync")
+        t2 = SyncTarget(profile_id=p2.id, kind="orca_preset",
+                        cloud_id="cloud-2", expected_hash="hash_old_2",
+                        status="in_sync")
+        inmemory_session.add_all([t1, t2])
+        inmemory_session.flush()
+
+        # Mock the Orca client to return presets for both profiles
+        from unittest.mock import MagicMock
+        fake_client = MagicMock()
+        fake_client.sync_pull.return_value = {
+            "next_cursor": 0,
+            "upserts": [
+                {"id": "cloud-1", "content": {
+                    "type": "filament", "name": "Sunlu PLA+",
+                    "filament_id": "Paaa111", "filament_vendor": ["Sunlu"],
+                    "filament_type": ["PLA"], "nozzle_temperature": ["210"],
+                }},
+                {"id": "cloud-2", "content": {
+                    "type": "filament", "name": "eSUN PETG",
+                    "filament_id": "Pbbb222", "filament_vendor": ["eSUN"],
+                    "filament_type": ["PETG"], "nozzle_temperature": ["250"],
+                }},
+            ],
+            "deletes": [],
+        }
+        monkeypatch.setattr(
+            "fm.service.sync_handlers._orca_client_factory",
+            lambda: fake_client,
+        )
+
+        # Call with profile_id=p1.id, adopt=True
+        refresh_preset_drift(inmemory_session, adopt=True, profile_id=p1.id)
+
+        # p1 should be adopted (nozzle_temp updated to 210)
+        # p2 should be untouched (nozzle_temp stays 240)
+        inmemory_session.refresh(p1)
+        inmemory_session.refresh(p2)
+        assert p1.nozzle_temperature == 210
+        assert p2.nozzle_temperature == 240  # unchanged
+
+    def test_profile_id_none_processes_all(self, inmemory_session, monkeypatch):
+        """When profile_id is None (default), all profiles are processed
+        — same as existing behavior."""
+        from fm.models import Profile, SyncTarget
+        from fm.service.sync_handlers import refresh_preset_drift
+
+        now = datetime.now(timezone.utc)
+        p1 = Profile(brand="Sunlu", name="Sunlu PLA+", type="PLA",
+                     min_temp=205, max_temp=215, density=1.24,
+                     nozzle_temperature=220, filament_id="Paaa111",
+                     created_at=now, updated_at=now)
+        p2 = Profile(brand="eSUN", name="eSUN PETG", type="PETG",
+                     min_temp=230, max_temp=240, density=1.27,
+                     nozzle_temperature=240, filament_id="Pbbb222",
+                     created_at=now, updated_at=now)
+        inmemory_session.add_all([p1, p2])
+        inmemory_session.flush()
+
+        t1 = SyncTarget(profile_id=p1.id, kind="orca_preset",
+                        cloud_id="cloud-1", expected_hash="hash_old_1",
+                        status="in_sync")
+        t2 = SyncTarget(profile_id=p2.id, kind="orca_preset",
+                        cloud_id="cloud-2", expected_hash="hash_old_2",
+                        status="in_sync")
+        inmemory_session.add_all([t1, t2])
+        inmemory_session.flush()
+
+        from unittest.mock import MagicMock
+        fake_client = MagicMock()
+        fake_client.sync_pull.return_value = {
+            "next_cursor": 0,
+            "upserts": [
+                {"id": "cloud-1", "content": {
+                    "type": "filament", "name": "Sunlu PLA+",
+                    "filament_id": "Paaa111", "filament_vendor": ["Sunlu"],
+                    "filament_type": ["PLA"], "nozzle_temperature": ["210"],
+                }},
+                {"id": "cloud-2", "content": {
+                    "type": "filament", "name": "eSUN PETG",
+                    "filament_id": "Pbbb222", "filament_vendor": ["eSUN"],
+                    "filament_type": ["PETG"], "nozzle_temperature": ["250"],
+                }},
+            ],
+            "deletes": [],
+        }
+        monkeypatch.setattr(
+            "fm.service.sync_handlers._orca_client_factory",
+            lambda: fake_client,
+        )
+
+        refresh_preset_drift(inmemory_session, adopt=True)
+
+        inmemory_session.refresh(p1)
+        inmemory_session.refresh(p2)
+        assert p1.nozzle_temperature == 210
+        assert p2.nozzle_temperature == 250

@@ -199,3 +199,82 @@ def test_spools_filter_non_numeric_profile_id(client, seeded_profile):
     r = client.get("/spools?profile_id=abc")
     assert r.status_code == 200
     assert b"Add spool" in r.content
+
+
+# ---------------------------------------------------------------------------
+# Sync Hub redesign — label cleanup
+# ---------------------------------------------------------------------------
+
+def test_profiles_page_no_sync_from_orca(client, seeded_profile):
+    """Profiles page must not contain 'Sync from Orca' button."""
+    r = client.get("/profiles")
+    assert r.status_code == 200
+    assert b"Sync from Orca" not in r.content
+    # Should have a link to sync hub instead
+    assert b"Sync status" in r.content or b"/sync" in r.content
+
+
+def test_profiles_page_no_orca_toast(client, seeded_profile):
+    """Profiles page must not contain the Orca toast script."""
+    r = client.get("/profiles")
+    assert b"Synced from Orca Cloud" not in r.content
+
+
+def test_orca_fragment_has_pull_from_cloud_label(client, seeded_profile):
+    """Orca fragment button says 'Pull from Cloud', not 'Sync from Orca'."""
+    r = client.get(f"/profiles/{seeded_profile['id']}/orca-fragment")
+    assert r.status_code == 200
+    assert b"Pull from Cloud" in r.content
+    assert b"Sync from Orca" not in r.content
+
+
+def test_profiles_sync_from_orca_route_removed(client):
+    """POST /profiles/sync-from-orca returns 404 (route removed)."""
+    r = client.post("/profiles/sync-from-orca")
+    assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Navigation structure
+# ---------------------------------------------------------------------------
+
+def test_nav_has_six_items(client):
+    """base.html nav has exactly 6 items (not 7)."""
+    r = client.get("/")
+    # Count nav-item elements
+    content = r.text
+    assert content.count('class="nav-item') == 6 or content.count('class="nav-item active') + content.count('class="nav-item"') == 6
+
+
+def test_nav_has_import(client):
+    """Nav contains 'Import' linking to /import."""
+    r = client.get("/")
+    assert b"Import" in r.content
+    assert b'href="/import"' in r.content
+
+
+def test_nav_no_migration(client):
+    """Nav does not contain 'Migration'."""
+    r = client.get("/")
+    assert b"Migration" not in r.content
+
+
+def test_nav_no_orca_cloud_import(client):
+    """Nav does not contain 'Orca Cloud Import'."""
+    r = client.get("/")
+    assert b"Orca Cloud Import" not in r.content
+
+
+def test_no_old_labels_in_sync_page(client):
+    """Sync Hub page must not contain any old labels."""
+    r = client.get("/sync")
+    assert b"Sync from Orca" not in r.content
+    assert b"Push all profiles" not in r.content
+    assert b"Sync now" not in r.content
+    assert b"Generate preset" not in r.content
+
+
+def test_no_old_labels_in_profiles_page(client, seeded_profile):
+    """Profiles page must not contain old labels."""
+    r = client.get("/profiles")
+    assert b"Sync from Orca" not in r.content

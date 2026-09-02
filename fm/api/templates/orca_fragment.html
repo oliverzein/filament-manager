@@ -37,7 +37,7 @@
     <button class="button button-secondary"
             hx-post="/profiles/{{ pid }}/sync-from-orca"
             hx-swap="outerHTML"
-            hx-target="#orca-settings">Sync from Orca</button>
+            hx-target="#orca-settings">Pull from Cloud</button>
   </div>
 </div>
 {% else %}
@@ -48,7 +48,7 @@
     <button class="button button-secondary"
             hx-post="/profiles/{{ pid }}/sync-from-orca"
             hx-swap="outerHTML"
-            hx-target="#orca-settings">Sync from Orca</button>
+            hx-target="#orca-settings">Pull from Cloud</button>
   </div>
 </div>
 {% endif %}

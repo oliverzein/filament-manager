@@ -7,6 +7,18 @@ import pytest
 from fm.config import Config
 
 
+@pytest.fixture(autouse=True)
+def isolate_settings_store(tmp_path, monkeypatch):
+    """Ensure no test writes to the real ./settings.json.
+
+    Every test gets FM_SETTINGS_PATH pointed at a tmp_path file so
+    settings_store writes stay isolated even if the test itself
+    doesn't set the env var.  Tests that set FM_SETTINGS_PATH
+    explicitly via their own monkeypatch override this value.
+    """
+    monkeypatch.setenv("FM_SETTINGS_PATH", str(tmp_path / "settings.json"))
+
+
 class FakeTransport:
     """Test double satisfying fm.printer.transport.PrinterTransport.
 

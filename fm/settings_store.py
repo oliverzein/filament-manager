@@ -155,3 +155,29 @@ def save_orca_cursor(cursor: int) -> None:
     data = load_settings() or {}
     data["orca_sync_cursor"] = cursor
     save_settings(data)
+
+
+def load_github_config() -> tuple[str, str, str] | None:
+    """Return ``(token, repo, branch)`` from settings.json, or ``None``.
+
+    ``branch`` defaults to ``"main"`` if unset.  Returns ``None`` when
+    ``github_token`` or ``github_repo`` is missing.
+    """
+    data = load_settings()
+    if data is None:
+        return None
+    token = data.get("github_token", "")
+    repo = data.get("github_repo", "")
+    if not token or not repo:
+        return None
+    branch = data.get("github_branch", "main") or "main"
+    return token, repo, branch
+
+
+def save_github_config(token: str, repo: str, branch: str) -> None:
+    """Merge GitHub backup config into existing settings.json."""
+    data = load_settings() or {}
+    data["github_token"] = token
+    data["github_repo"] = repo
+    data["github_branch"] = branch
+    save_settings(data)

@@ -8,6 +8,12 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from fm.github_backup import GitHubBackupClient, GitHubBackupError
+from fm.settings_store import (
+    load_github_config,
+    save_github_config,
+    load_settings,
+    save_settings,
+)
 
 
 class TestBackupFlow:
@@ -110,3 +116,41 @@ class TestTestConnection:
             with pytest.raises(GitHubBackupError) as exc_info:
                 client.test_connection()
             assert exc_info.value.status == 401
+
+
+class TestGithubSettings:
+    """Tests for load_github_config / save_github_config settings helpers."""
+
+    def test_load_github_config_returns_none_when_absent(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("FM_SETTINGS_PATH", str(tmp_path / "s.json"))
+        save_settings({"printer_ip": "1.2.3.4"})
+        assert load_github_config() is None
+
+    def test_save_then_load_roundtrip(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("FM_SETTINGS_PATH", str(tmp_path / "s.json"))
+        save_settings({"printer_ip": "1.2.3.4"})
+        save_github_config("ghp_token123", "owner/repo", "main")
+        result = load_github_config()
+        assert result is not None
+        token, repo, branch = result
+        assert token == "ghp_token123"
+        assert repo == "owner/repo"
+        assert branch == "main"
+
+    def test_load_defaults_branch_to_main(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("FM_SETTINGS_PATH", str(tmp_path / "s.json"))
+        save_settings({"github_token": "tok", "github_repo": "o/r"})
+        result = load_github_config()
+        assert result is not None
+        assert result[2] == "main"  # branch defaults to main
+
+    def test_save_merges_without_overwriting(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("FM_SETTINGS_PATH", str(tmp_path / "s.json"))
+        save_settings({"printer_ip": "1.2.3.4", "orca_user_id": "abc"})
+        save_github_config("tok", "o/r", "dev")
+        data = load_settings()
+        assert data["printer_ip"] == "1.2.3.4"
+        assert data["orca_user_id"] == "abc"
+        assert data["github_token"] == "tok"
+        assert data["github_repo"] == "o/r"
+        assert data["github_branch"] == "dev"

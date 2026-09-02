@@ -164,16 +164,16 @@ perform_delete (catalog delete)
 
 ## (c) UI-Map — Welche Seite hat welche Sync-Elemente
 
-### Navigation (`base.html:23-44`)
+### Navigation (`base.html:23-44`) — 6 Einträge (Sync Hub Redesign)
 ```
 Dashboard    → /
 Profiles     → /profiles
 Spools       → /spools
 Sync         → /sync
-Migration    → /migration
-Orca Cloud Import → /import-orca
+Import       → /import
 Settings     → /settings
 ```
+**Änderung (Sync Hub Redesign):** Navigation von 7 auf 6 Einträge reduziert. `Migration` (`/migration`) und `Orca Cloud Import` (`/import-orca`) entfernt; zusammengeführt als `Import` (`/import`) mit Tabs "From Printer DB" und "From Orca Cloud".
 
 ### Dashboard (`/`, `dashboard.html`)
 | Element | Typ | Workflow |
@@ -183,13 +183,15 @@ Settings     → /settings
 | "Recent activity" Tabelle | Anzeige | Alle (activity_log) |
 | "Manage sync →" Link | Navigation → /sync | — |
 
-### Profiles (`/profiles`, `profiles.html`)
+### Profiles (`/profiles`, `profiles.html`) — **GEFIXT (Sync Hub Redesign)**
 | Element | Typ | Workflow | Code-Ref |
 |---------|-----|----------|----------|
-| **"Sync from Orca"** Button | Form POST → `/profiles/sync-from-orca` | W4 (adopt=True) | `profiles.html:7` |
 | "New profile" Button | Navigation | — | `profiles.html:5` |
-| Edit/Delete Icon-Buttons | Navigation | — | `profiles.html:27` |
-| Toast "Synced from Orca Cloud" | Anzeige | W4 | `profiles.html:35` |
+| **"Sync status →"** Link | Navigation → `/sync` | — | `profiles.html:5` |
+| Edit/Delete Icon-Buttons | Navigation | — | `profiles.html:23` |
+| Material/Brand Filter + "Apply filters" | Form GET | — | `profiles.html:9-13` |
+
+**Änderung (Sync Hub Redesign):** "Sync from Orca" Button entfernt. Bulk-Pull in den Sync Hub verschoben. Stattdessen "Sync status →" Link zur Sync-Seite.
 
 ### Profile Edit (`/profiles/{pid}/edit`, `profile_form.html`)
 | Element | Typ | Workflow | Code-Ref |
@@ -198,30 +200,51 @@ Settings     → /settings
 | **"Sync from Orca"** Button (im Orca-Fragment) | HTMX POST → `/profiles/{pid}/sync-from-orca` | W4 (adopt=True) | `orca_fragment.html` |
 | "Preset source" Template-Dropdown | HTMX | W3 (template selection) | `profile_form.html:24-39` |
 
-### Sync (`/sync`, `sync.html`)
-| Element | Typ | Workflow | Code-Ref |
-|---------|-----|----------|----------|
-| **"Push all profiles"** Button | HTMX POST → `/api/sync/push` | W1 | `sync.html:6` |
-| **"Backup to GitHub"** Button (konditional) | HTMX POST → `/api/sync/backup-github` | W7 | `sync.html:6` |
-| Busy-Dialog: **"Force reboot"** / **"Wait"** / **"No reboot"** | HTMX POST → `/sync/jobs/{id}/resolve` | W1 (resolve) | `sync.html:7` |
-| Drift-Tabelle: "Printer DB" + "Orca preset" Status-Spalten | Anzeige | W2+W8 (read-only drift check) | `sync.html:9` |
-| Drift-Tabelle: **Icon-Button** (Upload-Icon, kein Text) per Profil | HTMX POST → `/api/sync/preset/{id}` | W3 | `sync.html:9` |
-| "Recent jobs" Queue (auto-poll alle 3s) | Anzeige | Alle | `sync.html:10` |
+### Sync Hub (`/sync`, `sync_hub.html`) — M3 Two-Column Layout (Sync Hub Redesign)
 
-### Migration (`/migration`, `migration.html`)
-| Element | Typ | Workflow | Code-Ref |
-|---------|-----|----------|----------|
-| **"Start import scan"** Button | Form POST → `/migration/import` | W5 | `migration.html:8` |
-| Proposal-Tabelle mit Checkboxen | Form POST → `/migration/apply` | W5 | `migration.html:9` |
-| 3-Schritt-Stepper (Scan → Review → Complete) | Anzeige | W5 | `migration.html:7` |
+**Layout:** Linke Spalte = Drift-Tabelle + Busy-Dialog; rechte Spalte = drei Target-Cards (Printer DB, Cloud presets, GitHub backup).
 
-### Orca Cloud Import (`/import-orca`, `import_orca.html`)
+**Linke Spalte — Drift-Tabelle:**
 | Element | Typ | Workflow | Code-Ref |
 |---------|-----|----------|----------|
-| **"Sync now"** Button (empty state, `/profiles/sync-from-orca`) | Form POST | W4 (adopt=True) | `import_orca.html:25-27` |
-| **"Import selected"** Button | Form POST → `/import-orca/apply` | W6 | `import_orca.html` (bottom) |
-| "Only user-tuned presets" Filter | JS-Filter | W6 | `import_orca.html:94-107` |
-| "All presets matched" Empty State | Anzeige | W6 | `import_orca.html:29-36` |
+| Drift-Tabelle: "Printer DB" + "Orca preset" Status-Spalten | Anzeige | W2+W8 (read-only drift check) | `sync_hub.html:46-52` |
+| **"Push to Printer"** Button (per Profil, nur wenn `printer_db_id`) | HTMX POST → `/api/sync/push` (profile_ids) | W1 (per-Profil) | `sync_hub.html:56` |
+| **"Push to Cloud"** Button (per Profil) | HTMX POST → `/api/sync/preset/{id}` | W3 | `sync_hub.html:60` |
+| **"Pull from Cloud"** Button (per Profil) | HTMX POST → `/api/sync/pull/{id}` | W4 (adopt=True, per-Profil) | `sync_hub.html:61` |
+| Busy-Dialog: **"Force reboot"** / **"Wait"** / **"No reboot"** | HTMX POST → `/sync/jobs/{id}/resolve` | W1 (resolve) | `sync_hub.html:75-87` |
+
+**Rechte Spalte — Target-Cards:**
+| Element | Typ | Workflow | Code-Ref |
+|---------|-----|----------|----------|
+| Printer DB Card: Summary "N in sync, M drifted" + **"Push to Printer"** Button (bulk) | HTMX POST → `/api/sync/push` | W1 (bulk) | `sync_hub.html:98-106` |
+| Cloud presets Card: Summary + **"Pull from Cloud (all)"** Button | HTMX POST → `/api/sync/pull` | W4 (adopt=True, bulk) | `sync_hub.html:108-116` |
+| GitHub backup Card: **"Backup to GitHub"** Button (konditional) | HTMX POST → `/api/sync/backup-github` | W7 | `sync_hub.html:118-126` |
+
+**Unterer Bereich:**
+| Element | Typ | Workflow | Code-Ref |
+|---------|-----|----------|----------|
+| "Recent jobs" Queue (auto-poll alle 3s) | Anzeige | Alle | `sync_hub.html:130` |
+
+**Änderung (Sync Hub Redesign):** "Push all profiles" → "Push to Printer" (Printer DB Card). Icon-Button ersetzt durch Text-Button "Push to Cloud". Neu: per-Profil "Push to Printer" und "Pull from Cloud" Buttons in Drift-Tabelle. Bulk "Pull from Cloud (all)" in Cloud presets Card. "Sync from Orca" Bulk von Profiles-Seite hierher verschoben.
+
+### Import page — Tab "From Printer DB" (`/import?tab=printer`, `import_printer.html`)
+| Element | Typ | Workflow | Code-Ref |
+|---------|-----|----------|----------|
+| **"Start import scan"** Button | Form POST → `/import/printer/scan` | W5 | `import_printer.html:5` |
+| Proposal-Tabelle mit Checkboxen | Form POST → `/import/printer/apply` | W5 | `import_printer.html:6` |
+| 3-Schritt-Stepper (Scan → Review → Complete) | Anzeige | W5 | `import_printer.html:4` |
+
+**Änderung (Sync Hub Redesign):** Ehemals eigene `/migration` Seite. Jetzt Tab "From Printer DB" auf `/import`. Routes: `/import/printer/scan`, `/import/printer/apply`.
+
+### Import page — Tab "From Orca Cloud" (`/import?tab=orca`, `import_orca_tab.html`)
+| Element | Typ | Workflow | Code-Ref |
+|---------|-----|----------|----------|
+| Empty State: "Connect Orca Cloud in Settings, then Pull from Cloud in Sync Hub" | Anzeige | W6 (config hint) | `import_orca_tab.html:16-22` |
+| "All presets matched" Empty State | Anzeige | W6 | `import_orca_tab.html:23-30` |
+| "Only user-tuned presets" Filter | JS-Filter | W6 | `import_orca_tab.html:41-46` |
+| **"Import selected"** Button | Form POST → `/import/orca/apply` | W6 | `import_orca_tab.html:48` |
+
+**Änderung (Sync Hub Redesign):** Ehemals eigene `/import-orca` Seite. Jetzt Tab "From Orca Cloud" auf `/import`. "Sync now" Button entfernt (Bulk-Pull im Sync Hub als "Pull from Cloud (all)"). Route: `/import/orca/apply`.
 
 ### Settings (`/settings`, `settings.html`)
 | Element | Typ | Workflow | Code-Ref |
@@ -242,7 +265,7 @@ Settings     → /settings
 
 ## (d) Verwirrungs-Punkte aus Benutzersicht
 
-### V1: "Sync" wird für mindestens 4 verschiedene Dinge verwendet
+### V1: "Sync" wird für mindestens 4 verschiedene Dinge verwendet — **GEFIXT (Sync Hub Redesign)**
 
 | Button | Was es tut | Richtung | Seite |
 |--------|-----------|----------|-------|
@@ -256,7 +279,9 @@ Settings     → /settings
 
 **Code-Refs:** `profiles.html:7`, `orca_fragment.html` (Sync from Orca button), `import_orca.html:26`, `sync.html:6` (Push all profiles), `sync.html:9` (icon button)
 
-### V2: Drei "Sync from Orca" Buttons an drei verschiedenen Orten
+**Fix (Sync Hub Redesign, 2026-09-02):** Alle Buttons haben jetzt richtungsdeutliche Verben: "Push to Printer", "Push to Cloud", "Pull from Cloud". Das Icon-Button-Problem (V7) ist ebenfalls behoben. "Sync from Orca" als Label existiert nicht mehr im Sync-Kontext.
+
+### V2: Drei "Sync from Orca" Buttons an drei verschiedenen Orten — **GEFIXT**
 
 Drei Buttons mit identischem oder ähnlichem Label, die alle `refresh_preset_drift(adopt=True)` aufrufen, aber unterschiedliche UX-Kontexte haben:
 
@@ -265,6 +290,8 @@ Drei Buttons mit identischem oder ähnlichem Label, die alle `refresh_preset_dri
 3. **Import-Orca-Seite empty state** (`import_orca.html:25`): `POST /profiles/sync-from-orca` — bulk-Endpoint, redirect
 
 **Fix-Notiz (E1, 2026-09-02):** Der dritte Button war ein Bug — er rief `sync-from-orca` mit hardcoded `pid=1` auf (404 wenn Profil 1 nicht existiert). Jetzt postet er an den bulk-Endpoint `/profiles/sync-from-orca` (ohne PID).
+
+**Fix (Sync Hub Redesign, 2026-09-02):** "Sync from Orca" Button von der Profiles-Seite entfernt. Bulk-Pull in den Sync Hub verschoben ("Pull from Cloud (all)" in der Cloud presets Card). Der Profile-Edit Orca-Fragment Button bleibt als per-Profil "Pull from Cloud" in der Drift-Tabelle.
 
 ### V3: Automatischer `refresh_preset_drift` bei jedem Seitenladen
 
@@ -304,7 +331,7 @@ Drei Buttons mit identischem oder ähnlichem Label, die alle `refresh_preset_dri
 - Der Verify-Job taucht in der Queue auf, aber der Kausalzusammenhang ist nicht ersichtlich
 - Der SyncTarget-Status geht erst nach Verify von "pending" → "in_sync" — in der Zwischenzeit zeigt die Drift-Tabelle "pending", was wie ein Fehler aussehen kann
 
-### V6: Migration vs. Import-Orca — zwei Import-Workflows mit ähnlichem Zweck
+### V6: Migration vs. Import-Orca — zwei Import-Workflows mit ähnlichem Zweck — **GEFIXT**
 
 | Feature | Migration (`/migration`) | Import-Orca (`/import-orca`) |
 |---------|--------------------------|------------------------------|
@@ -316,7 +343,9 @@ Drei Buttons mit identischem oder ähnlichem Label, die alle `refresh_preset_dri
 
 **Fix-Notiz (E2, 2026-09-02):** Bisher erstellte Import-Orca Profile ohne SyncTarget — sie waren in der Drift-Matrix als `pending` sichtbar, aber für das Sync-System unsichtbar (kein `orca_preset`-Target, `generate_preset`/`push` griffen nicht). Jetzt wird ein `SyncTarget(kind="orca_preset")` mit `cloud_id`, `expected_hash`, `actual_state` angelegt. Da `expected_hash` aus denselben Feldern wie `refresh_preset_drift`'s Cloud-Hash berechnet wird, zeigt die Drift-Matrix nach Import `in_sync`.
 
-### V7: Drift-Tabelle Icon-Button hat kein Text-Label
+**Fix (Sync Hub Redesign, 2026-09-02):** Migration (`/migration`) und Import-Orca (`/import-orca`) zu einer einzigen `/import` Seite mit Tabs "From Printer DB" und "From Orca Cloud" zusammengeführt. Beide alten Routes geben 404.
+
+### V7: Drift-Tabelle Icon-Button hat kein Text-Label — **GEFIXT**
 
 Der "Generate Preset" Button in der Drift-Tabelle (`sync.html:9`) ist ein reiner Icon-Button (Upload-Pfeil-Icon) mit nur einem `aria-label`. Es gibt keinen sichtbaren Text, der erklärt, was der Button tut.
 
@@ -326,6 +355,8 @@ Der "Generate Preset" Button in der Drift-Tabelle (`sync.html:9`) ist ein reiner
 - Das `aria-label` sagt "Generate preset for {name}" — aber das ist nur für Screen-Reader sichtbar
 
 **Code-Ref:** `sync.html:9` — `class="icon-button btn-preset"` mit SVG-Icon
+
+**Fix (Sync Hub Redesign, 2026-09-02):** Icon-Button ersetzt durch Text-Button **"Push to Cloud"** in der Drift-Tabelle (`sync_hub.html:60`). Zusätzlich per-Profil "Push to Printer" und "Pull from Cloud" Buttons mit Text-Labels.
 
 ### V8: Sync-Seite vs. Dashboard — doppelte Drift-Anzeige
 
@@ -350,11 +381,13 @@ Das Orca-Fragment (`orca_fragment.html`) zeigt Section "03 Print settings — Fr
 
 **Problem:** Das Label "From Orca Cloud" impliziert, die Werte wurden aus der Cloud geholt. Aber nach einem "Generate Preset" (W3) stehen dort die Werte, die **vom Catalog zur Cloud gepusht** wurden. Die Richtung ist im UI nicht erkennbar.
 
-### V11: Kein "Push to Printer" per Profil — nur "Push all"
+### V11: Kein "Push to Printer" per Profil — nur "Push all" — **GEFIXT**
 
 Die Sync-Seite hat nur **"Push all profiles"** — es gibt keinen per-Profil Push-Button für die Printer DB. Der einzige per-Profil Button in der Drift-Tabelle ist der Generate-Preset (Upload) Icon.
 
 **Problem:** Der Benutzer kann nicht gezielt ein Profil zum Printer pushen — es ist alles-oder-nichts. Generate Preset (Cloud) ist per-Profil, aber Printer-Push ist global. Diese Asymmetrie ist verwirrend.
+
+**Fix (Sync Hub Redesign, 2026-09-02):** Per-Profil **"Push to Printer"** Button in der Drift-Tabelle hinzugefügt (`sync_hub.html:56`). Nur sichtbar wenn Profil `printer_db_id` hat. Bulk-Push bleibt als "Push to Printer" in der Printer DB Card.
 
 ### V12: Settings-Seite: Orca Cloud "Connect" vs. "Sync from Orca" — zwei verschiedene Dinge
 
@@ -387,28 +420,28 @@ target.status = "in_sync" if actual_hash == target.expected_hash else "drift"
 
 ---
 
-## Lösungskategorien (grobe Richtungen, keine Implementierung)
+## Lösungskategorien (Richtungen + Umsetzungs-Status)
 
-### Kategorie A: Begriffe klären und konsistent benennen
-- "Sync" durch richtungsdeutliche Begriffe ersetzen: "Pull from Cloud" / "Push to Printer" / "Push to Cloud"
-- "Generate Preset" als Text-Label statt Icon-only
-- "Backup to GitHub" beibehalten, aber Auto-Trigger sichtbar machen
+### Kategorie A: Begriffe klären und konsistent benennen — **umgesetzt (Sync Hub Redesign)**
+- ~~"Sync" durch richtungsdeutliche Begriffe ersetzen: "Pull from Cloud" / "Push to Printer" / "Push to Cloud"~~ — **umgesetzt**
+- ~~"Generate Preset" als Text-Label statt Icon-only~~ — **umgesetzt** ("Push to Cloud")
+- "Backup to GitHub" beibehalten, aber Auto-Trigger sichtbar machen — *teilweise* (Note im GitHub Card: "Also triggered automatically after every successful preset push")
 
-### Kategorie B: UI-Konsolidierung — weniger Orte, klarere Trennung
-- "Sync from Orca" auf einen Ort reduzieren (z.B. nur Sync-Seite, nicht Profiles-Seite + Edit-Form + Import-Seite)
-- Dashboard = reine Übersicht (keine auto Cloud-Calls); Sync-Seite = Aktionsseite
-- Import-Orca und Migration als Tabs auf einer "Data Import" Seite zusammenfassen
+### Kategorie B: UI-Konsolidierung — weniger Orte, klarere Trennung — **umgesetzt (Sync Hub Redesign)**
+- ~~"Sync from Orca" auf einen Ort reduzieren~~ — **umgesetzt** (Bulk-Pull nur noch im Sync Hub)
+- Dashboard = reine Übersicht (keine auto Cloud-Calls); Sync-Seite = Aktionsseite — *offen* (Dashboard löst noch Cloud-Calls aus)
+- ~~Import-Orca und Migration als Tabs auf einer "Data Import" Seite zusammenfassen~~ — **umgesetzt** (`/import` mit Tabs)
 
 ### Kategorie C: Auto-Trigger sichtbar machen
-- Auto `refresh_preset_drift` bei Seitenladen: Lade-Indikator + Hinweis "Checking Cloud sync..."
-- Auto `verify` nach `push`: Im Push-Toast anzeigen ("Verify scheduled...")
-- Auto `github_backup` nach `generate_preset`: Im Preset-Toast anzeigen ("Backup scheduled...")
+- Auto `refresh_preset_drift` bei Seitenladen: Lade-Indikator + Hinweis "Checking Cloud sync..." — *offen*
+- Auto `verify` nach `push`: Im Push-Toast anzeigen ("Verify scheduled...") — *offen*
+- Auto `github_backup` nach `generate_preset`: Im Preset-Toast anzeigen ("Backup scheduled...") — *offen*
 - ~~Auto `nozzle_temperature` write-back: Warnung oder Bestätigung, bevor Catalog-Daten überschrieben werden~~ — **behoben (E3):** Write-back passiert nur noch bei explizitem "Sync from Orca"-Klick (adopt=True), nicht mehr beim Seitenladen
 
-### Kategorie D: Per-Profil-Aktionen vereinheitlichen
-- Drift-Tabelle: Klare Buttons pro Zeile mit Text-Labels ("Push to Printer" / "Push to Cloud" / "Pull from Cloud")
-- "Push all" als Sekundäraktion, nicht als einzige Option
-- Cloud-Status eines Profils an zentraler Stelle verwalbar (nicht nur beim Delete)
+### Kategorie D: Per-Profil-Aktionen vereinheitlichen — **umgesetzt (Sync Hub Redesign)**
+- ~~Drift-Tabelle: Klare Buttons pro Zeile mit Text-Labels ("Push to Printer" / "Push to Cloud" / "Pull from Cloud")~~ — **umgesetzt**
+- ~~"Push all" als Sekundäraktion, nicht als einzige Option~~ — **umgesetzt** (per-Profil Buttons + Bulk in Target-Cards)
+- Cloud-Status eines Profils an zentraler Stelle verwalbar (nicht nur beim Delete) — *offen*
 
 ### Kategorie E: Bug-Fixes — **alle umgesetzt (2026-09-02)**
 
@@ -418,4 +451,17 @@ target.status = "in_sync" if actual_hash == target.expected_hash else "drift"
 | Import-Orca Profile ohne SyncTarget | `import_orca_apply` legt `SyncTarget(orca_preset)` an (cloud_id, expected_hash, actual_state, pending) | E2 |
 | `refresh_preset_drift` als Side-Effect von `drift_status()` mutiert Catalog-Daten | `adopt: bool = False` Parameter; `drift_status()` = read-only, sync-from-orca-Routen = adopt | E3 |
 
-**Test-Stand:** 392 Tests grün (`scripts/test.sh`), inkl. neuer Tests für E2 (SyncTarget-Erstellung + in_sync nach Import) und E3 (read-only drift check + adopt-Verhalten).
+### Kategorie F: Sync Hub Redesign — **umgesetzt (2026-09-02)**
+
+| Maßnahme | Status | Tickets |
+|----------|--------|---------|
+| Sync-Seite → "Sync Hub" M3 Two-Column Layout (Drift-Tabelle + Target-Cards) | **umgesetzt** | Task 3 |
+| Richtungdeutliche Button-Labels ("Push to Printer" / "Push to Cloud" / "Pull from Cloud") | **umgesetzt** | V1, V7 |
+| "Sync from Orca" von Profiles-Seite entfernt; Bulk-Pull in Sync Hub | **umgesetzt** | V2 |
+| Per-Profil "Push to Printer" Button in Drift-Tabelle | **umgesetzt** | V11 |
+| Migration + Import-Orca → `/import` mit Tabs | **umgesetzt** | V6 |
+| Icon-Button → Text-Button "Push to Cloud" | **umgesetzt** | V7 |
+| Profiles-Seite: "Sync status →" Link statt "Sync from Orca" Button | **umgesetzt** | V2 |
+| Task-4 Minors (M1-M7) + Task-5 Minors (M1/M2) | *deferred* | — |
+
+**Test-Stand:** 424 Tests grün (`scripts/test.sh`), inkl. Tests für E2 (SyncTarget-Erstellung + in_sync nach Import), E3 (read-only drift check + adopt-Verhalten), und Sync Hub Redesign (Sync Hub UI, Import-Tabs, per-Profil Actions, Route-Removal 404s).

@@ -356,9 +356,6 @@ class TestHandleGithubBackup:
         assert "presets/PLA-_0.json" in files
 
 
-from fm.presets.builder import build_standalone_preset
-
-
 def _preset_template():
     """Minimal system preset template for build_standalone_preset."""
     return {
@@ -468,7 +465,7 @@ class TestUIRoutes:
             yield c
 
     def test_backup_github_route_enqueues_job(self, client, monkeypatch):
-        """POST /sync/backup-github enqueues a github_backup job."""
+        """POST /api/sync/backup-github enqueues and runs a github_backup job."""
         # Mark GitHub as configured so the button would show
         from fm.settings_store import save_settings
         save_settings({
@@ -476,9 +473,22 @@ class TestUIRoutes:
             "ssh_password": "x", "db_remote_path": "/x",
             "github_token": "tok", "github_repo": "o/r",
         })
-        r = client.post("/sync/backup-github", follow_redirects=False)
-        assert r.status_code == 303
-        assert r.headers["location"] == "/sync"
+        # Mock the handler's external dependencies
+        mock_orca = MagicMock()
+        mock_orca.sync_pull.return_value = {
+            "next_cursor": 0, "upserts": [], "deletes": [],
+        }
+        mock_github = MagicMock()
+        mock_github.backup.return_value = {
+            "commit_sha": "abc123", "files_written": 1,
+        }
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: mock_orca)
+        monkeypatch.setattr(sh, "_github_client_factory", lambda: mock_github)
+        r = client.post("/api/sync/backup-github")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["kind"] == "github_backup"
+        assert data["status"] == "done"
 
     def test_github_test_connection_success(self, client, monkeypatch):
         """POST /api/settings/github-test returns repo info on success."""

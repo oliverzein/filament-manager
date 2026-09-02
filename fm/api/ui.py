@@ -842,12 +842,6 @@ def sync_resolve_job(
         f'</section>'
     )
 
-@router.post("/sync/backup-github")
-def sync_backup_github(db: DbSession) -> RedirectResponse:
-    """Enqueue a github_backup job and redirect to /sync."""
-    jobs.enqueue(db, "github_backup", {})
-    return RedirectResponse(url="/sync", status_code=303)
-
 
 # ---------------------------------------------------------------------------
 # Migration wizard — one-time import of existing printer DB entries

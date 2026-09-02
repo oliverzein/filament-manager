@@ -133,6 +133,16 @@ def sync_tempsync(body: TempSyncRequest, request: Request, db: DbSession) -> dic
     db.flush()
     return _job_response(job)
 
+@router.post("/sync/backup-github")
+def sync_backup_github(request: Request, db: DbSession) -> dict:
+    """Enqueue a github_backup job and drain the queue."""
+    config = _get_config(request)
+    job = jobs.enqueue(db, "github_backup", {})
+    db.flush()
+    jobs.run_pending(db, config)
+    db.flush()
+    return _job_response(job)
+
 
 @router.get("/status/drift")
 def drift_status(request: Request, db: DbSession) -> list[dict]:

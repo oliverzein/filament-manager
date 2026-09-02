@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -56,7 +57,7 @@ from ..presets.builder import build_standalone_preset
 from ..presets.flattener import find_system_preset
 from ..presets.matching import temp_sync_targets
 from ..orca_cloud import OrcaCloudClient, OrcaCloudConflict, OrcaCloudError
-from ..github_backup import GitHubBackupClient, GitHubBackupError
+from ..github_backup import GitHubBackupClient
 from ..settings_store import load_github_config, load_orca_token, save_orca_token
 from ..errors import FmError
 from . import jobs
@@ -774,9 +775,7 @@ def handle_temp_sync(session: Session, config: Config, payload: dict) -> dict:
 # GitHub backup
 # ---------------------------------------------------------------------------
 
-import re as _re
-
-_UNSAFE_CHARS = _re.compile(r'[/\\:*?"<>|+ ]')
+_UNSAFE_CHARS = re.compile(r'[/\\:*?"<>|+ ]')
 
 
 def _sanitize_filename(name: str) -> str:
@@ -789,6 +788,7 @@ def _enqueue_github_backup(session: Session) -> None:
     if _github_client_factory() is None:
         return
     jobs.enqueue(session, "github_backup", {})
+
 
 def handle_github_backup(session: Session, config: Config, payload: dict) -> dict:
     """GitHub backup handler: pull all Orca Cloud presets, write each as a

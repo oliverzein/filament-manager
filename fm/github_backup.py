@@ -147,7 +147,7 @@ class GitHubBackupClient:
 
     def test_connection(self) -> dict:
         """Verify token + repo access. Returns repo metadata."""
-        resp = self._request("GET", self._url(""))
+        resp = self._request("GET", f"{self.API_BASE}/repos/{self._repo}")
         if not resp.ok:
             raise GitHubBackupError(
                 resp.status_code, resp.text,

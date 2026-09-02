@@ -2,7 +2,6 @@
 """GitHubBackupClient tests — Git Data API flow, error handling, test_connection."""
 from __future__ import annotations
 
-import base64
 import json
 from unittest.mock import patch, MagicMock
 
@@ -34,7 +33,7 @@ class TestBackupFlow:
             if "commits/refsha123" in url:
                 return self._mock_response(200, {"tree": {"sha": "basesha456"}})
             if "blobs" in url and method == "POST":
-                content = kwargs.get("json_body", {}).get("content", "")
+                content = kwargs.get("json", {}).get("content", "")
                 return self._mock_response(200, {"sha": "blob_" + content[:8]})
             if "trees" in url and method == "POST":
                 return self._mock_response(200, {"sha": "newtreasha"})
@@ -93,6 +92,7 @@ class TestTestConnection:
             })
             result = client.test_connection()
         assert result["repo"] == "owner/repo"
+        assert result["branch"] == "main"
         assert result["default_branch"] == "main"
 
     def test_test_connection_repo_not_found(self):

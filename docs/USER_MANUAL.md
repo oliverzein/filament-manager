@@ -23,7 +23,6 @@ the Manager displays them read-only after sync.
    - [Filter Spools](#filter-spool)
 5. [Sync](#sync)
    - [Push to Printer](#push-to-printer)
-   - [Temperature Sync](#temperature-sync)
    - [Generate Orca Cloud Preset](#generate-orca-cloud-preset)
    - [Drift Status](#drift-status)
    - [Printer Busy — Resolution Options](#printer-busy--resolution-options)
@@ -265,21 +264,6 @@ database. This writes custom entries (99xxx IDs) to the printer.
 > awaiting_input and a dialog appears with options (see
 > [below](#printer-busy--resolution-options)).
 
-### Temperature Sync
-
-Pulls nozzle temperatures from your Orca Cloud presets and pushes them
-to the printer DB. This is a lighter sync that only updates temperature
-values, not the full profile.
-
-1. Go to **Sync**.
-2. Click **Temperature sync**.
-3. The app pulls presets from Orca Cloud, compares nozzle temperatures,
-   updates the catalog, and enqueues a push to propagate the changes to
-   the printer.
-
-> Requires your Orca Cloud account to be connected under **Settings**,
-> and at least one prior **Sync from Orca** so preset data is available.
-
 ### Generate Orca Cloud Preset
 
 Creates a standalone OrcaSlicer filament preset from a catalog profile
@@ -511,10 +495,3 @@ Click **Save settings** to persist. Settings are stored in
 4. Profiles → review imported profiles
 5. Sync → **Push all profiles** to verify everything is consistent
 
-### Workflow 4: Update Nozzle Temperatures from OrcaSlicer
-
-1. Tune nozzle temperature in OrcaSlicer for a preset
-2. Let OrcaSlicer sync the change to Orca Cloud
-3. Profiles → edit the profile → **Sync from Orca**
-4. Sync → **Temperature sync**
-5. The updated temperature propagates to the catalog and the printer DB

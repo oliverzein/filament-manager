@@ -266,7 +266,6 @@ Job kinds:
 | `push` | `POST /api/sync/push` | Rebuild printer DB from cache + catalog, push via SSH/SCP, bump version + reboot, enqueue `verify`. |
 | `verify` | (enqueued by `push`) | Pull fresh DB, floor-check + presence + hash compare, update `SyncTarget.status`. |
 | `generate_preset` | `POST /api/sync/preset/{profile_id}` | Build standalone preset, push directly to Orca Cloud, set `expected_hash`. |
-| `temp_sync` | `POST /api/sync/tempsync` | Pull presets from Orca Cloud, apply nozzle-temperature changes to the catalog, enqueue `push`. |
 | `import_scan` | `POST /import-orca/apply`, migration step | Pull presets/printer DB and produce import proposals. |
 
 A `push` that finds the printer busy parks the job as `awaiting_input`; the

@@ -758,13 +758,17 @@ def sync_progress_fragment(db: DbSession, since: int = 0) -> HTMLResponse:
     ))
     if not recent:
         return HTMLResponse("<p>No new jobs.</p>")
+    import html as _html
     rows = "".join(
         f'<tr class="status-{j.status}"><td>{j.id}</td><td>{j.kind}</td>'
-        f'<td>{j.status}</td></tr>'
+        f'<td>{j.status}</td>'
+        + (f'<td class="job-error">{_html.escape(json.loads(j.result).get("error", ""))}</td>'
+           if j.status == "error" and j.result else "<td></td>")
+        + f'</tr>'
         for j in recent
     )
     return HTMLResponse(
-        f'<table><thead><tr><th>ID</th><th>Kind</th><th>Status</th></tr>'
+        f'<table><thead><tr><th>ID</th><th>Kind</th><th>Status</th><th>Detail</th></tr>'
         f'</thead><tbody>{rows}</tbody></table>'
     )
 

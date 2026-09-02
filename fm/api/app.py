@@ -76,6 +76,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates = Jinja2Templates(directory=str(_DIR / "templates"))
     # Parse Profile.colors (JSON string) -> list for template rendering.
     templates.env.filters["colors_list"] = lambda v: json.loads(v) if isinstance(v, str) else (v or [])
+    templates.env.filters["from_json"] = lambda v: json.loads(v) if isinstance(v, str) else (v or {})
     app.state.templates = templates
     app.state.config = app_config
     app.mount("/static", StaticFiles(directory=str(_DIR / "static")), name="static")

@@ -860,9 +860,17 @@ def _latest_import_scan(db: Session) -> Job | None:
     ).first()
 
 
-@router.get("/migration", response_class=HTMLResponse)
-def migration_page(request: Request, db: DbSession) -> HTMLResponse:
-    """Step 1 (import button) or step 2 (proposal table with checkboxes)."""
+# ---------------------------------------------------------------------------
+# Import page — merged migration + Orca Cloud import
+# ---------------------------------------------------------------------------
+
+@router.get("/import", response_class=HTMLResponse)
+def import_page(request: Request, db: DbSession) -> HTMLResponse:
+    """Tabbed import page: 'From Printer DB' (migration wizard) and
+    'From Orca Cloud' (unmatched preset import)."""
+    tab = request.query_params.get("tab", "printer")
+
+    # Printer DB tab data (same as old migration_page)
     applied = request.query_params.get("applied") == "1"
     import_job = _latest_import_scan(db)
     proposals: list[dict] = []
@@ -879,40 +887,56 @@ def migration_page(request: Request, db: DbSession) -> HTMLResponse:
         )
     )
 
+    # Orca Cloud tab data (same as old import_orca_page)
+    all_presets = _pull_orca_presets()
+    orca_presets = _unmatched_orca_presets(db)
+    orca_proposals = []
+    for p in orca_presets:
+        orca_proposals.append({
+            "filament_id": p.get("filament_id", ""),
+            "name": p.get("name", ""),
+            "brand": (p.get("filament_vendor") or [""])[0] if p.get("filament_vendor") else "",
+            "type": (p.get("filament_type") or [""])[0] if p.get("filament_type") else "",
+            "nozzle_temperature": (p.get("nozzle_temperature") or [""])[0] if p.get("nozzle_temperature") else "",
+            "pressure_advance": (p.get("pressure_advance") or [""])[0] if p.get("pressure_advance") else "",
+            "filament_flow_ratio": (p.get("filament_flow_ratio") or [""])[0] if p.get("filament_flow_ratio") else "",
+            "inherits": p.get("inherits", ""),
+            "user_tuned": not p.get("inherits", ""),
+        })
+
     return _templates(request).TemplateResponse(
-        request, "migration.html",
+        request, "import.html",
         {
+            "active_tab": tab,
             "proposals": proposals,
             "existing_ids": existing_ids,
             "import_job": import_job,
             "applied": applied,
+            "orca_proposals": orca_proposals,
+            "has_presets": len(all_presets) > 0,
         },
-   
     )
 
 
-@router.post("/migration/import", response_class=HTMLResponse)
-def migration_import(request: Request, db: DbSession) -> RedirectResponse:
-    """Step 1 action: enqueue import_scan job, drain, redirect to /migration."""
+@router.post("/import/printer/scan", response_class=HTMLResponse)
+def import_printer_scan(request: Request, db: DbSession) -> RedirectResponse:
+    """Enqueue import_scan job, drain, redirect to /import?tab=printer."""
     config = _get_config(request)
     job = jobs.enqueue(db, "import_scan", {})
     db.flush()
     jobs.run_pending(db, config)
     db.flush()
-    return RedirectResponse(url="/migration", status_code=303)
+    return RedirectResponse(url="/import?tab=printer", status_code=303)
 
 
-@router.post("/migration/apply", response_class=HTMLResponse)
-def migration_apply(
+@router.post("/import/printer/apply", response_class=HTMLResponse)
+def import_printer_apply(
     request: Request,
     db: DbSession,
     include: list[str] = Form(default=[]),
 ) -> RedirectResponse:
-    """Step 3: create/update Profiles + SyncTargets from selected proposals.
-
-    Preserves existing ``printer_db_id`` and ``filament_id`` (Cloud-collision
-    avoidance): when a Profile with the same ``printer_db_id`` already exists,
-    its ``filament_id`` is never overwritten.
+    """Create/update Profiles + SyncTargets from selected proposals.
+    (Same logic as old migration_apply, redirect target changed.)
     """
     import_job = _latest_import_scan(db)
     if import_job is None:
@@ -934,7 +958,6 @@ def migration_apply(
         ).first()
 
         if existing is not None:
-            # Update existing profile fields but preserve filament_id.
             existing.brand = proposal["brand"]
             existing.name = proposal["name"]
             existing.type = proposal["type"]
@@ -976,7 +999,6 @@ def migration_apply(
             db.add(profile)
             db.flush()
 
-        # Create/update SyncTarget(printer_db) so the profile is tracked.
         target = db.scalars(
             select(SyncTarget).where(
                 SyncTarget.profile_id == profile.id,
@@ -993,7 +1015,7 @@ def migration_apply(
         target.last_synced_at = now
         db.flush()
 
-    return RedirectResponse(url="/migration?applied=1", status_code=303)
+    return RedirectResponse(url="/import?tab=printer&applied=1", status_code=303)
 
 # ---------------------------------------------------------------------------
 # Import from Orca Cloud — bring standard filament presets into the catalog
@@ -1047,45 +1069,15 @@ def _unmatched_orca_presets(db: Session) -> list[dict]:
     return unmatched
 
 
-@router.get("/import-orca", response_class=HTMLResponse)
-def import_orca_page(request: Request, db: DbSession) -> HTMLResponse:
-    """Show unmatched Orca Cloud presets for import as profiles."""
-    all_presets = _pull_orca_presets()
-    presets = _unmatched_orca_presets(db)
-    applied = request.query_params.get("applied") == "1"
-
-    # Build proposal dicts with display-friendly fields
-    proposals = []
-    for p in presets:
-        proposals.append({
-            "filament_id": p.get("filament_id", ""),
-            "name": p.get("name", ""),
-            "brand": (p.get("filament_vendor") or [""])[0] if p.get("filament_vendor") else "",
-            "type": (p.get("filament_type") or [""])[0] if p.get("filament_type") else "",
-            "nozzle_temperature": (p.get("nozzle_temperature") or [""])[0] if p.get("nozzle_temperature") else "",
-            "pressure_advance": (p.get("pressure_advance") or [""])[0] if p.get("pressure_advance") else "",
-            "filament_flow_ratio": (p.get("filament_flow_ratio") or [""])[0] if p.get("filament_flow_ratio") else "",
-            "inherits": p.get("inherits", ""),
-            "user_tuned": not p.get("inherits", ""),
-        })
-
-    return _templates(request).TemplateResponse(
-        request, "import_orca.html",
-        {
-            "proposals": proposals,
-            "has_presets": len(all_presets) > 0,
-            "applied": applied,
-        },
-    )
-
-
-@router.post("/import-orca/apply", response_class=HTMLResponse)
+@router.post("/import/orca/apply", response_class=HTMLResponse)
 def import_orca_apply(
     request: Request,
     db: DbSession,
     include: list[str] = Form(default=[]),
 ) -> RedirectResponse:
-    """Create profiles from selected OrcaSlicer presets."""
+    """Create profiles from selected OrcaSlicer presets.
+    (Same logic as old import_orca_apply, redirect target changed.)
+    """
     presets = _unmatched_orca_presets(db)
     by_fid = {p.get("filament_id", ""): p for p in presets}
 
@@ -1115,18 +1107,13 @@ def import_orca_apply(
             drying_time=0,
             nozzle_temperature=temp_int,
             filament_id=fid,
-            printer_db_id=None,  # standard filaments: no push to printer
+            printer_db_id=None,
             created_at=now,
             updated_at=now,
         )
         db.add(profile)
         db.flush()
 
-        # Create SyncTarget(orca_preset) so the profile is visible to the
-        # sync system — analog to migration_apply's printer_db target.
-        # cloud_id is the Orca Cloud resource UUID (_path from sync_pull);
-        # expected_hash uses the same identity fields as refresh_preset_drift
-        # so the first drift check is consistent.
         target = SyncTarget(
             profile_id=profile.id,
             kind="orca_preset",
@@ -1144,7 +1131,7 @@ def import_orca_apply(
         )
         db.add(target)
 
-    return RedirectResponse(url="/import-orca?applied=1", status_code=303)
+    return RedirectResponse(url="/import?tab=orca&applied=1", status_code=303)
 
 # ---------------------------------------------------------------------------
 # Settings — printer connection + Orca Cloud (persisted to settings.json)

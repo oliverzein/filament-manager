@@ -81,9 +81,9 @@ def client(tmp_path, monkeypatch, cfg, fake_transport, fake_orca_client):
 
 class TestImportOrcaApply:
     def test_creates_sync_target_orca_preset(self, client):
-        """POST /import-orca/apply creates a SyncTarget(kind=orca_preset)
+        """POST /import/orca/apply creates a SyncTarget(kind=orca_preset)
         with cloud_id, expected_hash, actual_state, and last_synced_at."""
-        r = client.post("/import-orca/apply", data={"include": ["Pabc123def456"]},
+        r = client.post("/import/orca/apply", data={"include": ["Pabc123def456"]},
                         follow_redirects=False)
         assert r.status_code == 303
 
@@ -108,7 +108,7 @@ class TestImportOrcaApply:
     def test_drift_status_shows_in_sync_after_import(self, client, fake_orca_client):
         """After import, drift_status (which calls refresh_preset_drift)
         finds the target by cloud_id and marks it in_sync."""
-        client.post("/import-orca/apply", data={"include": ["Pabc123def456"]},
+        client.post("/import/orca/apply", data={"include": ["Pabc123def456"]},
                     follow_redirects=False)
 
         # Configure sync_pull to return the same preset (cloud format).
@@ -149,7 +149,7 @@ class TestSyncFromOrcaAdopt:
         from fm.service.sync_handlers import canonical_hash
 
         # Import a profile with a SyncTarget (expected_hash = Cloud hash for 220)
-        client.post("/import-orca/apply", data={"include": ["Pabc123def456"]},
+        client.post("/import/orca/apply", data={"include": ["Pabc123def456"]},
                     follow_redirects=False)
 
         with SessionLocal() as s:

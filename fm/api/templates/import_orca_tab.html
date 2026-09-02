@@ -1,6 +1,3 @@
-{% extends "base.html" %}
-{% block title %}Import from Orca Cloud — Filament Manager{% endblock %}
-{% block content %}
 <section id="import-orca">
   <header class="page-header">
     <div>
@@ -21,10 +18,7 @@
     <div class="panel-heading">
       <div><p class="eyebrow">Step 1</p><h2>Scan Orca Cloud presets</h2></div>
     </div>
-    <p>No Orca Cloud presets found. Make sure your Orca Cloud account is connected in <a href="/settings">Settings</a>, then click "Sync from Orca" on any profile page.</p>
-    <form method="post" action="/profiles/sync-from-orca">
-      <button type="submit" class="button button-primary">Sync now</button>
-    </form>
+    <p class="muted">Connect your Orca Cloud account in <a href="/settings">Settings</a>, then use Pull from Cloud in the <a href="/sync">Sync Hub</a>.</p>
   </section>
   {% elif not proposals %}
   <section class="panel">
@@ -51,7 +45,7 @@
       </label>
     </div>
 
-    <form method="post" action="/import-orca/apply">
+    <form method="post" action="/import/orca/apply">
       <div class="table-wrap">
         <table class="import-table">
           <thead>
@@ -106,4 +100,3 @@
     filter.dispatchEvent(new Event('change'));
   }
 </script>
-{% endblock %}

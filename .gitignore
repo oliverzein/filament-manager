@@ -7,3 +7,4 @@ build/
 *.db
 deploy/*.env
 /settings.json
+Creality-custom-filament.code-workspace

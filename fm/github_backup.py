@@ -68,25 +68,31 @@ class GitHubBackupClient:
         Returns ``{"commit_sha": str, "files_written": int}``.
         Raises :class:`GitHubBackupError` on any API failure.
         """
-        # 1. Get current ref SHA
+        # 1. Get current ref SHA (409 = empty repo, first commit)
         resp = self._request(
             "GET", self._url(f"git/ref/heads/{self._branch}"),
         )
-        if not resp.ok:
+        is_empty_repo = resp.status_code == 409
+        if not resp.ok and not is_empty_repo:
             raise GitHubBackupError(
                 resp.status_code, resp.text,
                 f"branch '{self._branch}' not found" if resp.status_code == 404
                 else f"ref lookup failed: {resp.status_code}",
             )
-        ref_sha = resp.json()["object"]["sha"]
 
-        # 2. Get base tree SHA from the commit
-        resp = self._request(
-            "GET", self._url(f"git/commits/{ref_sha}"),
-        )
-        if not resp.ok:
-            raise GitHubBackupError(resp.status_code, resp.text)
-        base_tree_sha = resp.json()["tree"]["sha"]
+        if is_empty_repo:
+            ref_sha = None
+            base_tree_sha = None
+        else:
+            ref_sha = resp.json()["object"]["sha"]
+
+            # 2. Get base tree SHA from the commit
+            resp = self._request(
+                "GET", self._url(f"git/commits/{ref_sha}"),
+            )
+            if not resp.ok:
+                raise GitHubBackupError(resp.status_code, resp.text)
+            base_tree_sha = resp.json()["tree"]["sha"]
 
         # 3. Create blobs for each file
         tree_entries = []
@@ -110,36 +116,41 @@ class GitHubBackupClient:
                 "sha": blob_sha,
             })
 
-        # 4. Create new tree
+        # 4. Create new tree (no base_tree for empty repo)
+        tree_body: dict = {"tree": tree_entries}
+        if base_tree_sha:
+            tree_body["base_tree"] = base_tree_sha
         resp = self._request(
             "POST", self._url("git/trees"),
-            json_body={
-                "base_tree": base_tree_sha,
-                "tree": tree_entries,
-            },
+            json_body=tree_body,
         )
         if not resp.ok:
             raise GitHubBackupError(resp.status_code, resp.text)
         tree_sha = resp.json()["sha"]
 
-        # 5. Create commit
+        # 5. Create commit (no parents for empty repo)
+        commit_body: dict = {"message": message, "tree": tree_sha}
+        if ref_sha:
+            commit_body["parents"] = [ref_sha]
         resp = self._request(
             "POST", self._url("git/commits"),
-            json_body={
-                "message": message,
-                "tree": tree_sha,
-                "parents": [ref_sha],
-            },
+            json_body=commit_body,
         )
         if not resp.ok:
             raise GitHubBackupError(resp.status_code, resp.text)
         commit_sha = resp.json()["sha"]
 
-        # 6. Update ref
-        resp = self._request(
-            "PATCH", self._url(f"git/refs/heads/{self._branch}"),
-            json_body={"sha": commit_sha},
-        )
+        # 6. Update or create ref
+        if is_empty_repo:
+            resp = self._request(
+                "POST", self._url("git/refs"),
+                json_body={"sha": commit_sha, "ref": f"refs/heads/{self._branch}"},
+            )
+        else:
+            resp = self._request(
+                "PATCH", self._url(f"git/refs/heads/{self._branch}"),
+                json_body={"sha": commit_sha},
+            )
         if not resp.ok:
             raise GitHubBackupError(resp.status_code, resp.text)
 

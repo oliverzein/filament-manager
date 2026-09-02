@@ -30,8 +30,10 @@ from .catalog import _validate, perform_delete
 from ..settings_store import (
     load_settings, save_settings, build_config,
     load_orca_token, save_orca_token,
+    load_github_config,
 )
 from ..orca_cloud import OrcaCloudClient, OrcaCloudError
+from ..github_backup import GitHubBackupClient, GitHubBackupError
 from ..errors import FmError
 
 router = APIRouter(tags=["ui"])
@@ -835,6 +837,12 @@ def sync_resolve_job(
         f'</section>'
     )
 
+@router.post("/sync/backup-github")
+def sync_backup_github(db: DbSession) -> RedirectResponse:
+    """Enqueue a github_backup job and redirect to /sync."""
+    jobs.enqueue(db, "github_backup", {})
+    return RedirectResponse(url="/sync", status_code=303)
+
 
 # ---------------------------------------------------------------------------
 # Migration wizard — one-time import of existing printer DB entries
@@ -1169,6 +1177,10 @@ def _settings_context(
         "errors": errors or [],
         "orca_connected": orca_connected,
         "orca_user_email": orca_user_email,
+        "github_token": (load_settings() or {}).get("github_token", ""),
+        "github_repo": (load_settings() or {}).get("github_repo", ""),
+        "github_branch": (load_settings() or {}).get("github_branch", "main"),
+        "github_configured": load_github_config() is not None,
     }
 
 
@@ -1192,6 +1204,9 @@ def settings_save(
     ws_port: str = Form(""),
     version_override: str = Form(""),
     id_range_start: str = Form(""),
+    github_token: str = Form(""),
+    github_repo: str = Form(""),
+    github_branch: str = Form("main"),
 ) -> HTMLResponse | RedirectResponse:
     """Validate, persist settings.json, update app.state.config, redirect."""
     printer_ip = printer_ip.strip()
@@ -1234,6 +1249,12 @@ def settings_save(
         return _templates(request).TemplateResponse(
             request, "settings.html", ctx, status_code=422,
         )
+
+    # GitHub backup config (optional — empty token means not configured)
+    if github_token.strip():
+        submitted["github_token"] = github_token.strip()
+        submitted["github_repo"] = github_repo.strip()
+        submitted["github_branch"] = github_branch.strip() or "main"
 
     save_settings(submitted)
     request.app.state.config = build_config(submitted)
@@ -1300,3 +1321,24 @@ def test_connection(
     if "EXISTS" not in result.stdout:
         return {"ok": False, "error": f"DB path not found: {db_remote_path}"}
     return {"ok": True, "error": None}
+
+
+@router.post("/api/settings/github-test")
+def github_test_connection(
+    github_token: str = Form(""),
+    github_repo: str = Form(""),
+    github_branch: str = Form("main"),
+) -> dict:
+    """Test GitHub token + repo access."""
+    github_token = github_token.strip()
+    github_repo = github_repo.strip()
+    if not github_token or not github_repo:
+        return {"ok": False, "error": "Token and repo are required."}
+    try:
+        client = GitHubBackupClient(
+            github_token, github_repo, github_branch.strip() or "main",
+        )
+        info = client.test_connection()
+    except GitHubBackupError as exc:
+        return {"ok": False, "error": exc.message}
+    return {"ok": True, "repo": info["repo"], "default_branch": info["default_branch"]}

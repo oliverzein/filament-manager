@@ -452,3 +452,108 @@ class TestAutoTrigger:
             select(Job).where(Job.kind == "github_backup")
         ))
         assert len(backup_jobs) == 1
+from fastapi.testclient import TestClient
+from fm.api.app import create_app, Settings
+
+
+class TestUIRoutes:
+    @pytest.fixture
+    def client(self, tmp_path, monkeypatch, cfg):
+        monkeypatch.setenv("FM_DATABASE_URL", f"sqlite:///{tmp_path}/gh_test.db")
+        monkeypatch.setenv("FM_SETTINGS_PATH", str(tmp_path / "settings.json"))
+        from fm.service import sync_handlers as sh
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: MagicMock())
+        monkeypatch.setattr(sh, "_sleep", lambda s: None)
+        with TestClient(create_app(Settings(config=cfg))) as c:
+            yield c
+
+    def test_backup_github_route_enqueues_job(self, client, monkeypatch):
+        """POST /sync/backup-github enqueues a github_backup job."""
+        # Mark GitHub as configured so the button would show
+        from fm.settings_store import save_settings
+        save_settings({
+            "printer_ip": "1.2.3.4", "ssh_user": "root",
+            "ssh_password": "x", "db_remote_path": "/x",
+            "github_token": "tok", "github_repo": "o/r",
+        })
+        r = client.post("/sync/backup-github", follow_redirects=False)
+        assert r.status_code == 303
+        assert r.headers["location"] == "/sync"
+
+    def test_github_test_connection_success(self, client, monkeypatch):
+        """POST /api/settings/github-test returns repo info on success."""
+        mock_github = MagicMock()
+        mock_github.test_connection.return_value = {
+            "repo": "owner/repo", "branch": "main", "default_branch": "main",
+        }
+        monkeypatch.setattr(
+            "fm.api.ui.GitHubBackupClient", lambda *a, **kw: mock_github
+        )
+        r = client.post(
+            "/api/settings/github-test",
+            data={"github_token": "tok", "github_repo": "owner/repo"},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is True
+        assert data["repo"] == "owner/repo"
+
+    def test_github_test_connection_failure(self, client, monkeypatch):
+        """POST /api/settings/github-test returns error on failure."""
+        from fm.github_backup import GitHubBackupError
+        mock_github = MagicMock()
+        mock_github.test_connection.side_effect = GitHubBackupError(
+            404, "Not Found", "repo not found",
+        )
+        monkeypatch.setattr(
+            "fm.api.ui.GitHubBackupClient", lambda *a, **kw: mock_github
+        )
+        r = client.post(
+            "/api/settings/github-test",
+            data={"github_token": "tok", "github_repo": "owner/bad"},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is False
+        assert "not found" in data["error"].lower()
+
+    def test_settings_page_shows_github_fields(self, client):
+        """Settings page renders GitHub Backup fieldset."""
+        r = client.get("/settings")
+        assert r.status_code == 200
+        assert b"GitHub" in r.content
+        assert b"github_token" in r.content
+        assert b"github_repo" in r.content
+
+    def test_settings_save_persists_github_fields(self, client, monkeypatch):
+        """POST /settings saves GitHub token/repo/branch."""
+        r = client.post("/settings", data={
+            "printer_ip": "1.2.3.4", "ssh_user": "root",
+            "ssh_password": "x", "db_remote_path": "/x",
+            "github_token": "ghp_saved", "github_repo": "me/repo",
+            "github_branch": "dev",
+        }, follow_redirects=False)
+        assert r.status_code == 303
+        from fm.settings_store import load_settings
+        data = load_settings()
+        assert data["github_token"] == "ghp_saved"
+        assert data["github_repo"] == "me/repo"
+        assert data["github_branch"] == "dev"
+
+    def test_sync_page_shows_backup_button_when_configured(self, client, monkeypatch):
+        """Sync page shows 'Backup to GitHub' button when GitHub is configured."""
+        from fm.settings_store import save_settings
+        save_settings({
+            "printer_ip": "1.2.3.4", "ssh_user": "root",
+            "ssh_password": "x", "db_remote_path": "/x",
+            "github_token": "tok", "github_repo": "o/r",
+        })
+        r = client.get("/sync")
+        assert r.status_code == 200
+        assert b"Backup to GitHub" in r.content
+
+    def test_sync_page_hides_backup_button_when_unconfigured(self, client):
+        """Sync page does NOT show 'Backup to GitHub' when GitHub is not configured."""
+        r = client.get("/sync")
+        assert r.status_code == 200
+        assert b"Backup to GitHub" not in r.content

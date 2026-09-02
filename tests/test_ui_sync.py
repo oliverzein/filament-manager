@@ -398,3 +398,28 @@ class TestImportPage:
         """POST /import/printer/apply without a prior scan → 404."""
         r = client.post("/import/printer/apply", data={"include": "99001"})
         assert r.status_code == 404
+    def test_import_step_scan_with_prior_job(self, client):
+        """GET /import?tab=printer&step=scan shows the scan card even when
+        a completed import_scan job exists (Back button target)."""
+        client.post("/import/printer/scan")
+        r = client.get("/import?tab=printer&step=scan")
+        assert r.status_code == 200
+        assert b"Start import scan" in r.content
+        assert b"migration-step2" not in r.content
+
+    def test_import_default_shows_review_with_prior_job(self, client):
+        """GET /import?tab=printer (no step) still shows the review table
+        when a completed import_scan job exists (default behaviour unchanged)."""
+        client.post("/import/printer/scan")
+        r = client.get("/import?tab=printer")
+        assert r.status_code == 200
+        assert b"migration-step2" in r.content
+        assert b"Start import scan" not in r.content
+
+    def test_import_review_has_back_link(self, client):
+        """GET /import?tab=printer with a prior job renders a back link to
+        the scan view (/import?tab=printer&step=scan)."""
+        client.post("/import/printer/scan")
+        r = client.get("/import?tab=printer")
+        assert r.status_code == 200
+        assert b"/import?tab=printer&step=scan" in r.content

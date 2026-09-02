@@ -864,6 +864,7 @@ def import_page(request: Request, db: DbSession) -> HTMLResponse:
 
     # Printer DB tab data (same as old migration_page)
     applied = request.query_params.get("applied") == "1"
+    show_scan = request.query_params.get("step") == "scan"
     import_job = _latest_import_scan(db)
     proposals: list[dict] = []
     if import_job and import_job.result:
@@ -904,6 +905,7 @@ def import_page(request: Request, db: DbSession) -> HTMLResponse:
             "existing_ids": existing_ids,
             "import_job": import_job,
             "applied": applied,
+            "show_scan": show_scan,
             "orca_proposals": orca_proposals,
             "has_presets": len(all_presets) > 0,
         },

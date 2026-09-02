@@ -133,6 +133,27 @@ def sync_backup_github(request: Request, db: DbSession) -> dict:
     return _job_response(job)
 
 
+@router.post("/sync/pull")
+def sync_pull_all(db: DbSession) -> dict:
+    """Pull all Orca Cloud presets and adopt (replaces /profiles/sync-from-orca)."""
+    refresh_preset_drift(db, adopt=True)
+    db.flush()
+    return {"status": "ok"}
+
+
+@router.post("/sync/pull/{profile_id}")
+def sync_pull_profile(profile_id: int, db: DbSession) -> dict:
+    """Pull a single profile's preset from Orca Cloud (adopt=True)."""
+    profile = db.get(Profile, profile_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="profile not found",
+        )
+    refresh_preset_drift(db, adopt=True, profile_id=profile_id)
+    db.flush()
+    return {"status": "ok", "profile_id": profile_id}
+
 @router.get("/status/drift")
 def drift_status(request: Request, db: DbSession) -> list[dict]:
     """Per-profile drift matrix: printer_db + orca_preset SyncTarget status.

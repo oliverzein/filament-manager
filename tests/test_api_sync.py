@@ -283,6 +283,85 @@ class TestPresetEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# Pull endpoints (Cloud → Catalog, adopt=True)
+# ---------------------------------------------------------------------------
+
+class TestPullEndpoint:
+    def test_bulk_pull_returns_ok(self, client, fake_orca_client):
+        """POST /api/sync/pull adopts all profiles from Cloud."""
+        # Create a profile with an orca_preset target
+        from fm.db import SessionLocal
+        p = _make_profile(client)
+        with SessionLocal() as s:
+            from fm.models import SyncTarget
+            target = SyncTarget(
+                profile_id=p["id"], kind="orca_preset",
+                cloud_id="test-cloud-uuid", expected_hash="old_hash",
+                status="drift",
+            )
+            s.add(target)
+            s.commit()
+
+        # Set up Cloud to return a matching preset
+        fake_orca_client.sync_pull.return_value = {
+            "next_cursor": 0,
+            "upserts": [{
+                "id": "test-cloud-uuid",
+                "content": {
+                    "type": "filament", "name": "Sunlu PLA+",
+                    "filament_id": p.get("filament_id", "Ptest123"),
+                    "filament_vendor": ["Sunlu"],
+                    "filament_type": ["PLA"],
+                    "nozzle_temperature": ["210"],
+                },
+            }],
+            "deletes": [],
+        }
+
+        r = client.post("/api/sync/pull")
+        assert r.status_code == 200
+        assert r.json()["status"] == "ok"
+
+    def test_per_profile_pull_returns_ok(self, client, fake_orca_client):
+        """POST /api/sync/pull/{profile_id} adopts one profile from Cloud."""
+        from fm.db import SessionLocal
+        p = _make_profile(client)
+        with SessionLocal() as s:
+            from fm.models import SyncTarget
+            target = SyncTarget(
+                profile_id=p["id"], kind="orca_preset",
+                cloud_id="test-cloud-uuid", expected_hash="old_hash",
+                status="drift",
+            )
+            s.add(target)
+            s.commit()
+
+        fake_orca_client.sync_pull.return_value = {
+            "next_cursor": 0,
+            "upserts": [{
+                "id": "test-cloud-uuid",
+                "content": {
+                    "type": "filament", "name": "Sunlu PLA+",
+                    "filament_id": p.get("filament_id", "Ptest123"),
+                    "filament_vendor": ["Sunlu"],
+                    "filament_type": ["PLA"],
+                    "nozzle_temperature": ["210"],
+                },
+            }],
+            "deletes": [],
+        }
+
+        r = client.post(f"/api/sync/pull/{p['id']}")
+        assert r.status_code == 200
+        assert r.json()["status"] == "ok"
+        assert r.json()["profile_id"] == p["id"]
+
+    def test_per_profile_pull_404_for_missing_profile(self, client):
+        """POST /api/sync/pull/9999 returns 404."""
+        r = client.post("/api/sync/pull/9999")
+        assert r.status_code == 404
+
+# ---------------------------------------------------------------------------
 # Drift status endpoint
 # ---------------------------------------------------------------------------
 

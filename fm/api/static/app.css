@@ -194,6 +194,9 @@ select { cursor: pointer; }textarea { resize: vertical; }label small { display: 
 .test-conn-popup p { margin: 0; font-size: 11px; word-break: break-word; }
 .test-conn-close { position: absolute; top: 10px; right: 12px; display: inline-flex; width: 22px; height: 22px; align-items: center; justify-content: center; min-height: 0; padding: 0; border: 1px solid rgba(255,90,101,.3); border-radius: 4px; background: transparent; color: #ff9ba2; cursor: pointer; font-size: 14px; line-height: 1; }
 .test-conn-close:hover { background: rgba(255,90,101,.1); }
+.test-conn-popup-ok { border-color: rgba(5,193,104,.3); background: rgba(5,193,104,.06); color: #48d991; }
+.test-conn-popup-ok .test-conn-close { border-color: rgba(5,193,104,.3); color: #48d991; }
+.test-conn-popup-ok .test-conn-close:hover { background: rgba(5,193,104,.1); }
 .orca-display .form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .orca-display .form-grid label, .orca-value-item { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
 .orca-display .form-grid label > span:first-child, .orca-value-item > span { margin-bottom: 0; color: var(--text-secondary); font-size: 13px; font-weight: 600; line-height: 1.4; }

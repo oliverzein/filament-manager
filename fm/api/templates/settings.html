@@ -163,26 +163,73 @@
 })();
 
 // GitHub test connection
-document.getElementById('github-test-btn')?.addEventListener('click', async function() {
-  const token = document.querySelector('[name="github_token"]').value;
-  const repo = document.querySelector('[name="github_repo"]').value;
-  const branch = document.querySelector('[name="github_branch"]').value || 'main';
-  if (!token || !repo) { alert('Enter token and repo first.'); return; }
-  this.disabled = true; this.textContent = 'Testing…';
-  try {
-    const r = await fetch('/api/settings/github-test', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: new URLSearchParams({github_token: token, github_repo: repo, github_branch: branch}),
-    });
-    const data = await r.json();
-    if (data.ok) {
-      alert('Connected! Repo: ' + data.repo + ' (default branch: ' + data.default_branch + ')');
-    } else {
-      alert('Error: ' + data.error);
+(function() {
+  const btn = document.getElementById('github-test-btn');
+  if (!btn) return;
+  const form = btn.closest('form');
+  let popupTimer = null;
+
+  function resetBtn() {
+    btn.classList.remove('is-busy', 'is-ok', 'is-fail');
+    btn.disabled = false;
+    btn.textContent = 'Test connection';
+  }
+
+  function showPopup(msg, ok) {
+    let popup = document.getElementById('github-conn-popup');
+    if (popup) popup.remove();
+    if (popupTimer) clearTimeout(popupTimer);
+    popup = document.createElement('div');
+    popup.id = 'github-conn-popup';
+    popup.className = 'test-conn-popup' + (ok ? ' test-conn-popup-ok' : '');
+    const label = ok ? 'Connection verified' : 'Connection failed';
+    popup.innerHTML = '<strong>' + label + '</strong><p>' + msg + '</p><button class="test-conn-close" type="button">×</button>';
+    btn.closest('.form-section').appendChild(popup);
+    popup.querySelector('.test-conn-close').onclick = () => popup.remove();
+    popupTimer = setTimeout(() => popup.remove(), 15000);
+  }
+
+  btn.addEventListener('click', async () => {
+    if (btn.classList.contains('is-busy')) return;
+    if (btn.classList.contains('is-ok') || btn.classList.contains('is-fail')) { resetBtn(); return; }
+
+    const token = form.querySelector('[name="github_token"]').value;
+    const repo = form.querySelector('[name="github_repo"]').value;
+    const branch = (form.querySelector('[name="github_branch"]').value || 'main').trim();
+    if (!token || !repo) { showPopup('Enter token and repo first.', false); return; }
+
+    btn.classList.add('is-busy');
+    btn.disabled = true;
+    btn.textContent = 'Testing…';
+
+    let popup = document.getElementById('github-conn-popup');
+    if (popup) popup.remove();
+
+    try {
+      const r = await fetch('/api/settings/github-test', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({github_token: token, github_repo: repo, github_branch: branch}),
+      });
+      const data = await r.json();
+      btn.classList.remove('is-busy');
+      if (data.ok) {
+        btn.classList.add('is-ok');
+        btn.textContent = '✓ Connected';
+        showPopup('Repo: ' + data.repo + ' (default branch: ' + data.default_branch + ')', true);
+      } else {
+        btn.classList.add('is-fail');
+        btn.textContent = '✗ Failed';
+        showPopup(data.error || 'Unknown error', false);
+      }
+    } catch (e) {
+      btn.classList.remove('is-busy');
+      btn.classList.add('is-fail');
+      btn.textContent = '✗ Failed';
+      showPopup('Request failed: ' + e.message, false);
     }
-  } catch (e) { alert('Request failed: ' + e.message); }
-  this.disabled = false; this.textContent = 'Test connection';
-});
+    setTimeout(resetBtn, 3000);
+  });
+})();
 </script>
 {% endblock %}

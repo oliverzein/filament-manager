@@ -306,32 +306,38 @@ Drei Buttons mit identischem oder ähnlichem Label, die alle `refresh_preset_dri
 - `actual_state` und `last_synced_at` werden aktualisiert (Badge-Frische)
 
 **Verbleibendes Problem:**
-- Der Benutzer weiß nicht, dass beim bloßen Öffnen der Sync-Seite ein Cloud-API-Call stattfindet
-- Keine Ladeanzeige oder Status-Feedback für diesen Auto-Call
+- ~~Der Benutzer weiß nicht, dass beim bloßen Öffnen der Sync-Seite ein Cloud-API-Call stattfindet~~
+- ~~Keine Ladeanzeige oder Status-Feedback für diesen Auto-Call~~
+
+**Fix-Notiz (Kategorie C, 2026-09-03):** Unter beiden Drift-Tabellen (Sync Hub `/sync` und Dashboard `/`) wurde ein statischer Hinweis "Status refresh includes a live check against Orca Cloud." ergänzt. Ein echter Lade-Indikator wurde bewusst nicht gebaut (Cloud-Sync ist schnell).
 
 **Fix-Notiz (E3, 2026-09-02):** Bisher schrieb die Funktion bei jedem Seitenladen `nozzle_temperature` aus Cloud zurück (stiller Datenfluss). Das ist behoben — `drift_status()` nutzt jetzt `adopt=False` (read-only).
 
 **Code-Ref:** `fm/api/sync.py:146` (`refresh_preset_drift(db)` in `drift_status()`, default `adopt=False`)
 
-### V4: Automatischer GitHub-Backup nach Generate Preset — unsichtbar
+### V4: Automatischer GitHub-Backup nach Generate Preset — unsichtbar — **GEFIXT (Kategorie C, 2026-09-03)**
 
 `handle_generate_preset` (`sync_handlers.py:716`) ruft `_enqueue_github_backup(session)` auf. Das bedeutet: Jeder "Generate Preset" Klick (Icon in Drift-Tabelle) löst **automatisch** auch einen GitHub-Backup aus, wenn GitHub konfiguriert ist.
 
 **Problem:** 
-- Keine UI-Anzeige, dass ein GitHub-Backup getriggert wurde
-- Der Backup-Job erscheint zwar in der "Recent jobs" Queue, aber ohne Erklärung des Kausalzusammenhangs
-- Benutzer könnte verwirrt sein, warum nach einem Preset-Push plötzlich ein `github_backup` Job in der Queue auftaucht
+- ~~Keine UI-Anzeige, dass ein GitHub-Backup getriggert wurde~~
+- ~~Der Backup-Job erscheint zwar in der "Recent jobs" Queue, aber ohne Erklärung des Kausalzusammenhangs~~
+- ~~Benutzer könnte verwirrt sein, warum nach einem Preset-Push plötzlich ein `github_backup` Job in der Queue auftaucht~~
+
+**Fix-Notiz (Kategorie C, 2026-09-03):** `handle_generate_preset` gibt jetzt `"github_backup_scheduled": bool` zurück (True wenn GitHub konfiguriert und Job enqueued). Der "Push to Cloud" Toast zeigt entsprechend "Preset pushed — GitHub backup scheduled" (statt "Preset pushed to Orca Cloud"). Die bestehende Target-Note auf der GitHub-Card ("Also triggered automatically after every successful preset push") bleibt als statische Erklärung.
 
 **Code-Ref:** `sync_handlers.py:716` (`_enqueue_github_backup(session)` in `handle_generate_preset`)
 
-### V5: Automatischer Verify nach Push — unsichtbar
+### V5: Automatischer Verify nach Push — unsichtbar — **GEFIXT (Kategorie C, 2026-09-03)**
 
 `handle_push` (`sync_handlers.py:534`) enqueued automatisch einen `verify` Job nach erfolgreichem Push.
 
 **Problem:**
-- Der Benutzer sieht "Push complete: N profiles" Toast, aber nicht, dass automatisch ein Verify-Job folgt
-- Der Verify-Job taucht in der Queue auf, aber der Kausalzusammenhang ist nicht ersichtlich
+- ~~Der Benutzer sieht "Push complete: N profiles" Toast, aber nicht, dass automatisch ein Verify-Job folgt~~
+- ~~Der Verify-Job taucht in der Queue auf, aber der Kausalzusammenhang ist nicht ersichtlich~~
 - Der SyncTarget-Status geht erst nach Verify von "pending" → "in_sync" — in der Zwischenzeit zeigt die Drift-Tabelle "pending", was wie ein Fehler aussehen kann
+
+**Fix-Notiz (Kategorie C, 2026-09-03):** Push-Toasts enden jetzt mit "— verifying..." (per-Profil: "Pushed to printer — verifying...", bulk: "Push complete: N profiles, M skipped — verifying..."). Der Verify-Job erscheint in der auto-pollenden "Recent jobs" Queue.
 
 ### V6: Migration vs. Import-Orca — zwei Import-Workflows mit ähnlichem Zweck — **GEFIXT**
 
@@ -360,14 +366,16 @@ Der "Generate Preset" Button in der Drift-Tabelle (`sync.html:9`) ist ein reiner
 
 **Fix (Sync Hub Redesign, 2026-09-02):** Icon-Button ersetzt durch Text-Button **"Push to Cloud"** in der Drift-Tabelle (`sync_hub.html:60`). Zusätzlich per-Profil "Push to Printer" und "Pull from Cloud" Buttons mit Text-Labels.
 
-### V8: Sync-Seite vs. Dashboard — doppelte Drift-Anzeige
+### V8: Sync-Seite vs. Dashboard — doppelte Drift-Anzeige — **GEFIXT (Kategorie C, 2026-09-03, per Entscheidung)**
 
 Sowohl das Dashboard (`dashboard.html:29-34`) als auch die Sync-Seite (`sync.html:9`) zeigen eine Drift-Tabelle mit Printer DB + Orca preset Status-Spalten. Beide rufen `drift_status()` auf, was `refresh_preset_drift(adopt=False)` triggert (read-only — mutiert keine Catalog-Daten).
 
 **Problem:** 
-- Zwei Orte zeigen dieselben Informationen — aber das Dashboard ist eine Übersicht und die Sync-Seite ist die Aktionsseite
-- Beide lösen Cloud-API-Calls aus beim Laden
-- Keine klare Trennung: Dashboard = "sehen", Sync = "handeln" — aber beide zeigen identische Tabellen
+- ~~Zwei Orte zeigen dieselben Informationen — aber das Dashboard ist eine Übersicht und die Sync-Seite ist die Aktionsseite~~
+- ~~Beide lösen Cloud-API-Calls aus beim Laden~~
+- ~~Keine klare Trennung: Dashboard = "sehen", Sync = "handeln" — aber beide zeigen identische Tabellen~~
+
+**Fix-Notiz (Kategorie C, 2026-09-03):** Per Produkt-Entscheidung (2026-09-03) bleibt der automatische Cloud-Call beim Dashboard-Laden bewusst (Badge-Frische). Die Sichtbarkeit wird durch den statischen Live-Check-Hinweis (C3a) sichergestellt. Die doppelte Drift-Anzeige wird akzeptiert: Dashboard = Übersicht, Sync Hub = Aktionsseite.
 
 ### V9: Import-Orca-Seite: "Sync now" Button mit hardcoded PID — **GEFIXT**
 
@@ -431,13 +439,13 @@ target.status = "in_sync" if actual_hash == target.expected_hash else "drift"
 
 ### Kategorie B: UI-Konsolidierung — weniger Orte, klarere Trennung — **umgesetzt (Sync Hub Redesign)**
 - ~~"Sync from Orca" auf einen Ort reduzieren~~ — **umgesetzt** (Bulk-Pull nur noch im Sync Hub)
-- Dashboard = reine Übersicht (keine auto Cloud-Calls); Sync-Seite = Aktionsseite — *offen* (Dashboard löst noch Cloud-Calls aus)
+- ~~Dashboard = reine Übersicht (keine auto Cloud-Calls)~~; Sync-Seite = Aktionsseite — **entschieden (2026-09-03):** Cloud-Call bleibt bewusst (Badge-Frische), Sichtbarkeit über C3a-Hinweis
 - ~~Import-Orca und Migration als Tabs auf einer "Data Import" Seite zusammenfassen~~ — **umgesetzt** (`/import` mit Tabs)
 
-### Kategorie C: Auto-Trigger sichtbar machen
-- Auto `refresh_preset_drift` bei Seitenladen: Lade-Indikator + Hinweis "Checking Cloud sync..." — *offen*
-- Auto `verify` nach `push`: Im Push-Toast anzeigen ("Verify scheduled...") — *offen*
-- Auto `github_backup` nach `generate_preset`: Im Preset-Toast anzeigen ("Backup scheduled...") — *offen*
+### Kategorie C: Auto-Trigger sichtbar machen — **umgesetzt (Kategorie C, 2026-09-03, commit 4a20ae2)**
+- ~~Auto `refresh_preset_drift` bei Seitenladen: Lade-Indikator + Hinweis "Checking Cloud sync..."~~ — **umgesetzt:** Statischer Hinweis "Status refresh includes a live check against Orca Cloud." unter beiden Drift-Tabellen (statischer Hinweis statt Lade-Indikator — bewusste Entscheidung)
+- ~~Auto `verify` nach `push`: Im Push-Toast anzeigen ("Verify scheduled...")~~ — **umgesetzt:** Push-Toasts enden mit "— verifying..."
+- ~~Auto `github_backup` nach `generate_preset`: Im Preset-Toast anzeigen ("Backup scheduled...")~~ — **umgesetzt:** "Preset pushed — GitHub backup scheduled" (wenn Backup enqueued)
 - ~~Auto `nozzle_temperature` write-back: Warnung oder Bestätigung, bevor Catalog-Daten überschrieben werden~~ — **behoben (E3):** Write-back passiert nur noch bei explizitem "Sync from Orca"-Klick (adopt=True), nicht mehr beim Seitenladen
 
 ### Kategorie D: Per-Profil-Aktionen vereinheitlichen — **umgesetzt (Sync Hub Redesign)**
@@ -466,4 +474,4 @@ target.status = "in_sync" if actual_hash == target.expected_hash else "drift"
 | Profiles-Seite: "Sync status →" Link statt "Sync from Orca" Button | **umgesetzt** | V2 |
 | Task-4 Minors (M1-M7) + Task-5 Minors (M1/M2) | *deferred* | — |
 
-**Test-Stand:** 427 Tests grün (`scripts/test.sh`), inkl. Tests für E2 (SyncTarget-Erstellung + in_sync nach Import), E3 (read-only drift check + adopt-Verhalten), Sync Hub Redesign (Sync Hub UI, Import-Tabs, per-Profil Actions, Route-Removal 404s), und Back-Button-Navigation (Scan ↔ Review).
+**Test-Stand:** 427 Tests grün (`scripts/test.sh`), inkl. Tests für E2 (SyncTarget-Erstellung + in_sync nach Import), E3 (read-only drift check + adopt-Verhalten), Sync Hub Redesign (Sync Hub UI, Import-Tabs, per-Profil Actions, Route-Removal 404s), Back-Button-Navigation (Scan ↔ Review), und TestAutoTrigger in `tests/test_github_backup.py` (Assertions für `github_backup_scheduled`-Flag).

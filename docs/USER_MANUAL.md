@@ -274,7 +274,9 @@ and pushes it directly to Orca Cloud.
 3. Click the generate preset button (sliders icon) on that row.
 4. The app builds the preset from the catalog profile and the selected
    [preset source](#preset-source-template-picker) template, then pushes
-   it to Orca Cloud. A toast confirms "Preset pushed to Orca Cloud".
+   it to Orca Cloud. A toast confirms "Preset pushed to Orca Cloud", or
+   "Preset pushed — GitHub backup scheduled" when a GitHub backup was
+   enqueued.
 
 The preset appears in OrcaSlicer once it syncs from Orca Cloud. Open
 OrcaSlicer, tune the print settings as needed, then use

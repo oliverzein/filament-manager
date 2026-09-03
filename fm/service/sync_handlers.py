@@ -1021,12 +1021,14 @@ def refresh_preset_drift(
             continue
 
         # Detect duplicate cloud presets (H-B: OrcaSlicer desktop
-        # re-uploads its own copy with a different resource id).  The
-        # app cannot prevent this — surface it as a drift-detail warning
-        # so the user knows to remove the duplicate in OrcaSlicer, not
-        # in the cloud.  Match case-insensitively by name OR by
-        # filament_id (the duplicate may differ in name casing but
-        # share the same filament_id).
+        # re-uploads its own copy with a different resource id, or an
+        # old orphan survived a partial web-UI deletion).  The app
+        # cannot know which origin applies, so surface it as a
+        # neutral drift-detail warning directing the user to check
+        # both the Orca Cloud web UI and OrcaSlicer desktop.
+        # Match case-insensitively by name OR by filament_id (the
+        # duplicate may differ in name casing but share the same
+        # filament_id).
         preset_name = preset.get("name", "")
         preset_fid = preset.get("filament_id", "")
         name_key = preset_name.lower()
@@ -1048,7 +1050,8 @@ def refresh_preset_drift(
                 f"{len(dup_ids)} cloud presets share the name "
                 f"'{preset_name}' or filament_id '{preset_fid}' "
                 f"(ids: {', '.join(dup_ids)}). "
-                f"Remove the duplicate in OrcaSlicer desktop, not in the cloud."
+                f"Remove the stale copy — check the Orca Cloud web UI "
+                f"and OrcaSlicer desktop (whichever holds it)."
             )
 
         actual_hash = canonical_hash({

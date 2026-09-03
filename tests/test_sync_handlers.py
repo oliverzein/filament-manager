@@ -1039,6 +1039,7 @@ class TestPresetDriftComputation:
         assert "2 cloud presets share the name" in state["_drift_detail"]
         assert "app-uuid" in state["_drift_detail"]
         assert "orcaslicer-uuid" in state["_drift_detail"]
+        assert "Remove the stale copy" in state["_drift_detail"]
         # expected_hash unchanged (read-only drift check)
         assert target.expected_hash == expected_hash
 

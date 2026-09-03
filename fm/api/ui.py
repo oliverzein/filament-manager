@@ -951,7 +951,7 @@ def _push_modal_fragment(job_id: int, status: str, result: dict | None,
                 f'<div class="spinner spinner-lg"></div>'
                 f'<p>Verifying…</p>'
                 f'<p class="push-modal-sub">Push done — checking printer DB</p>'
-                f'</div>'
+                f'<button class="button button-ghost" onclick="closePushModal()">Dismiss</button>'
                 f'<div hx-get="/sync/push-modal/{job_id}" hx-trigger="every 1.5s" '
                 f'hx-target="#push-modal-body" hx-swap="innerHTML"></div>'
             )
@@ -1049,6 +1049,7 @@ def sync_push_modal_poll(job_id: int, db: DbSession) -> HTMLResponse:
     if job is None:
         return HTMLResponse(
             '<div class="push-modal-state push-modal-error">'
+            '<div class="push-modal-icon push-modal-icon-err">✗</div>'
             '<h3>Job not found</h3>'
             '<button class="button button-secondary" onclick="closePushModal()">Close</button>'
             '</div>'

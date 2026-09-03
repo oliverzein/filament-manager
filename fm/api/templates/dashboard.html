@@ -30,7 +30,7 @@
       <div class="panel-heading"><div><p class="eyebrow">Connections</p><h2>Sync drift</h2></div><a href="/sync" class="text-link">Manage sync →</a></div>
       <p class="target-note">Status refresh includes a live check against Orca Cloud.</p>
       {% if drift %}<div class="table-wrap"><table><thead><tr><th>Profile</th><th>Printer</th><th>Orca</th></tr></thead><tbody>
-      {% for d in drift %}<tr><td><span class="cell-main">{{ d.brand }} {{ d.name }}</span></td><td><span class="status-badge status-{{ d.printer_db.status }}"{% if d.printer_db.detail %} title="{{ d.printer_db.detail }}"{% endif %}>{{ d.printer_db.status | replace('_', ' ') }}</span></td><td><span class="status-badge status-{{ d.orca_preset.status }}">{{ d.orca_preset.status | replace('_', ' ') }}</span></td></tr>{% endfor %}
+      {% for d in drift %}<tr><td><span class="cell-main">{{ d.brand }} {{ d.name }}</span></td><td><span class="status-badge status-{{ d.printer_db.status }}"{% if d.printer_db.detail %} title="{{ d.printer_db.detail }}"{% endif %}>{{ d.printer_db.status | replace('_', ' ') }}</span></td><td><span class="status-badge status-{{ d.orca_preset.status }}"{% if d.orca_preset.detail %} title="{{ d.orca_preset.detail }}"{% endif %}>{{ d.orca_preset.status | replace('_', ' ') }}</span></td></tr>{% endfor %}
       </tbody></table></div>{% else %}<div class="empty-state compact"><p>No profiles tracked.</p></div>{% endif %}
     </section>
   </div>

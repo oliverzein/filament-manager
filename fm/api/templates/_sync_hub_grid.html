@@ -18,7 +18,7 @@
             <tr>
               <td><span class="cell-main">{{ d.name if d.name.lower().startswith(d.brand.lower()) else d.brand ~ ' ' ~ d.name }}</span></td>
               <td><span class="status-badge status-{{ d.printer_db.status | status_class }}"{% if d.printer_db.detail %} title="{{ d.printer_db.detail }}"{% endif %}>{{ d.printer_db.status | replace('_', ' ') }}</span></td>
-              <td><span class="status-badge status-{{ d.orca_preset.status | status_class }}">{{ d.orca_preset.status | replace('_', ' ') }}</span></td>
+              <td><span class="status-badge status-{{ d.orca_preset.status | status_class }}"{% if d.orca_preset.detail %} title="{{ d.orca_preset.detail }}"{% endif %}>{{ d.orca_preset.status | replace('_', ' ') }}</span></td>
               <td class="actions-cell">
                 <div class="row-actions">
                   {% if d.printer_db_id %}

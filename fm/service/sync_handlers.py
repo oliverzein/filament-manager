@@ -945,6 +945,21 @@ def refresh_preset_drift(
     by_cloud_id = {upsert.get("id"): upsert for upsert in pull_result.get("upserts", [])
                    if (upsert.get("content") or {}).get("type") == "filament"}
     by_name = {p.get("name", ""): p for p in presets}
+    # Detect duplicate cloud presets (H-B: OrcaSlicer desktop re-uploads
+    # its own copy with a different resource id).  Match case-insensitively
+    # by name AND by filament_id — the duplicate may differ in name casing
+    # (e.g. 'SUNLU PLA+' vs 'Sunlu PLA+') but share the same filament_id.
+    _name_counts_lower: dict[str, int] = {}
+    _fid_counts: dict[str, int] = {}
+    for up in pull_result.get("upserts", []):
+        content = up.get("content") or {}
+        if content.get("type") == "filament":
+            n = (content.get("name") or up.get("name") or "").lower()
+            if n:
+                _name_counts_lower[n] = _name_counts_lower.get(n, 0) + 1
+            fid = content.get("filament_id") or ""
+            if fid:
+                _fid_counts[fid] = _fid_counts.get(fid, 0) + 1
 
     # Process existing orca_preset targets only
     stmt = select(SyncTarget).where(SyncTarget.kind == "orca_preset")
@@ -1005,6 +1020,37 @@ def refresh_preset_drift(
         if preset is None:
             continue
 
+        # Detect duplicate cloud presets (H-B: OrcaSlicer desktop
+        # re-uploads its own copy with a different resource id).  The
+        # app cannot prevent this — surface it as a drift-detail warning
+        # so the user knows to remove the duplicate in OrcaSlicer, not
+        # in the cloud.  Match case-insensitively by name OR by
+        # filament_id (the duplicate may differ in name casing but
+        # share the same filament_id).
+        preset_name = preset.get("name", "")
+        preset_fid = preset.get("filament_id", "")
+        name_key = preset_name.lower()
+        name_dups = _name_counts_lower.get(name_key, 0)
+        fid_dups = _fid_counts.get(preset_fid, 0) if preset_fid else 0
+        if name_dups > 1 or fid_dups > 1:
+            dup_ids = [
+                up.get("id") for up in pull_result.get("upserts", [])
+                if (up.get("content") or {}).get("type") == "filament"
+                and (
+                    ((up.get("content") or {}).get("name") or up.get("name") or "").lower() == name_key
+                    or (preset_fid and (up.get("content") or {}).get("filament_id") == preset_fid)
+                )
+            ]
+            # Deduplicate ids while preserving order
+            seen: set[str] = set()
+            dup_ids = [i for i in dup_ids if not (i in seen or seen.add(i))]
+            preset["_drift_detail"] = (
+                f"{len(dup_ids)} cloud presets share the name "
+                f"'{preset_name}' or filament_id '{preset_fid}' "
+                f"(ids: {', '.join(dup_ids)}). "
+                f"Remove the duplicate in OrcaSlicer desktop, not in the cloud."
+            )
+
         actual_hash = canonical_hash({
             "name": preset.get("name"),
             "filament_id": preset.get("filament_id"),
@@ -1037,6 +1083,10 @@ def refresh_preset_drift(
             target.status = (
                 "in_sync" if actual_hash == target.expected_hash else "drift"
             )
+
+        # Duplicate cloud presets → drift regardless of hash match
+        if preset.get("_drift_detail"):
+            target.status = "drift"
 
         target.actual_state = json.dumps(preset)
         target.last_synced_at = _now()

@@ -196,10 +196,19 @@ def drift_status(request: Request, db: DbSession) -> list[dict]:
                     "detail": live[p.id]["detail"],
                 }
             elif target:
+                # Extract drift detail (e.g. duplicate-cloud-preset warning)
+                # stored by refresh_preset_drift inside actual_state JSON.
+                detail = ""
+                if target.actual_state:
+                    try:
+                        state = json.loads(target.actual_state)
+                        detail = state.get("_drift_detail", "") or ""
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        pass
                 entry[kind] = {
                     "status": target.status,
                     "expected_hash": target.expected_hash,
-                    "detail": "",
+                    "detail": detail,
                 }
             elif kind == "printer_db" and _is_stock_rfid(p):
                 entry[kind] = {"status": "stock", "expected_hash": None, "detail": ""}

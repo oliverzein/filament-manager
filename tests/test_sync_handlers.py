@@ -963,6 +963,128 @@ class TestPresetDriftComputation:
         # Status remains as set by handle_generate_preset (in_sync on push success)
         assert target.status == "in_sync"
 
+    def test_duplicate_cloud_presets_triggers_drift_with_detail(
+        self, inmemory_session, cfg, monkeypatch
+    ):
+        """When multiple cloud presets share the profile's name (H-B:
+        OrcaSlicer desktop re-uploads its own copy), refresh_preset_drift
+        must mark the target as drift and store a _drift_detail warning
+        in actual_state — even when the hash matches.
+        """
+        s = inmemory_session
+        profile = _make_profile(s, name="Sunlu PLA+ Optimized")
+        monkeypatch.setattr(sh, "_preset_template_factory",
+                            lambda p: _preset_template())
+        fake_client = MagicMock()
+        fake_client.cloud_id.return_value = "app-uuid"
+        fake_client.sync_push.return_value = {"updated_time": 12345, "created_time": 12345}
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: fake_client)
+        sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
+
+        # Capture expected_hash set by handle_generate_preset
+        target = s.scalars(select(SyncTarget).where(
+            SyncTarget.profile_id == profile.id,
+            SyncTarget.kind == "orca_preset",
+        )).first()
+        expected_hash = target.expected_hash
+
+        # sync_pull returns TWO filament presets with different name casing
+        # but the same filament_id — one from the app (matches cloud_id),
+        # one from OrcaSlicer desktop (different id, uppercase name).
+        # This mirrors the live evidence: 'SUNLU PLA+ Optimized' vs
+        # 'Sunlu PLA+ Optimized', both with filament_id 'Pbbf5010'.
+        fake_client.sync_pull.return_value = {
+            "next_cursor": 0,
+            "upserts": [
+                {
+                    "id": "app-uuid",
+                    "name": "Sunlu PLA+ Optimized",
+                    "content": {
+                        "type": "filament",
+                        "name": "Sunlu PLA+ Optimized",
+                        "filament_type": "PLA",
+                        "filament_vendor": "Sunlu",
+                        "filament_id": profile.filament_id,
+                        "nozzle_temperature": "215",
+                    },
+                },
+                {
+                    "id": "orcaslicer-uuid",
+                    "name": "SUNLU PLA+ Optimized",
+                    "content": {
+                        "type": "filament",
+                        "name": "SUNLU PLA+ Optimized",
+                        "filament_type": "PLA",
+                        "filament_vendor": "SUNLU",
+                        "filament_id": profile.filament_id,
+                        "nozzle_temperature": "215",
+                    },
+                },
+            ],
+            "deletes": [],
+        }
+
+        sh.refresh_preset_drift(s)
+
+        target = s.scalars(select(SyncTarget).where(
+            SyncTarget.profile_id == profile.id,
+            SyncTarget.kind == "orca_preset",
+        )).first()
+        # Duplicate cloud presets → drift regardless of hash match
+        assert target.status == "drift"
+        # actual_state contains the drift detail warning
+        assert target.actual_state is not None
+        state = json.loads(target.actual_state)
+        assert "_drift_detail" in state
+        assert "2 cloud presets share the name" in state["_drift_detail"]
+        assert "app-uuid" in state["_drift_detail"]
+        assert "orcaslicer-uuid" in state["_drift_detail"]
+        # expected_hash unchanged (read-only drift check)
+        assert target.expected_hash == expected_hash
+
+    def test_single_cloud_preset_no_drift_detail(
+        self, inmemory_session, cfg, monkeypatch
+    ):
+        """When only one cloud preset has the profile's name, no
+        _drift_detail is set and status follows the normal hash check.
+        """
+        s = inmemory_session
+        profile = _make_profile(s, name="Sunlu PLA+")
+        monkeypatch.setattr(sh, "_preset_template_factory",
+                            lambda p: _preset_template())
+        fake_client = MagicMock()
+        fake_client.cloud_id.return_value = "test-cloud-uuid"
+        fake_client.sync_push.return_value = {"updated_time": 12345, "created_time": 12345}
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: fake_client)
+        sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
+
+        fake_client.sync_pull.return_value = {
+            "next_cursor": 0,
+            "upserts": [{
+                "id": "test-cloud-uuid",
+                "name": "Sunlu PLA+",
+                "content": {
+                    "type": "filament",
+                    "name": "Sunlu PLA+",
+                    "filament_type": "PLA",
+                    "filament_vendor": "Sunlu",
+                    "filament_id": profile.filament_id,
+                    "nozzle_temperature": "215",
+                },
+            }],
+            "deletes": [],
+        }
+
+        sh.refresh_preset_drift(s)
+
+        target = s.scalars(select(SyncTarget).where(
+            SyncTarget.profile_id == profile.id,
+            SyncTarget.kind == "orca_preset",
+        )).first()
+        assert target.status == "in_sync"
+        state = json.loads(target.actual_state)
+        assert "_drift_detail" not in state
+
 
 class TestOrphanRemoval:
     """[P2] Finding 5: _rebuild_printer_db must remove 99xxx entries with no

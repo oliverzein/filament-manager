@@ -361,6 +361,25 @@ class TestPullEndpoint:
         r = client.post("/api/sync/pull/9999")
         assert r.status_code == 404
 
+    def test_bulk_pull_error_without_orca_connection(self, client, monkeypatch):
+        """POST /api/sync/pull returns error payload when Orca Cloud is not connected."""
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
+        r = client.post("/api/sync/pull")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "error"
+        assert data["result"] == "Orca Cloud not connected — set up the connection in Settings"
+
+    def test_per_profile_pull_error_without_orca_connection(self, client, monkeypatch):
+        """POST /api/sync/pull/{profile_id} returns error payload when Orca Cloud is not connected."""
+        p = _make_profile(client)
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
+        r = client.post(f"/api/sync/pull/{p['id']}")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "error"
+        assert data["result"] == "Orca Cloud not connected — set up the connection in Settings"
+
 # ---------------------------------------------------------------------------
 # Drift status endpoint
 # ---------------------------------------------------------------------------

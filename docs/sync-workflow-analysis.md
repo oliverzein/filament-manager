@@ -409,11 +409,13 @@ Die Sync-Seite hat nur **"Push all profiles"** — es gibt keinen per-Profil Pus
 
 **Fix (Sync Hub Redesign, 2026-09-02):** Per-Profil **"Push to Printer"** Button in der Drift-Tabelle hinzugefügt (`sync_hub.html:56`). Nur sichtbar wenn Profil `printer_db_id` hat. Bulk-Push bleibt als "Push to Printer" in der Printer DB Card.
 
-### V12: Settings-Seite: Orca Cloud "Connect" vs. "Sync from Orca" — zwei verschiedene Dinge
+### V12: Settings-Seite: Orca Cloud "Connect" vs. "Sync from Orca" — zwei verschiedene Dinge — **GEFIXT (2026-09-03)**
 
 Die Settings-Seite hat einen **"Connect"** Button (`settings.html:27`), der die Orca Cloud Authentifizierung (Login) durchführt. Die Profiles-Seite hat einen **"Sync from Orca"** Button, der Presets pullt.
 
-**Problem:** "Connect" und "Sync" sind beide Cloud-bezogen, aber semantisch verschieden (Auth vs. Data-Pull). Ein Benutzer könnte "Connect" drücken und erwarten, dass Presets synchronisiert werden. Umgekehrt könnte "Sync from Orca" fehlschlagen, wenn nicht vorher "Connect" in Settings gemacht wurde — aber die Fehlermeldung ist nicht kontextuell.
+**Problem:** "Connect" und "Sync" sind beide Cloud-bezogen, aber semantisch verschieden (Auth vs. Data-Pull). Ein Benutzer könnte "Connect" drücken und erwarten, dass Presets synchronisiert werden. Umgekehrt konnte "Sync from Orca" (bzw. "Pull from Cloud") fehlschlagen, wenn nicht vorher "Connect" in Settings gemacht wurde — aber die Fehlermeldung war nicht kontextuell: `refresh_preset_drift` kehrte still zurück, wenn `_orca_client_factory()` None zurückgab, und die Pull-Endpunkte sowie die Fragment-Route zeigten fälschlich Erfolg.
+
+**Fix-Notiz (2026-09-03):** Beide Pull-Endpunkte (`POST /api/sync/pull` und `POST /api/sync/pull/{profile_id}` in `fm/api/sync.py`) prüfen jetzt `_orca_client_factory()` vor dem Aufruf von `refresh_preset_drift`. Wenn None, wird `{"status": "error", "result": "Orca Cloud not connected — set up the connection in Settings"}` zurückgegeben (HTTP 200 — die Toast-Logik wertet `status` im Body aus). Die Fragment-Route `POST /profiles/{pid}/sync-from-orca` (`fm/api/ui.py`) gibt das Fragment ohne Success-Toast und mit sichtbarer Fehlermeldung (`alert alert-danger`) zurück. Push to Cloud (W3) hatte bereits die Fehlermeldung "Orca Cloud not configured — set up the connection in Settings" (`sync_handlers.py:664-667`); der Sync-Hub-Toast für Push-to-Cloud wurde korrigiert, damit `r.result.error` (statt `r.result` als Objekt) im Fehlertext ausgegeben wird.
 
 ### V13: `refresh_preset_drift` überschreibt Catalog-Daten still — **GEFIXT (teilweise)**
 
@@ -429,7 +431,9 @@ target.status = "in_sync" if actual_hash == target.expected_hash else "drift"
 
 **Fix (E3, 2026-09-02):** Bisher wurde `nozzle_temperature` bei jedem Aufruf (auch beim automatischen `drift_status()`-Seitenladen) aus Cloud zurückgeschrieben — ein stiller Catalog-Mutation. Jetzt ist `adopt` ein keyword-only Parameter (`adopt: bool = False`); `drift_status()` nutzt den Default (read-only), die sync-from-orca-Routen übergeben `adopt=True`. Der Write-back passiert nur noch bei explizitem Benutzer-Klick.
 
-**Verbleibendes Problem:** Beim expliziten "Sync from Orca"-Klick wird `nozzle_temperature` noch immer ohne Warnung überschrieben. Das ist aber jetzt eine bewusste Benutzeraktion, kein stiller Side-Effect beim Seitenladen.
+~~**Verbleibendes Problem:** Beim expliziten "Sync from Orca"-Klick wird `nozzle_temperature` noch immer ohne Warnung überschrieben. Das ist aber jetzt eine bewusste Benutzeraktion, kein stiller Side-Effect beim Seitenladen.~~
+
+**Fix-Notiz (2026-09-03):** Alle Adopt-Buttons (per-Profil "Pull from Cloud" in der Drift-Tabelle, Bulk "Pull from Cloud (all)" in der Cloud presets Card, und "Pull from Cloud" im Orca-Fragment) tragen jetzt `hx-confirm`-Dialoge, die den `nozzle_temperature`-Overwrite ankündigen. Der Overwrite bleibt eine bewusste Benutzeraktion, ist aber nun nicht mehr unangekündigt.
 
 ### V14: Profile-Delete mit Cloud-Cleanup vs. Generate-Preset — gegenläufige Cloud-Operationen
 

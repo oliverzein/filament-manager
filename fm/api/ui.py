@@ -502,6 +502,37 @@ def profile_delete_form(
 @router.post("/profiles/{pid}/sync-from-orca", response_class=HTMLResponse)
 def sync_from_orca(pid: int, request: Request, db: DbSession) -> HTMLResponse:
     """Pull Orca Cloud presets synchronously and return the fragment."""
+    if sync_handlers._orca_client_factory() is None:
+        profile = db.get(Profile, pid)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="profile not found")
+        target = db.scalars(
+            select(SyncTarget).where(
+                SyncTarget.profile_id == pid,
+                SyncTarget.kind == "orca_preset",
+            )
+        ).first()
+        orca_data = None
+        last_synced = None
+        if target and target.actual_state:
+            try:
+                orca_data = json.loads(target.actual_state)
+            except (json.JSONDecodeError, ValueError):
+                orca_data = None
+        if target and target.last_synced_at:
+            last_synced = _fmt_local(target.last_synced_at)
+        if profile.template_override:
+            template_name = profile.template_override
+        else:
+            template_name = f"Generic {profile.type} defaults"
+        return _templates(request).TemplateResponse(
+            request, "orca_fragment.html",
+            {"pid": pid, "orca_data": orca_data, "last_synced": last_synced,
+             "syncing": False, "stale": False, "job_id": None,
+             "synced_success": False, "template_name": template_name,
+             "target_status": target.status if target else None,
+             "orca_error": "Orca Cloud not connected — set up the connection in Settings"},
+        )
     refresh_preset_drift(db, adopt=True)
     db.flush()
 

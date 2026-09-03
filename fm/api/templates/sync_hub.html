@@ -58,8 +58,8 @@
                     {% else %}
                     <span class="muted">Not linked</span>
                     {% endif %}
-                    <button class="button button-ghost" hx-post="/api/sync/preset/{{ d.profile_id }}" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Push failed: '+(r.result||'unknown error'),true)}else{if(r.result&&r.result.github_backup_scheduled){orcaToast('Preset pushed — GitHub backup scheduled',false)}else{orcaToast('Preset pushed to Orca Cloud',false)}}}else{orcaToast('Request failed',true)}">Push to Cloud</button>
-                    <button class="button button-ghost" hx-post="/api/sync/pull/{{ d.profile_id }}" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Pull failed: '+(r.result||'unknown error'),true)}else{orcaToast('Pulled from Orca Cloud',false)}}else{orcaToast('Request failed',true)}">Pull from Cloud</button>
+                    <button class="button button-ghost" hx-post="/api/sync/preset/{{ d.profile_id }}" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Push failed: '+(r.result&&r.result.error||'unknown error'),true)}else{if(r.result&&r.result.github_backup_scheduled){orcaToast('Preset pushed — GitHub backup scheduled',false)}else{orcaToast('Preset pushed to Orca Cloud',false)}}}else{orcaToast('Request failed',true)}">Push to Cloud</button>
+                    <button class="button button-ghost" hx-post="/api/sync/pull/{{ d.profile_id }}" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-confirm="Pulling adopts the cloud baseline and overwrites this profile's nozzle temperature with the cloud value. Continue?" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Pull failed: '+(r.result||'unknown error'),true)}else{orcaToast('Pulled from Orca Cloud',false)}}else{orcaToast('Request failed',true)}">Pull from Cloud</button>
                   </div>
                 </td>
               </tr>
@@ -113,7 +113,7 @@
         </div>
         <span class="target-summary">{{ ns.orca_sync }} in sync, {{ ns.orca_attention }} need attention</span>
         <p><strong>Pull from Cloud</strong> adopts the cloud baseline and writes temperatures back to the catalog. <strong>Push to Cloud</strong> generates a fresh preset from catalog values.</p>
-        <button class="button button-secondary" hx-post="/api/sync/pull" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Pull failed: '+(r.result||'unknown error'),true)}else{orcaToast('Pulled all presets from Orca Cloud',false)}}else{orcaToast('Request failed',true)}">Pull from Cloud (all)</button>
+        <button class="button button-secondary" hx-post="/api/sync/pull" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-confirm="Pulling adopts the cloud baseline and overwrites all profiles' nozzle temperatures with the cloud values. Continue?" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Pull failed: '+(r.result||'unknown error'),true)}else{orcaToast('Pulled all presets from Orca Cloud',false)}}else{orcaToast('Request failed',true)}">Pull from Cloud (all)</button>
       </section>
 
       <section class="panel target-card" aria-labelledby="backup-target-heading">

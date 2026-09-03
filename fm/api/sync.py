@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from ..config import Config
 from ..db import SessionLocal
 from ..models import Job, Profile, SyncTarget
-from ..service import jobs
+from ..service import jobs, sync_handlers
 from ..service.sync_handlers import compute_printer_db_drift, refresh_preset_drift, register_handlers, _is_stock_rfid  # noqa: F401 — register_handlers side-effect import stays
 
 router = APIRouter(prefix="/api", tags=["sync"])
@@ -136,6 +136,9 @@ def sync_backup_github(request: Request, db: DbSession) -> dict:
 @router.post("/sync/pull")
 def sync_pull_all(db: DbSession) -> dict:
     """Pull all Orca Cloud presets and adopt (replaces /profiles/sync-from-orca)."""
+    if sync_handlers._orca_client_factory() is None:
+        return {"status": "error",
+                "result": "Orca Cloud not connected — set up the connection in Settings"}
     refresh_preset_drift(db, adopt=True)
     db.flush()
     return {"status": "ok"}
@@ -150,6 +153,9 @@ def sync_pull_profile(profile_id: int, db: DbSession) -> dict:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="profile not found",
         )
+    if sync_handlers._orca_client_factory() is None:
+        return {"status": "error",
+                "result": "Orca Cloud not connected — set up the connection in Settings"}
     refresh_preset_drift(db, adopt=True, profile_id=profile_id)
     db.flush()
     return {"status": "ok", "profile_id": profile_id}

@@ -12,6 +12,7 @@ from starlette.testclient import TestClient
 
 from fm.db import SessionLocal
 from fm.models import Profile, SyncTarget
+from fm.service import sync_handlers as sh
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +281,31 @@ def test_orca_fragment_no_status_line_without_target(client, seeded_profile):
     assert r.status_code == 200
     assert "Matches the catalog" not in r.text
     assert "Cloud values differ" not in r.text
+
+
+# ---------------------------------------------------------------------------
+# V12 — Fragment error note when pulling without Orca Cloud connection
+# ---------------------------------------------------------------------------
+
+def test_sync_from_orca_error_note_without_connection(client, seeded_profile, monkeypatch):
+    """POST /profiles/{pid}/sync-from-orca renders error note (not success toast)
+    when Orca Cloud is not connected."""
+    _add_orca_target(seeded_profile["id"], "in_sync", _PRESET_JSON)
+    monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
+    r = client.post(f"/profiles/{seeded_profile['id']}/sync-from-orca")
+    assert r.status_code == 200
+    assert "Orca Cloud not connected — set up the connection in Settings" in r.text
+    assert "Synced from Orca Cloud" not in r.text  # no success toast
+
+
+def test_sync_from_orca_error_note_without_connection_no_target(client, seeded_profile, monkeypatch):
+    """POST /profiles/{pid}/sync-from-orca renders error note in empty-state branch
+    when no SyncTarget exists and Orca Cloud is not connected."""
+    monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
+    r = client.post(f"/profiles/{seeded_profile['id']}/sync-from-orca")
+    assert r.status_code == 200
+    assert "Orca Cloud not connected — set up the connection in Settings" in r.text
+    assert "Synced from Orca Cloud" not in r.text
     assert "No baseline yet" not in r.text
 
 def test_profiles_sync_from_orca_route_removed(client):

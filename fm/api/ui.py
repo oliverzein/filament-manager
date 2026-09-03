@@ -535,7 +535,8 @@ def sync_from_orca(pid: int, request: Request, db: DbSession) -> HTMLResponse:
         request, "orca_fragment.html",
         {"pid": pid, "orca_data": orca_data, "last_synced": last_synced,
          "syncing": False, "stale": False, "job_id": None,
-         "synced_success": True, "template_name": template_name},
+         "synced_success": True, "template_name": template_name,
+         "target_status": target.status if target else None},
     )
 
 
@@ -580,6 +581,7 @@ def orca_fragment(
             "stale": False,
             "job_id": None,
             "template_name": template_name,
+            "target_status": target.status if target else None,
         },
     )
 

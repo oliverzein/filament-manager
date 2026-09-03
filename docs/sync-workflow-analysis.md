@@ -385,11 +385,21 @@ Sowohl das Dashboard (`dashboard.html:29-34`) als auch die Sync-Seite (`sync.htm
 
 **Code-Ref:** `import_orca.html:25`, `ui.py:183` (`profiles_sync_from_orca` bulk-Route)
 
-### V10: Orca-Fragment im Profile-Edit zeigt "From Orca Cloud" — aber Daten können vom Generate-Preset stammen
+### V10: Orca-Fragment im Profile-Edit zeigt "From Orca Cloud" — Datenrichtung nicht erkennbar — **GEFIXT (2026-09-03)**
 
-Das Orca-Fragment (`orca_fragment.html`) zeigt Section "03 Print settings — From Orca Cloud". Die Daten kommen aus `SyncTarget.actual_state`, das sowohl von `refresh_preset_drift` (W4, Pull) als auch von `handle_generate_preset` (W3, Push) geschrieben wird.
+Das Orca-Fragment (`orca_fragment.html`) zeigt Section "03 Print settings — From Orca Cloud". Die Daten kommen aus `SyncTarget.actual_state`.
 
-**Problem:** Das Label "From Orca Cloud" impliziert, die Werte wurden aus der Cloud geholt. Aber nach einem "Generate Preset" (W3) stehen dort die Werte, die **vom Catalog zur Cloud gepusht** wurden. Die Richtung ist im UI nicht erkennbar.
+~~**Problem:** Das Label "From Orca Cloud" impliziert, die Werte wurden aus der Cloud geholt. Aber nach einem "Generate Preset" (W3) stehen dort die Werte, die **vom Catalog zur Cloud gepusht** wurden. Die Richtung ist im UI nicht erkennbar.~~
+
+**Korrektur der sachlichen Prämisse:** `actual_state` wird **NICHT** von `handle_generate_preset` (W3, Push) geschrieben — der Code zeigt, dass es ausschließlich von `refresh_preset_drift` (W4/W8, Pull-Pfade, `sync_handlers.py:953/899/906`) geschrieben wird (adopt- und read-only-Pfade; auf `None` gesetzt bei Cloud-Delete/kein Match). Das Fragment zeigt also immer den zuletzt **gepullten** Cloud-Status, niemals direkt gepushte Catalog-Werte.
+
+**Refresh-Verhalten:** `actual_state` wird bei jedem Laden der `/`- oder `/sync`-Seite aktualisiert (`drift_status` → `refresh_preset_drift`, read-only). Die Fragment-Route selbst (`/profiles/{pid}/orca-fragment`) führt kein Refresh durch — sie liest nur den bestehenden `SyncTarget`.
+
+**Fix-Notiz (2026-09-03):** Beide Fragment-Routen (`sync_from_orca` und `orca_fragment` in `ui.py`) übergeben jetzt `"target_status": target.status if target else None` an das Template. Im `{% if orca_data %}`-Zweig wird eine statusabhängige Source-Zeile zwischen Heading und Value-Grid gerendert (stilisiert wie `.orca-timestamp`):
+- `in_sync` → "Matches the catalog — as pushed or adopted."
+- `drift` → "Cloud values differ from the catalog — tuned in OrcaSlicer? Pull from Cloud adopts them."
+- `pending` → "No baseline yet — push to Cloud or pull once."
+- kein Target / None → keine zusätzliche Zeile (Empty-State-Branch abgedeckt).
 
 ### V11: Kein "Push to Printer" per Profil — nur "Push all" — **GEFIXT**
 

@@ -740,6 +740,24 @@ def _enqueue_github_backup(session: Session) -> bool:
     jobs.enqueue(session, "github_backup", {})
     return True
 
+def handle_pull(session: Session, config: Config, payload: dict) -> dict:
+    """Pull handler: refresh preset drift from Orca Cloud with adopt=True.
+
+    Wraps ``refresh_preset_drift`` so pull operations can run as background
+    jobs with modal polling — same UX as push/preset/backup.
+    """
+    client = _orca_client_factory()
+    if client is None:
+        raise ValueError(
+            "Orca Cloud not connected — set up the connection in Settings"
+        )
+    profile_id = payload.get("profile_id")
+    refresh_preset_drift(session, adopt=True, profile_id=profile_id)
+    return {
+        "status": "ok",
+        "profile_id": profile_id,
+    }
+
 
 def handle_github_backup(session: Session, config: Config, payload: dict) -> dict:
     """GitHub backup handler: pull all Orca Cloud presets, write each as a
@@ -1045,9 +1063,9 @@ def register_handlers() -> None:
     jobs.HANDLERS["push"] = handle_push
     jobs.HANDLERS["verify"] = handle_verify
     jobs.HANDLERS["generate_preset"] = handle_generate_preset
+    jobs.HANDLERS["pull"] = handle_pull
     jobs.HANDLERS["import_scan"] = handle_import_scan
     jobs.HANDLERS["github_backup"] = handle_github_backup
-
 
 # Auto-register on import so including the sync router wires handlers.
 register_handlers()

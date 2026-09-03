@@ -351,9 +351,9 @@ class TestPushModal:
         """The /sync page contains the modal overlay container and JS."""
         r = client.get("/sync")
         assert r.status_code == 200
-        assert b'id="push-modal"' in r.content
-        assert b'openPushModal' in r.content
-        assert b'closePushModal' in r.content
+        assert b'id="action-modal"' in r.content
+        assert b'openActionModal' in r.content
+        assert b'closeActionModal' in r.content
         assert b'spinner spinner-lg' in r.content
         assert b'role="dialog"' in r.content
         assert b'aria-modal="true"' in r.content
@@ -597,7 +597,7 @@ class TestPushModal:
         assert r.status_code == 200
         assert b"Unexpected state" in r.content
         assert b"weird_state" in r.content
-        assert b"closePushModal" in r.content
+        assert b"closeActionModal" in r.content
 
     def test_push_modal_running_has_dismiss_button(self, client, monkeypatch,
                                                     sample_db, tmp_path):
@@ -615,27 +615,382 @@ class TestPushModal:
         r = client.post("/sync/push-modal")
         assert r.status_code == 200
         assert b"Dismiss" in r.content
-        assert b"closePushModal" in r.content
+        assert b"closeActionModal" in r.content
         assert b"spinner spinner-lg" in r.content
 
     def test_push_modal_error_close_is_secondary(self):
         """Error-state Close button uses button-secondary, not button-primary."""
-        from fm.api.ui import _push_modal_fragment
-        html = _push_modal_fragment(1, "error", {"error": "SSH timeout"})
+        from fm.api.ui import _action_modal_fragment
+        html = _action_modal_fragment("push", 1, "error", {"error": "SSH timeout"})
         assert "Push failed" in html
         assert "button-secondary" in html
         assert "button-primary" not in html
-        assert "closePushModal" in html
+        assert "closeActionModal" in html
 
     def test_push_modal_unknown_status_escapes_and_has_close(self):
         """Unknown-status fallback HTML-escapes the status and has Close."""
-        from fm.api.ui import _push_modal_fragment
-        html = _push_modal_fragment(1, "weird<script>", None)
+        from fm.api.ui import _action_modal_fragment
+        html = _action_modal_fragment("push", 1, "weird<script>", None)
         assert "Unexpected state" in html
         assert "weird&lt;script&gt;" in html
         assert "<script>" not in html
         assert "button-secondary" in html
-        assert "closePushModal" in html
+        assert "closeActionModal" in html
+
+
+# ---------------------------------------------------------------------------
+# Preset modal — Push to Cloud via background job + modal polling
+# ---------------------------------------------------------------------------
+
+def _test_template(p):
+    return {
+        "type": "filament",
+        "filament_type": ["PLA"],
+        "name": "Generic PLA",
+        "from": "System",
+        "inherits": "",
+        "filament_vendor": ["Generic"],
+        "filament_density": "1.24",
+        "nozzle_temperature": ["210"],
+        "nozzle_temperature_range_low": ["190"],
+        "nozzle_temperature_range_high": ["240"],
+        "version": "2.4.0.3",
+    }
+
+
+def _fake_orca():
+    """Fake OrcaCloudClient for modal tests."""
+    from unittest.mock import MagicMock
+    c = MagicMock()
+    c.cloud_id.return_value = "test-cloud-uuid"
+    c.sync_push.return_value = {"updated_time": 12345, "created_time": 12345}
+    c.sync_pull.return_value = {"next_cursor": 0, "upserts": [], "deletes": []}
+    return c
+
+
+class TestPresetModal:
+    """Tests for the preset-modal (Push to Cloud) endpoints."""
+
+    def test_preset_modal_success(self, client, monkeypatch, sample_db, tmp_path):
+        """POST /sync/preset-modal returns a done fragment on success."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        monkeypatch.setattr(sh, "_preset_template_factory", _test_template)
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: _fake_orca())
+        monkeypatch.setattr(sh, "_github_client_factory", lambda: None)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.post("/sync/preset-modal", data={"profile_id": 1})
+        assert r.status_code == 200
+        assert b"Preset pushed" in r.content
+        assert b"closeActionModal" in r.content
+
+    def test_preset_modal_not_connected_error(self, client, monkeypatch,
+                                                sample_db, tmp_path):
+        """POST /sync/preset-modal shows error when Orca Cloud is not connected."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        monkeypatch.setattr(sh, "_preset_template_factory", _test_template)
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.post("/sync/preset-modal", data={"profile_id": 1})
+        assert r.status_code == 200
+        assert b"Push failed" in r.content
+        assert b"Orca Cloud not configured" in r.content
+
+    def test_preset_modal_done_triggers_hub_refresh(self, client, monkeypatch,
+                                                      sample_db, tmp_path):
+        """Done fragment includes a hub-fragment refresh div."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        monkeypatch.setattr(sh, "_preset_template_factory", _test_template)
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: _fake_orca())
+        monkeypatch.setattr(sh, "_github_client_factory", lambda: None)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.post("/sync/preset-modal", data={"profile_id": 1})
+        assert b"hub-fragment" in r.content
+
+    def test_preset_modal_poll_returns_fragment(self, client, monkeypatch,
+                                                  sample_db, tmp_path):
+        """GET /sync/preset-modal/{job_id} returns the job's current state."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        monkeypatch.setattr(sh, "_preset_template_factory", _test_template)
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: _fake_orca())
+        monkeypatch.setattr(sh, "_github_client_factory", lambda: None)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        # Use the API endpoint to get a job_id
+        r = client.post("/api/sync/preset/1")
+        job_id = r.json()["job_id"]
+        r = client.get(f"/sync/preset-modal/{job_id}")
+        assert r.status_code == 200
+        assert b"Preset pushed" in r.content
+
+    def test_preset_modal_running_shows_spinner(self, client, monkeypatch,
+                                                  sample_db, tmp_path):
+        """Queued job shows spinner + polling div."""
+        monkeypatch.setattr(jobs, "drain_background", lambda c: None)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        monkeypatch.setattr(sh, "_preset_template_factory", _test_template)
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: _fake_orca())
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.post("/sync/preset-modal", data={"profile_id": 1})
+        assert r.status_code == 200
+        assert b"spinner spinner-lg" in r.content
+        assert b"preset-modal" in r.content
+        assert b"closeActionModal" in r.content
+
+
+# ---------------------------------------------------------------------------
+# Pull modal — Pull from Cloud via background job + modal polling
+# ---------------------------------------------------------------------------
+
+class TestPullModal:
+    """Tests for the pull-modal (Pull from Cloud) endpoints."""
+
+    def test_pull_modal_success(self, client, monkeypatch):
+        """POST /sync/pull-modal returns a done fragment on success."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        orca = _fake_orca()
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: orca)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.post("/sync/pull-modal")
+        assert r.status_code == 200
+        assert b"Pull complete" in r.content
+        assert b"baseline adopted" in r.content
+        assert b"closeActionModal" in r.content
+
+    def test_pull_modal_not_connected_error(self, client, monkeypatch):
+        """POST /sync/pull-modal shows error when Orca Cloud is not connected."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
+        r = client.post("/sync/pull-modal")
+        assert r.status_code == 200
+        assert b"Pull failed" in r.content
+        assert b"Orca Cloud not connected" in r.content
+
+    def test_pull_modal_done_triggers_hub_refresh(self, client, monkeypatch):
+        """Done fragment includes a hub-fragment refresh div."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        orca = _fake_orca()
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: orca)
+        r = client.post("/sync/pull-modal")
+        assert b"hub-fragment" in r.content
+
+    def test_pull_modal_per_profile(self, client, monkeypatch):
+        """POST /sync/pull-modal with profile_id pulls a single profile."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        orca = _fake_orca()
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: orca)
+        p = client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        }).json()
+        r = client.post("/sync/pull-modal", data={"profile_id": p["id"]})
+        assert r.status_code == 200
+        assert b"Pull complete" in r.content
+
+    def test_pull_modal_poll_returns_fragment(self, client, monkeypatch):
+        """GET /sync/pull-modal/{job_id} returns the job's current state."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        orca = _fake_orca()
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: orca)
+        client.post("/sync/pull-modal")
+        # Query the latest pull job from the DB
+        with SessionLocal() as s:
+            job = s.scalars(
+                select(Job).where(Job.kind == "pull").order_by(Job.id.desc())
+            ).first()
+            assert job is not None
+            job_id = job.id
+        r = client.get(f"/sync/pull-modal/{job_id}")
+        assert r.status_code == 200
+        assert b"Pull complete" in r.content
+
+    def test_pull_modal_running_shows_spinner(self, client, monkeypatch):
+        """Queued job shows spinner + polling div."""
+        monkeypatch.setattr(jobs, "drain_background", lambda c: None)
+        orca = _fake_orca()
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: orca)
+        r = client.post("/sync/pull-modal")
+        assert r.status_code == 200
+        assert b"spinner spinner-lg" in r.content
+        assert b"pull-modal" in r.content
+        assert b"closeActionModal" in r.content
+
+
+# ---------------------------------------------------------------------------
+# Backup modal — Backup to GitHub via background job + modal polling
+# ---------------------------------------------------------------------------
+
+class TestBackupModal:
+    """Tests for the backup-modal (Backup to GitHub) endpoints."""
+
+    def test_backup_modal_success(self, client, monkeypatch):
+        """POST /sync/backup-modal returns a done fragment on success."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        orca = _fake_orca()
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: orca)
+        from unittest.mock import MagicMock
+        mock_github = MagicMock()
+        mock_github.backup.return_value = {"commit_sha": "abc", "files_written": 1}
+        monkeypatch.setattr(sh, "_github_client_factory", lambda: mock_github)
+        r = client.post("/sync/backup-modal")
+        assert r.status_code == 200
+        assert b"Backup complete" in r.content
+        assert b"0 presets" in r.content  # empty cloud → 0 presets
+        assert b"closeActionModal" in r.content
+
+    def test_backup_modal_not_connected_error(self, client, monkeypatch):
+        """POST /sync/backup-modal shows error when GitHub is not configured."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: _fake_orca())
+        monkeypatch.setattr(sh, "_github_client_factory", lambda: None)
+        r = client.post("/sync/backup-modal")
+        assert r.status_code == 200
+        assert b"Backup failed" in r.content
+        assert b"GitHub not configured" in r.content
+
+    def test_backup_modal_done_triggers_hub_refresh(self, client, monkeypatch):
+        """Done fragment includes a hub-fragment refresh div."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        orca = _fake_orca()
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: orca)
+        from unittest.mock import MagicMock
+        mock_github = MagicMock()
+        mock_github.backup.return_value = {"commit_sha": "abc", "files_written": 1}
+        monkeypatch.setattr(sh, "_github_client_factory", lambda: mock_github)
+        r = client.post("/sync/backup-modal")
+        assert b"hub-fragment" in r.content
+
+    def test_backup_modal_poll_returns_fragment(self, client, monkeypatch):
+        """GET /sync/backup-modal/{job_id} returns the job's current state."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        orca = _fake_orca()
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: orca)
+        from unittest.mock import MagicMock
+        mock_github = MagicMock()
+        mock_github.backup.return_value = {"commit_sha": "abc", "files_written": 1}
+        monkeypatch.setattr(sh, "_github_client_factory", lambda: mock_github)
+        client.post("/sync/backup-modal")
+        with SessionLocal() as s:
+            job = s.scalars(
+                select(Job).where(Job.kind == "github_backup").order_by(Job.id.desc())
+            ).first()
+            assert job is not None
+            job_id = job.id
+        r = client.get(f"/sync/backup-modal/{job_id}")
+        assert r.status_code == 200
+        assert b"Backup complete" in r.content
+
+    def test_backup_modal_running_shows_spinner(self, client, monkeypatch):
+        """Queued job shows spinner + polling div."""
+        monkeypatch.setattr(jobs, "drain_background", lambda c: None)
+        orca = _fake_orca()
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: orca)
+        from unittest.mock import MagicMock
+        mock_github = MagicMock()
+        mock_github.backup.return_value = {"commit_sha": "abc", "files_written": 1}
+        monkeypatch.setattr(sh, "_github_client_factory", lambda: mock_github)
+        r = client.post("/sync/backup-modal")
+        assert r.status_code == 200
+        assert b"spinner spinner-lg" in r.content
+        assert b"backup-modal" in r.content
+        assert b"closeActionModal" in r.content
+
+
+# ---------------------------------------------------------------------------
+# htmx version pin regression test
+# ---------------------------------------------------------------------------
+
+class TestHtmxPin:
+    """Regression test: base.html must pin htmx to a specific 1.9.x version."""
+
+    def test_base_html_pins_htmx_version(self):
+        """base.html contains the pinned htmx URL, not the unversioned one."""
+        from pathlib import Path
+        base = Path(__file__).resolve().parent.parent / "fm" / "api" / "templates" / "base.html"
+        content = base.read_text()
+        # Must contain a pinned version (not the bare unversioned URL)
+        assert "unpkg.com/htmx.org@" in content
+        assert "unpkg.com/htmx.org\" " not in content  # no unversioned
+        assert "unpkg.com/htmx.org@" in content
+        # Must be a 1.9.x release
+        assert "htmx.org@1.9." in content
+
+
+# ---------------------------------------------------------------------------
+# Sync page new modal wiring
+# ---------------------------------------------------------------------------
+
+class TestSyncPageModalWiring:
+    """Verify the /sync page wires all operations to the action modal."""
+
+    def test_sync_page_has_preset_modal_buttons(self, client):
+        """Push to Cloud buttons POST to /sync/preset-modal."""
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.get("/sync")
+        assert b"/sync/preset-modal" in r.content
+
+    def test_sync_page_has_pull_modal_buttons(self, client):
+        """Pull from Cloud buttons POST to /sync/pull-modal."""
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.get("/sync")
+        assert b"/sync/pull-modal" in r.content
+
+    def test_sync_page_has_backup_modal_button(self, client, monkeypatch):
+        """Backup to GitHub button POSTs to /sync/backup-modal when configured."""
+        monkeypatch.setattr("fm.api.ui.load_github_config", lambda: {"token": "x", "repo": "o/r"})
+        r = client.get("/sync")
+        assert b"/sync/backup-modal" in r.content
+
+    def test_sync_page_all_buttons_use_action_modal(self, client, monkeypatch):
+        """All sync buttons target #action-modal-body and call openActionModal."""
+        monkeypatch.setattr("fm.api.ui.load_github_config", lambda: {"token": "x", "repo": "o/r"})
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.get("/sync")
+        assert b'#action-modal-body' in r.content
+        assert b'openActionModal' in r.content
+        # No old toast-based inline JS for sync operations
+        assert b"hx-post=\"/api/sync/preset/" not in r.content
+        assert b"hx-post=\"/api/sync/pull/" not in r.content
+        assert b"hx-post=\"/api/sync/backup-github\"" not in r.content
 
 
 # ---------------------------------------------------------------------------

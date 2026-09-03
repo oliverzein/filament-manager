@@ -22,12 +22,12 @@
               <td class="actions-cell">
                 <div class="row-actions">
                   {% if d.printer_db_id %}
-                  <button class="button button-ghost" hx-post="/sync/push-modal" hx-vals='{"profile_ids": "{{ d.profile_id }}"}' hx-target="#push-modal-body" hx-swap="innerHTML" hx-on::before-request="openPushModal()">Push to Printer</button>
+                  <button class="button button-ghost" hx-post="/sync/push-modal" hx-vals='{"profile_ids": "{{ d.profile_id }}"}' hx-target="#action-modal-body" hx-swap="innerHTML" hx-on::before-request="openActionModal()">Push to Printer</button>
                   {% else %}
                   <span class="muted">Not linked</span>
                   {% endif %}
-                  <button class="button button-ghost" hx-post="/api/sync/preset/{{ d.profile_id }}" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Push failed: '+(r.result&&r.result.error||'unknown error'),true)}else{if(r.result&&r.result.github_backup_scheduled){orcaToast('Preset pushed — GitHub backup scheduled',false)}else{orcaToast('Preset pushed to Orca Cloud',false)}}}else{orcaToast('Request failed',true)}">Push to Cloud</button>
-                  <button class="button button-ghost" hx-post="/api/sync/pull/{{ d.profile_id }}" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-confirm="Pulling adopts the cloud baseline and overwrites this profile's nozzle temperature with the cloud value. Continue?" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Pull failed: '+(r.result||'unknown error'),true)}else{orcaToast('Pulled from Orca Cloud',false)}}else{orcaToast('Request failed',true)}">Pull from Cloud</button>
+                  <button class="button button-ghost" hx-post="/sync/preset-modal" hx-vals='{"profile_id": "{{ d.profile_id }}"}' hx-target="#action-modal-body" hx-swap="innerHTML" hx-on::before-request="openActionModal()">Push to Cloud</button>
+                  <button class="button button-ghost" hx-post="/sync/pull-modal" hx-vals='{"profile_id": "{{ d.profile_id }}"}' hx-target="#action-modal-body" hx-swap="innerHTML" hx-confirm="Pulling adopts the cloud baseline and overwrites this profile's nozzle temperature with the cloud value. Continue?" hx-on::before-request="openActionModal()">Pull from Cloud</button>
                 </div>
               </td>
             </tr>
@@ -71,7 +71,7 @@
       </div>
       <span class="target-summary">{{ ns.pdb_sync }} in sync, {{ ns.pdb_drift }} drifted</span>
       <p>Push catalog profiles to the printer database.</p>
-      <button class="button button-primary" hx-post="/sync/push-modal" hx-target="#push-modal-body" hx-swap="innerHTML" hx-on::before-request="openPushModal()">Push to Printer</button>
+      <button class="button button-primary" hx-post="/sync/push-modal" hx-target="#action-modal-body" hx-swap="innerHTML" hx-on::before-request="openActionModal()">Push to Printer</button>
     </section>
 
     <section class="panel target-card" aria-labelledby="cloud-target-heading">
@@ -81,7 +81,7 @@
       </div>
       <span class="target-summary">{{ ns.orca_sync }} in sync, {{ ns.orca_attention }} need attention</span>
       <p><strong>Pull from Cloud</strong> adopts the cloud baseline and writes temperatures back to the catalog. <strong>Push to Cloud</strong> generates a fresh preset from catalog values.</p>
-      <button class="button button-secondary" hx-post="/api/sync/pull" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-confirm="Pulling adopts the cloud baseline and overwrites all profiles' nozzle temperatures with the cloud values. Continue?" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Pull failed: '+(r.result||'unknown error'),true)}else{orcaToast('Pulled all presets from Orca Cloud',false)}}else{orcaToast('Request failed',true)}">Pull from Cloud (all)</button>
+      <button class="button button-secondary" hx-post="/sync/pull-modal" hx-target="#action-modal-body" hx-swap="innerHTML" hx-confirm="Pulling adopts the cloud baseline and overwrites all profiles' nozzle temperatures with the cloud values. Continue?" hx-on::before-request="openActionModal()">Pull from Cloud (all)</button>
     </section>
 
     <section class="panel target-card" aria-labelledby="backup-target-heading">
@@ -90,7 +90,7 @@
         <div><p class="eyebrow">Backup</p><h2 id="backup-target-heading">GitHub backup</h2></div>
       </div>
       <p>Commit the current catalog and generated presets to the configured repository.</p>
-      <button class="button button-secondary" {% if github_configured %}hx-post="/api/sync/backup-github" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Backup failed: '+(r.result&&r.result.error||'unknown error'),true)}else{orcaToast('Backup complete: '+(r.result&&r.result.preset_count||0)+' presets pushed to GitHub',false)}}else{orcaToast('Request failed',true)}"{% else %}disabled{% endif %}>Backup to GitHub</button>
+      <button class="button button-secondary" {% if github_configured %}hx-post="/sync/backup-modal" hx-target="#action-modal-body" hx-swap="innerHTML" hx-on::before-request="openActionModal()"{% else %}disabled{% endif %}>Backup to GitHub</button>
       {% if github_configured %}<span class="target-note">Also triggered automatically after every successful preset push.</span>{% else %}<span class="target-note">Add a GitHub token and repository in Settings to enable backups.</span>{% endif %}
     </section>
   </aside>

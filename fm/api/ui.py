@@ -873,8 +873,32 @@ def sync_resolve_job(
     )
 
 # ---------------------------------------------------------------------------
-# Push modal — overlay with live progress, busy choices, hub refresh
+# Action modal — overlay with live progress, busy choices, hub refresh
+# Generalized from the push-modal pattern to serve push/preset/pull/backup.
 # ---------------------------------------------------------------------------
+
+# Maps job.kind → modal kind for fragment rendering.
+_JOB_KIND_TO_MODAL: dict[str, str] = {
+    "push": "push",
+    "generate_preset": "preset",
+    "pull": "pull",
+    "github_backup": "backup",
+}
+
+# Per-kind text for running / done / error states.
+_ACTION_MODAL_RUNNING_TEXT: dict[str, str] = {
+    "push": "Pushing to printer…",
+    "preset": "Generating preset & pushing to Orca Cloud…",
+    "pull": "Pulling from Orca Cloud…",
+    "backup": "Backing up to GitHub…",
+}
+_ACTION_MODAL_ERROR_TITLE: dict[str, str] = {
+    "push": "Push failed",
+    "preset": "Push failed",
+    "pull": "Pull failed",
+    "backup": "Backup failed",
+}
+
 
 def _parse_job_result(result_json: str | None) -> dict | None:
     if not result_json:
@@ -885,27 +909,43 @@ def _parse_job_result(result_json: str | None) -> dict | None:
         return None
 
 
-def _push_modal_fragment(job_id: int, status: str, result: dict | None,
-                         verify_status: str | None = None,
-                         verify_result: dict | None = None) -> str:
-    """Render the push-modal body HTML for a given job state.
+def _hub_refresh_div() -> str:
+    """Hidden div that triggers a hub-fragment refresh on load."""
+    return (
+        '<div hx-get="/sync/hub-fragment" hx-target="#sync-hub-content" '
+        'hx-trigger="load" hx-swap="innerHTML"></div>'
+    )
+
+
+def _action_modal_fragment(kind: str, job_id: int, status: str,
+                           result: dict | None,
+                           verify_status: str | None = None,
+                           verify_result: dict | None = None) -> str:
+    """Render the action-modal body HTML for a given job state.
+
+    ``kind`` is one of "push", "preset", "pull", "backup" and controls
+    the operation-specific text (headings, spinner labels, success/error
+    messages).
 
     ``verify_status`` / ``verify_result`` carry the auto-enqueued verify
     job's state so the modal can show "Verifying…" while verify runs
-    after the push job is done.
+    after the push job is done (push kind only).
     """
+    poll_url = f"/sync/{kind}-modal/{job_id}" if job_id else ""
     if status in ("queued", "running"):
+        running_text = _ACTION_MODAL_RUNNING_TEXT.get(kind, "Working…")
         return (
             f'<div class="push-modal-state push-modal-running">'
             f'<div class="spinner spinner-lg"></div>'
-            f'<p>Pushing to printer…</p>'
+            f'<p>{running_text}</p>'
             f'<p class="push-modal-sub">Job #{job_id} · {status}</p>'
-            f'<button class="button button-ghost" onclick="closePushModal()">Dismiss</button>'
+            f'<button class="button button-ghost" onclick="closeActionModal()">Dismiss</button>'
             f'</div>'
-            f'<div hx-get="/sync/push-modal/{job_id}" hx-trigger="every 1.5s" '
-            f'hx-target="#push-modal-body" hx-swap="innerHTML"></div>'
+            f'<div hx-get="{poll_url}" hx-trigger="every 1.5s" '
+            f'hx-target="#action-modal-body" hx-swap="innerHTML"></div>'
         )
-    if status == "awaiting_input":
+
+    if status == "awaiting_input" and kind == "push":
         busy = (result or {}).get("busy") or {}
         filename = busy.get("filename", "")
         progress = busy.get("progress", 0)
@@ -923,71 +963,130 @@ def _push_modal_fragment(job_id: int, status: str, result: dict | None,
             f'<button class="button button-danger" '
             f'hx-post="/sync/jobs/{job_id}/resolve-modal" '
             f'hx-vals=\'{{"choice": "force_reboot"}}\' '
-            f'hx-target="#push-modal-body" hx-swap="innerHTML">'
+            f'hx-target="#action-modal-body" hx-swap="innerHTML">'
             f'Force reboot</button>'
             f'<button class="button button-secondary" '
             f'hx-post="/sync/jobs/{job_id}/resolve-modal" '
             f'hx-vals=\'{{"choice": "wait"}}\' '
-            f'hx-target="#push-modal-body" hx-swap="innerHTML">'
+            f'hx-target="#action-modal-body" hx-swap="innerHTML">'
             f'Wait</button>'
             f'<button class="button button-ghost" '
             f'hx-post="/sync/jobs/{job_id}/resolve-modal" '
             f'hx-vals=\'{{"choice": "no_reboot"}}\' '
-            f'hx-target="#push-modal-body" hx-swap="innerHTML">'
+            f'hx-target="#action-modal-body" hx-swap="innerHTML">'
             f'No reboot</button>'
             f'</div>'
             f'<p class="push-modal-sub">Job #{job_id} · awaiting input</p>'
             f'</div>'
         )
+
     if status == "done":
-        # When a verify job is still running, show "Verifying…" and
-        # keep polling.  When verify is done (or errored, or absent),
-        # show the push summary and trigger a hub refresh — the drift
-        # table is computed from the cache file, not the verify job,
-        # so it reflects reality regardless of verify outcome.
-        if verify_status in ("queued", "running"):
+        # Push-specific: verify job polling
+        if kind == "push" and verify_status in ("queued", "running"):
             return (
                 f'<div class="push-modal-state push-modal-running">'
                 f'<div class="spinner spinner-lg"></div>'
                 f'<p>Verifying…</p>'
                 f'<p class="push-modal-sub">Push done — checking printer DB</p>'
-                f'<button class="button button-ghost" onclick="closePushModal()">Dismiss</button>'
+                f'<button class="button button-ghost" onclick="closeActionModal()">Dismiss</button>'
                 f'<div hx-get="/sync/push-modal/{job_id}" hx-trigger="every 1.5s" '
-                f'hx-target="#push-modal-body" hx-swap="innerHTML"></div>'
+                f'hx-target="#action-modal-body" hx-swap="innerHTML"></div>'
             )
-        pushed = (result or {}).get("pushed", 0)
-        skipped = (result or {}).get("skipped", 0)
-        sub = "Verification complete." if verify_status == "done" else "Push complete."
-        return (
-            f'<div class="push-modal-state push-modal-done">'
-            f'<div class="push-modal-icon push-modal-icon-ok">✓</div>'
-            f'<h3>Push complete</h3>'
-            f'<p>{pushed} profile(s) pushed, {skipped} skipped.</p>'
-            f'<p class="push-modal-sub">{sub}</p>'
-            f'<button class="button button-primary" onclick="closePushModal()">Close</button>'
-            f'</div>'
-            f'<div hx-get="/sync/hub-fragment" hx-target="#sync-hub-content" '
-            f'hx-trigger="load" hx-swap="innerHTML"></div>'
-        )
+
+        if kind == "push":
+            pushed = (result or {}).get("pushed", 0)
+            skipped = (result or {}).get("skipped", 0)
+            sub = "Verification complete." if verify_status == "done" else "Push complete."
+            return (
+                f'<div class="push-modal-state push-modal-done">'
+                f'<div class="push-modal-icon push-modal-icon-ok">✓</div>'
+                f'<h3>Push complete</h3>'
+                f'<p>{pushed} profile(s) pushed, {skipped} skipped.</p>'
+                f'<p class="push-modal-sub">{sub}</p>'
+                f'<button class="button button-primary" onclick="closeActionModal()">Close</button>'
+                f'</div>'
+                + _hub_refresh_div()
+            )
+
+        if kind == "preset":
+            preset_status = (result or {}).get("status", "in_sync")
+            if preset_status == "drift":
+                return (
+                    f'<div class="push-modal-state push-modal-done">'
+                    f'<div class="push-modal-icon push-modal-icon-err">⚠</div>'
+                    f'<h3>Drift detected</h3>'
+                    f'<p>Orca Cloud has a newer version of this preset.</p>'
+                    f'<p class="push-modal-sub">Pull from Cloud to adopt the cloud baseline.</p>'
+                    f'<button class="button button-secondary" onclick="closeActionModal()">Close</button>'
+                    f'</div>'
+                    + _hub_refresh_div()
+                )
+            github_note = ""
+            if (result or {}).get("github_backup_scheduled"):
+                github_note = '<p class="push-modal-sub">GitHub backup scheduled</p>'
+            return (
+                f'<div class="push-modal-state push-modal-done">'
+                f'<div class="push-modal-icon push-modal-icon-ok">✓</div>'
+                f'<h3>Preset pushed</h3>'
+                f'<p>Preset pushed to Orca Cloud.</p>'
+                f'{github_note}'
+                f'<button class="button button-primary" onclick="closeActionModal()">Close</button>'
+                f'</div>'
+                + _hub_refresh_div()
+            )
+
+        if kind == "pull":
+            return (
+                f'<div class="push-modal-state push-modal-done">'
+                f'<div class="push-modal-icon push-modal-icon-ok">✓</div>'
+                f'<h3>Pull complete</h3>'
+                f'<p>Pulled from Orca Cloud — baseline adopted.</p>'
+                f'<button class="button button-primary" onclick="closeActionModal()">Close</button>'
+                f'</div>'
+                + _hub_refresh_div()
+            )
+
+        if kind == "backup":
+            preset_count = (result or {}).get("preset_count", 0)
+            return (
+                f'<div class="push-modal-state push-modal-done">'
+                f'<div class="push-modal-icon push-modal-icon-ok">✓</div>'
+                f'<h3>Backup complete</h3>'
+                f'<p>Backup complete: {preset_count} presets pushed to GitHub.</p>'
+                f'<button class="button button-primary" onclick="closeActionModal()">Close</button>'
+                f'</div>'
+                + _hub_refresh_div()
+            )
+
     if status == "error":
         err = (result or {}).get("error", "Unknown error")
+        err_title = _ACTION_MODAL_ERROR_TITLE.get(kind, "Operation failed")
         return (
             f'<div class="push-modal-state push-modal-error">'
             f'<div class="push-modal-icon push-modal-icon-err">✗</div>'
-            f'<h3>Push failed</h3>'
+            f'<h3>{err_title}</h3>'
             f'<p class="push-modal-error-msg">{_html.escape(str(err))}</p>'
-            f'<button class="button button-secondary" onclick="closePushModal()">Close</button>'
+            f'<button class="button button-secondary" onclick="closeActionModal()">Close</button>'
             f'</div>'
-            f'<div hx-get="/sync/hub-fragment" hx-target="#sync-hub-content" '
-            f'hx-trigger="load" hx-swap="innerHTML"></div>'
+            + _hub_refresh_div()
         )
+
     return (
         f'<div class="push-modal-state push-modal-error">'
         f'<div class="push-modal-icon push-modal-icon-err">?</div>'
         f'<h3>Unexpected state</h3>'
         f'<p class="push-modal-error-msg">Unknown status: {_html.escape(str(status))}</p>'
-        f'<button class="button button-secondary" onclick="closePushModal()">Close</button>'
+        f'<button class="button button-secondary" onclick="closeActionModal()">Close</button>'
         f'</div>'
+    )
+
+
+def _push_modal_fragment(job_id: int, status: str, result: dict | None,
+                         verify_status: str | None = None,
+                         verify_result: dict | None = None) -> str:
+    """Backward-compat wrapper — delegates to ``_action_modal_fragment``."""
+    return _action_modal_fragment(
+        "push", job_id, status, result, verify_status, verify_result,
     )
 
 
@@ -998,6 +1097,50 @@ def _lookup_verify_job(db: Session, push_job_id: int) -> Job | None:
             Job.kind == "verify", Job.id > push_job_id,
         ).order_by(Job.id.desc())
     ).first()
+
+
+def _action_modal_poll_impl(job_id: int, db: Session) -> HTMLResponse:
+    """Shared poll logic: look up job, render fragment for its current state."""
+    job = db.get(Job, job_id)
+    if job is None:
+        return HTMLResponse(
+            '<div class="push-modal-state push-modal-error">'
+            '<div class="push-modal-icon push-modal-icon-err">✗</div>'
+            '<h3>Job not found</h3>'
+            '<button class="button button-secondary" onclick="closeActionModal()">Close</button>'
+            '</div>'
+        )
+    kind = _JOB_KIND_TO_MODAL.get(job.kind, job.kind)
+    verify_job = _lookup_verify_job(db, job.id) if kind == "push" and job.status == "done" else None
+    return HTMLResponse(_action_modal_fragment(
+        kind, job.id, job.status, _parse_job_result(job.result),
+        verify_job.status if verify_job else None,
+        _parse_job_result(verify_job.result) if verify_job else None,
+    ))
+
+
+def _enqueue_and_modal(
+    request: Request, db: Session, kind: str, job_kind: str, payload: dict,
+) -> HTMLResponse:
+    """Shared enqueue + background drain + modal fragment logic."""
+    config = getattr(request.app.state, "config", None)
+    if config is None:
+        return HTMLResponse(_action_modal_fragment(
+            kind, 0, "error",
+            {"error": "Configuration error — set up the printer connection in Settings"},
+        ))
+    job = jobs.enqueue(db, job_kind, payload)
+    db.flush()
+    db.commit()
+    jobs.drain_background(config)
+    db.expire_all()
+    job = db.get(Job, job.id)
+    verify_job = _lookup_verify_job(db, job.id) if kind == "push" and job.status == "done" else None
+    return HTMLResponse(_action_modal_fragment(
+        kind, job.id, job.status, _parse_job_result(job.result),
+        verify_job.status if verify_job else None,
+        _parse_job_result(verify_job.result) if verify_job else None,
+    ))
 
 
 @router.post("/sync/push-modal", response_class=HTMLResponse)
@@ -1019,47 +1162,72 @@ def sync_push_modal(
             '<div class="push-modal-icon push-modal-icon-err">✗</div>'
             '<h3>Printer not configured</h3>'
             '<p>Set up the printer connection in Settings first.</p>'
-            '<button class="button button-secondary" onclick="closePushModal()">Close</button>'
+            '<button class="button button-secondary" onclick="closeActionModal()">Close</button>'
             '</div>'
         )
     ids = None
     if profile_ids:
         ids = [int(x.strip()) for x in profile_ids.split(",") if x.strip()]
     payload = {"profile_ids": ids, "force_reboot": False, "no_reboot": False}
-    job = jobs.enqueue(db, "push", payload)
-    db.flush()
-    db.commit()
-    jobs.drain_background(config)
-    # Re-read to pick up any state changes from the (possibly synchronous
-    # in tests) background drain.
-    db.expire_all()
-    job = db.get(Job, job.id)
-    verify_job = _lookup_verify_job(db, job.id) if job.status == "done" else None
-    return HTMLResponse(_push_modal_fragment(
-        job.id, job.status, _parse_job_result(job.result),
-        verify_job.status if verify_job else None,
-        _parse_job_result(verify_job.result) if verify_job else None,
-    ))
+    return _enqueue_and_modal(request, db, "push", "push", payload)
 
 
 @router.get("/sync/push-modal/{job_id}", response_class=HTMLResponse)
 def sync_push_modal_poll(job_id: int, db: DbSession) -> HTMLResponse:
     """Poll endpoint: return modal fragment for the job's current state."""
-    job = db.get(Job, job_id)
-    if job is None:
-        return HTMLResponse(
-            '<div class="push-modal-state push-modal-error">'
-            '<div class="push-modal-icon push-modal-icon-err">✗</div>'
-            '<h3>Job not found</h3>'
-            '<button class="button button-secondary" onclick="closePushModal()">Close</button>'
-            '</div>'
-        )
-    verify_job = _lookup_verify_job(db, job.id) if job.status == "done" else None
-    return HTMLResponse(_push_modal_fragment(
-        job.id, job.status, _parse_job_result(job.result),
-        verify_job.status if verify_job else None,
-        _parse_job_result(verify_job.result) if verify_job else None,
-    ))
+    return _action_modal_poll_impl(job_id, db)
+
+
+@router.post("/sync/preset-modal", response_class=HTMLResponse)
+def sync_preset_modal(
+    request: Request, db: DbSession,
+    profile_id: int = Form(...),
+) -> HTMLResponse:
+    """Enqueue a generate_preset job, start background drain, return modal fragment."""
+    return _enqueue_and_modal(
+        request, db, "preset", "generate_preset", {"profile_id": profile_id},
+    )
+
+
+@router.get("/sync/preset-modal/{job_id}", response_class=HTMLResponse)
+def sync_preset_modal_poll(job_id: int, db: DbSession) -> HTMLResponse:
+    """Poll endpoint for preset-modal: return modal fragment for the job's state."""
+    return _action_modal_poll_impl(job_id, db)
+
+
+@router.post("/sync/pull-modal", response_class=HTMLResponse)
+def sync_pull_modal(
+    request: Request, db: DbSession,
+    profile_id: int | None = Form(None),
+) -> HTMLResponse:
+    """Enqueue a pull job, start background drain, return modal fragment.
+
+    When ``profile_id`` is provided, pulls a single profile; otherwise
+    pulls all profiles.  The pull handler wraps ``refresh_preset_drift``
+    with ``adopt=True``.
+    """
+    payload = {"profile_id": profile_id} if profile_id else {}
+    return _enqueue_and_modal(request, db, "pull", "pull", payload)
+
+
+@router.get("/sync/pull-modal/{job_id}", response_class=HTMLResponse)
+def sync_pull_modal_poll(job_id: int, db: DbSession) -> HTMLResponse:
+    """Poll endpoint for pull-modal: return modal fragment for the job's state."""
+    return _action_modal_poll_impl(job_id, db)
+
+
+@router.post("/sync/backup-modal", response_class=HTMLResponse)
+def sync_backup_modal(
+    request: Request, db: DbSession,
+) -> HTMLResponse:
+    """Enqueue a github_backup job, start background drain, return modal fragment."""
+    return _enqueue_and_modal(request, db, "backup", "github_backup", {})
+
+
+@router.get("/sync/backup-modal/{job_id}", response_class=HTMLResponse)
+def sync_backup_modal_poll(job_id: int, db: DbSession) -> HTMLResponse:
+    """Poll endpoint for backup-modal: return modal fragment for the job's state."""
+    return _action_modal_poll_impl(job_id, db)
 
 
 @router.post("/sync/jobs/{job_id}/resolve-modal", response_class=HTMLResponse)
@@ -1105,8 +1273,8 @@ def sync_resolve_modal(
     db.expire_all()
     job = db.get(Job, job_id)
     verify_job = _lookup_verify_job(db, job.id) if job.status == "done" else None
-    return HTMLResponse(_push_modal_fragment(
-        job.id, job.status, _parse_job_result(job.result),
+    return HTMLResponse(_action_modal_fragment(
+        "push", job.id, job.status, _parse_job_result(job.result),
         verify_job.status if verify_job else None,
         _parse_job_result(verify_job.result) if verify_job else None,
     ))
@@ -1116,7 +1284,7 @@ def sync_resolve_modal(
 def sync_hub_fragment(request: Request, db: DbSession) -> HTMLResponse:
     """Return the drift table + target cards as an HTMX fragment.
 
-    Used by the push-modal completion path to refresh the Sync Hub's
+    Used by the action-modal completion path to refresh the Sync Hub's
     main content (drift table + right-column summaries) without a
     full page reload.
     """

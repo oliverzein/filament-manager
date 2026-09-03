@@ -30,9 +30,9 @@
     @media (max-width: 1200px) { .sync-hub-grid { grid-template-columns: 1fr; } .sync-hub-right { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     @media (max-width: 900px) { .sync-hub-right { grid-template-columns: 1fr; } }
     #busy-dialog { padding: 20px 24px; }
-    /* Push modal overlay — scoped to #push-modal */
-    #push-modal { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; background: rgba(1,5,17,.7); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
-    #push-modal[hidden] { display: none; }
+    /* Action modal overlay — scoped to #action-modal */
+    #action-modal { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; background: rgba(1,5,17,.7); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+    #action-modal[hidden] { display: none; }
     .push-modal-dialog { width: min(480px, 90vw); padding: 32px; border: 1px solid var(--border-strong); border-radius: var(--radius-card); background: var(--surface); box-shadow: 0 24px 60px rgba(0,0,0,.5); }
     .push-modal-body { text-align: center; }
     .push-modal-state { display: flex; flex-direction: column; align-items: center; gap: 12px; }
@@ -76,12 +76,12 @@
   </section>
 </section>
 
-<div id="push-modal" hidden role="dialog" aria-modal="true" aria-label="Push to printer" tabindex="-1">
+<div id="action-modal" hidden role="dialog" aria-modal="true" aria-label="Sync operation" tabindex="-1">
   <div class="push-modal-dialog">
-    <div id="push-modal-body" class="push-modal-body" aria-live="polite">
+    <div id="action-modal-body" class="push-modal-body" aria-live="polite">
       <div class="push-modal-state">
         <div class="spinner spinner-lg"></div>
-        <p>Starting push…</p>
+        <p>Starting…</p>
       </div>
     </div>
   </div>
@@ -97,38 +97,38 @@ function orcaToast(msg, isError) {
   t.classList.add('show');
   setTimeout(function() { t.classList.remove('show'); }, 5000);
 }
-function openPushModal() {
-  var m = document.getElementById('push-modal');
+function openActionModal() {
+  var m = document.getElementById('action-modal');
   if (!m) return;
-  _pushModalPriorFocus = document.activeElement;
+  _actionModalPriorFocus = document.activeElement;
   m.removeAttribute('hidden');
   m.focus();
-  var b = document.getElementById('push-modal-body');
-  if (b) b.innerHTML = '<div class="push-modal-state"><div class="spinner spinner-lg"></div><p>Starting push…</p></div>';
-  document.addEventListener('keydown', _pushModalKeydown);
+  var b = document.getElementById('action-modal-body');
+  if (b) b.innerHTML = '<div class="push-modal-state"><div class="spinner spinner-lg"></div><p>Starting…</p></div>';
+  document.addEventListener('keydown', _actionModalKeydown);
 }
-function closePushModal() {
-  var m = document.getElementById('push-modal');
+function closeActionModal() {
+  var m = document.getElementById('action-modal');
   if (!m) return;
   m.setAttribute('hidden', '');
-  document.removeEventListener('keydown', _pushModalKeydown);
-  if (_pushModalPriorFocus && _pushModalPriorFocus.focus) _pushModalPriorFocus.focus();
-  _pushModalPriorFocus = null;
+  document.removeEventListener('keydown', _actionModalKeydown);
+  if (_actionModalPriorFocus && _actionModalPriorFocus.focus) _actionModalPriorFocus.focus();
+  _actionModalPriorFocus = null;
 }
-var _pushModalPriorFocus = null;
-function _pushModalKeydown(e) {
+var _actionModalPriorFocus = null;
+function _actionModalKeydown(e) {
   if (e.key !== 'Escape') return;
-  var m = document.getElementById('push-modal');
+  var m = document.getElementById('action-modal');
   if (!m || m.hasAttribute('hidden')) return;
-  var body = document.getElementById('push-modal-body');
+  var body = document.getElementById('action-modal-body');
   if (body && body.querySelector('.spinner')) return;
-  closePushModal();
+  closeActionModal();
 }
-document.getElementById('push-modal').addEventListener('click', function(e) {
+document.getElementById('action-modal').addEventListener('click', function(e) {
   if (e.target !== this) return;
-  var body = document.getElementById('push-modal-body');
+  var body = document.getElementById('action-modal-body');
   if (body && body.querySelector('.spinner')) return;
-  closePushModal();
+  closeActionModal();
 });
 </script>
 {% endblock %}

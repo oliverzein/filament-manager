@@ -4,6 +4,8 @@
 **Status:** Approved (design phase)
 **Repo:** `/home/oliverzein/Dokumente/Daten/Development/3D Printing/filament-manager`
 **Predecessor knowledge:** skill repo `Creality-custom-filament` (cfs.py/orca.py logic), BrainVault `projects/homeassistant/k2-rfid-custom-filament.md`, `k2-orca-preset-implementation.md`
+> **Superseded sections (2026-08):** §2 Companion agent, §4 Temp sync und §5 Companion Agent Contract wurden durch den Orca Cloud Sync ersetzt und aus dem Code entfernt — Preset-Auslieferung und Temp-Write-back laufen heute über die Cloud-Transportstrecke (`generate_preset` → Cloud → OrcaSlicer-eigener Sync; `refresh_preset_drift(adopt=True)` mit exaktem `cloud_id`-Matching). Siehe docs/sync-workflow-analysis.md. Die nachfolgenden Abschnitte beschreiben den ursprünglichen Design-Entwurf und werden als historisches Dokument unverändert belassen.
+
 
 ## 1. Purpose
 

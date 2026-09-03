@@ -19,14 +19,14 @@
 | W8 | *(Teil von W4)* | *(kein eigener Button)* | Nein | Auto-Aufruf in `drift_status()` | Orca Cloud → SyncTarget-Status |
 | W9 | `profile_delete_form` + `sync_delete` | **"Also delete the OrcaSlicer Cloud preset"** (Delete-Seite) | Nein — synchron | Profile Delete → `POST /profiles/{pid}/delete?delete_cloud=1` | Catalog → Orca Cloud (delete) |
 
-### Nicht implementiert (im Design-Spec beschrieben, aber NICHT im Code)
+### Im Spec beschrieben, seit 2026-08 durch Cloud Sync abgelöst — bewusst nicht gebaut
 
 | Feature | Spec-Referenz | Status |
 |---------|---------------|--------|
-| `temp_sync` (Desktop-Presets → K2 DB) | Spec §4 "Temp sync" | **Nicht implementiert** — kein Handler, keine Route, kein UI |
-| `report_presets` (Companion Agent) | Spec §5 | **Nicht implementiert** — keine `/api/agent/` Endpoints |
-| `apply_preset` (Companion Agent) | Spec §5 | **Nicht implementiert** — keine `/api/agent/` Endpoints |
-| Companion Agent (`fm-agent`) | Spec §5 | **Nicht implementiert** — kein Agent-CLI |
+| `temp_sync` (Desktop-Presets → K2 DB) | Spec §4 "Temp sync" | **Entfernt (2026-08)** — ersetzt durch Orca Cloud Transport. Temp-Write-back läuft heute über `refresh_preset_drift(adopt=True)` mit `cloud_id`-Matching |
+| `report_presets` (Companion Agent) | Spec §5 | **Entfernt (2026-08)** — konzeptionell ersetzt durch Orca Cloud Sync Pull (`OrcaCloudClient.sync_pull`) |
+| `apply_preset` (Companion Agent) | Spec §5 | **Entfernt (2026-08)** — konzeptionell ersetzt durch `generate_preset` → Orca Cloud Push → OrcaSlicer-eigener Sync |
+| Companion Agent (`fm-agent`) | Spec §5 | **Entfernt (2026-08)** — ersetzt durch Orca Cloud Sync. Kein Agent-CLI, keine `/api/agent/` Endpoints |
 
 **Registrierte Job-Handler** (`sync_handlers.py:1017-1021`):
 ```

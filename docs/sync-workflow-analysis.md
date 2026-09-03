@@ -197,7 +197,7 @@ Settings     → /settings
 | Element | Typ | Workflow | Code-Ref |
 |---------|-----|----------|----------|
 | Orca-Fragment (Section 03 "Print settings") | HTMX-Load → `/profiles/{pid}/orca-fragment` | W4 (read) | `profile_form.html:47` |
-| **"Sync from Orca"** Button (im Orca-Fragment) | HTMX POST → `/profiles/{pid}/sync-from-orca` | W4 (adopt=True) | `orca_fragment.html` |
+| **"Pull from Cloud"** Button (im Orca-Fragment; Label geändert, Route unverändert) | HTMX POST → `/profiles/{pid}/sync-from-orca` | W4 (adopt=True) | `orca_fragment.html` |
 | "Preset source" Template-Dropdown | HTMX | W3 (template selection) | `profile_form.html:24-39` |
 
 ### Sync Hub (`/sync`, `sync_hub.html`) — M3 Two-Column Layout (Sync Hub Redesign)
@@ -233,8 +233,10 @@ Settings     → /settings
 | **"Start import scan"** Button | Form POST → `/import/printer/scan` | W5 | `import_printer.html:5` |
 | Proposal-Tabelle mit Checkboxen | Form POST → `/import/printer/apply` | W5 | `import_printer.html:6` |
 | 3-Schritt-Stepper (Scan → Review → Complete) | Anzeige | W5 | `import_printer.html:4` |
+| **"← Back to scan"** Button (Step 2) | Link → /import?tab=printer&step=scan | W5 (Navigation) | `import_printer.html:6` |
+| **"Back to review"** Link (Step 1, nur wenn import_job existiert) | Link → /import?tab=printer | W5 (Navigation) | `import_printer.html:5` |
 
-**Änderung (Sync Hub Redesign):** Ehemals eigene `/migration` Seite. Jetzt Tab "From Printer DB" auf `/import`. Routes: `/import/printer/scan`, `/import/printer/apply`.
+**Änderung (Sync Hub Redesign):** Ehemals eigene `/migration` Seite. Jetzt Tab "From Printer DB" auf `/import`. Routes: `/import/printer/scan`, `/import/printer/apply`. Wizard-State via URL-Query (`?step=scan`) — Step 1 auch bei vorhandenem import_scan-Job erreichbar; ohne Param bleibt Review beim letzten Scan.
 
 ### Import page — Tab "From Orca Cloud" (`/import?tab=orca`, `import_orca_tab.html`)
 | Element | Typ | Workflow | Code-Ref |
@@ -464,4 +466,4 @@ target.status = "in_sync" if actual_hash == target.expected_hash else "drift"
 | Profiles-Seite: "Sync status →" Link statt "Sync from Orca" Button | **umgesetzt** | V2 |
 | Task-4 Minors (M1-M7) + Task-5 Minors (M1/M2) | *deferred* | — |
 
-**Test-Stand:** 424 Tests grün (`scripts/test.sh`), inkl. Tests für E2 (SyncTarget-Erstellung + in_sync nach Import), E3 (read-only drift check + adopt-Verhalten), und Sync Hub Redesign (Sync Hub UI, Import-Tabs, per-Profil Actions, Route-Removal 404s).
+**Test-Stand:** 427 Tests grün (`scripts/test.sh`), inkl. Tests für E2 (SyncTarget-Erstellung + in_sync nach Import), E3 (read-only drift check + adopt-Verhalten), Sync Hub Redesign (Sync Hub UI, Import-Tabs, per-Profil Actions, Route-Removal 404s), und Back-Button-Navigation (Scan ↔ Review).

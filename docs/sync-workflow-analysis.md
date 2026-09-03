@@ -435,12 +435,14 @@ target.status = "in_sync" if actual_hash == target.expected_hash else "drift"
 
 **Fix-Notiz (2026-09-03):** Alle Adopt-Buttons (per-Profil "Pull from Cloud" in der Drift-Tabelle, Bulk "Pull from Cloud (all)" in der Cloud presets Card, und "Pull from Cloud" im Orca-Fragment) tragen jetzt `hx-confirm`-Dialoge, die den `nozzle_temperature`-Overwrite ankündigen. Der Overwrite bleibt eine bewusste Benutzeraktion, ist aber nun nicht mehr unangekündigt.
 
-### V14: Profile-Delete mit Cloud-Cleanup vs. Generate-Preset — gegenläufige Cloud-Operationen
+### V14: Profile-Delete mit Cloud-Cleanup vs. Generate-Preset — gegenläufige Cloud-Operationen — **ENTSCHIEDEN (2026-09-03): abgelehnt**
 
 - **Generate Preset** (W3): Pushed Catalog → Orca Cloud (erstellt/updated Cloud-Preset)
 - **Profile Delete** (W9): Löscht Catalog-Profile + optional Cloud-Preset (`sync_delete`)
 
 **Problem:** Beide interagieren mit Orca Cloud, aber an völlig verschiedenen Orten (Sync-Seite Icon vs. Delete-Seite Checkbox). Es gibt keinen zentralen Ort, an dem der Cloud-Status eines Profils verwaltet wird. Der Benutzer muss wissen, dass er beim Löschen explizit die Cloud-Checkbox setzen muss, sonst bleibt der Cloud-Preset orphaned.
+
+**Entscheidung (2026-09-03):** Keine zentrale Cloud-Delete-/Management-UI wird gebaut. Cloud-Preset-Verwaltung bleibt bewusst Orca Cloud (Web-Interface) und OrcaSlicers eigenem Desktop-Sync überlassen. Die bestehende Profile-Delete-Checkbox (W9, `OrcaCloudClient.sync_delete`) bleibt der einzige In-App-Cloud-Delete-Pfad und wird nicht verändert.
 
 ---
 
@@ -465,7 +467,7 @@ target.status = "in_sync" if actual_hash == target.expected_hash else "drift"
 ### Kategorie D: Per-Profil-Aktionen vereinheitlichen — **umgesetzt (Sync Hub Redesign)**
 - ~~Drift-Tabelle: Klare Buttons pro Zeile mit Text-Labels ("Push to Printer" / "Push to Cloud" / "Pull from Cloud")~~ — **umgesetzt**
 - ~~"Push all" als Sekundäraktion, nicht als einzige Option~~ — **umgesetzt** (per-Profil Buttons + Bulk in Target-Cards)
-- Cloud-Status eines Profils an zentraler Stelle verwalbar (nicht nur beim Delete) — *offen*
+- ~~Cloud-Status eines Profils an zentraler Stelle verwalbar (nicht nur beim Delete)~~ — **abgelehnt (2026-09-03):** keine zentrale Cloud-Verwaltung — Cloud-Presets werden in Orca Cloud/OrcaSlicer verwaltet; bestehende W9-Checkbox bleibt
 
 ### Kategorie E: Bug-Fixes — **alle umgesetzt (2026-09-02)**
 
@@ -488,4 +490,4 @@ target.status = "in_sync" if actual_hash == target.expected_hash else "drift"
 | Profiles-Seite: "Sync status →" Link statt "Sync from Orca" Button | **umgesetzt** | V2 |
 | Task-4 Minors (M1-M7) + Task-5 Minors (M1/M2) | *deferred* | — |
 
-**Test-Stand:** 427 Tests grün (`scripts/test.sh`), inkl. Tests für E2 (SyncTarget-Erstellung + in_sync nach Import), E3 (read-only drift check + adopt-Verhalten), Sync Hub Redesign (Sync Hub UI, Import-Tabs, per-Profil Actions, Route-Removal 404s), Back-Button-Navigation (Scan ↔ Review), und TestAutoTrigger in `tests/test_github_backup.py` (Assertions für `github_backup_scheduled`-Flag).
+**Test-Stand:** 435 Tests grün (`scripts/test.sh`), inkl. Tests für E2 (SyncTarget-Erstellung + in_sync nach Import), E3 (read-only drift check + adopt-Verhalten), Sync Hub Redesign (Sync Hub UI, Import-Tabs, per-Profil Actions, Route-Removal 404s), Back-Button-Navigation (Scan ↔ Review), und TestAutoTrigger in `tests/test_github_backup.py` (Assertions für `github_backup_scheduled`-Flag).

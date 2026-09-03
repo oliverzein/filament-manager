@@ -100,18 +100,31 @@ SSH pull fresh printer DB
 ### W3: Generate Preset (`generate_preset`)
 ```
 Profile → build_standalone_preset (template + catalog fields)
-  → OrcaCloudClient.sync_push (push to Orca Cloud)
-    → 409 conflict → retry mit server updated_time → oder status="drift"
-  → SyncTarget(orca_preset).cloud_id = UUIDv5(user_id, filament_id)
-  → SyncTarget(orca_preset).expected_hash = hash(preset_fields)
-  → SyncTarget(orca_preset).status = "in_sync"
-  → AUTO-ENQUEUE: github_backup job (W7) via _enqueue_github_backup
+ → Bestimme cloud resource id für Push:
+    1. target.cloud_id bereits gesetzt (voriger Push oder W6-Import) → verwende diese
+    2. target.cloud_id = None → _discover_cloud_resource via sync_pull:
+       a. Match per filament_id (exact, deterministic)
+       b. Match per exact name (nur wenn unique — sonst status="drift", kein Duplicate)
+       c. Kein Match → None (UUIDv5 wird in sync_push computed → neues Resource, korrekt)
+ → OrcaCloudClient.sync_push (push mit expliziter cloud_id oder UUIDv5-computed)
+    → 409 conflict → retry mit server updated_time + gleicher cloud_id → oder status="drift"
+ → SyncTarget(orca_preset).cloud_id = verwendete resource id (explizit oder UUIDv5)
+ → SyncTarget(orca_preset).expected_hash = hash(preset_fields)
+ → SyncTarget(orca_preset).status = "in_sync"
+ → AUTO-ENQUEUE: github_backup job (W7) via _enqueue_github_backup
 ```
 **Trigger:** Manuell ("Push to Cloud" Button in Drift-Tabelle, per Profil —
 öffnet `POST /sync/preset-modal` → Modal-Overlay mit Polling
 `GET /sync/preset-modal/{job_id}`, Ergebnis "Preset pushed" oder
 "Drift detected" + Hub-Refresh)
 **Auto-Nebenwirkung:** Enqueued `github_backup` wenn GitHub konfiguriert (`sync_handlers.py:716`)
+**Fix-Notiz (Duplicate-Preset-Bug, 2026-09-03):** Bisher setzte `handle_generate_preset`
+`target.cloud_id = None` vor dem Push, wodurch `sync_push` immer `UUIDv5(user_id, filament_id)`
+als resource id computed hat. Wenn die existierende Cloud-Resource eine andere UUID hatte
+(z.B. W6-Import mit `cloud_id = preset._path`, oder OrcaSlicer-eigene UUID), erstellte der
+Server ein Duplicate statt zu updaten. Jetzt wird `cloud_id` preserved; bei `cloud_id = None`
+erfolgt Discovery via `sync_pull` (filament_id → exact name → None). Ambiguous name match
+→ `status="drift"` statt Duplicate. `sync_push` akzeptiert jetzt optional `cloud_id`-Parameter.
 
 ### W4: "Sync from Orca" / Preset Drift Refresh (`refresh_preset_drift`)
 ```

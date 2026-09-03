@@ -603,6 +603,48 @@ def handle_verify(session: Session, config: Config, payload: dict) -> dict:
     }
 
 
+def _discover_cloud_resource(
+    client: OrcaCloudClient, filament_id: str, name: str,
+) -> str | None:
+    """Discover an existing cloud resource for a preset before pushing.
+
+    Returns the cloud resource UUID, or ``None`` if no match exists (safe
+    to create a new resource).  Returns the sentinel ``"__ambiguous__"``
+    when multiple cloud presets share the same name — the caller must
+    refuse to push to avoid creating a duplicate.
+
+    Matching strategy:
+    1. Exact ``filament_id`` match in cloud content (deterministic).
+    2. Exact name match — only when unique (single hit).
+    """
+    try:
+        pull_result = client.sync_pull()
+    except OrcaCloudError:
+        return None
+
+    upserts = pull_result.get("upserts", [])
+
+    # Strategy 1: match by filament_id in cloud content
+    for upsert in upserts:
+        content = upsert.get("content") or {}
+        if content.get("type") != "filament":
+            continue
+        if content.get("filament_id") == filament_id:
+            return upsert.get("id")
+
+    # Strategy 2: match by exact name (unique only)
+    name_matches = [
+        upsert.get("id")
+        for upsert in upserts
+        if (upsert.get("content") or {}).get("type") == "filament"
+        and (upsert.get("content") or {}).get("name") == name
+    ]
+    if len(name_matches) == 1:
+        return name_matches[0]
+    if len(name_matches) > 1:
+        return "__ambiguous__"
+    return None
+
 def handle_generate_preset(session: Session, config: Config, payload: dict) -> dict:
     """Generate preset handler: build preset, push directly to Orca Cloud,
     set SyncTarget(orca_preset).expected_hash.
@@ -653,10 +695,12 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
     # Update profile filament_id
     profile.filament_id = preset["filament_id"]
 
-    # Set SyncTarget with cloud_id (Orca Cloud resource UUID, like setting_id)
+    # Set SyncTarget — preserve existing cloud_id if known (from prior push
+    # or W6 import).  Resetting it to None would discard the link to the
+    # actual cloud resource, causing sync_push to target a UUIDv5-derived
+    # id that may differ → server creates a same-name duplicate.
     target = _get_or_create_target(session, profile.id, "orca_preset")
     target.expected_hash = expected_hash
-    target.cloud_id = None  # set after successful push
     target.status = "pending"
 
     # Push preset directly to Orca Cloud
@@ -666,11 +710,36 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
             "Orca Cloud not configured — set up the connection in Settings"
         )
 
+    # Determine the cloud resource id to push against.
+    push_cloud_id = target.cloud_id
+    if push_cloud_id is None:
+        # Never pushed by this app and not imported — discover the existing
+        # resource to avoid creating a same-name duplicate.  Match by
+        # filament_id first (deterministic), then by exact name (unique only).
+        push_cloud_id = _discover_cloud_resource(
+            client, preset["filament_id"], preset["name"],
+        )
+        if push_cloud_id == "__ambiguous__":
+            # Multiple cloud presets share this name — refuse to guess.
+            target.status = "drift"
+            log.warning(
+                "Ambiguous cloud match for profile %s (name=%r) — "
+                "multiple presets with same name exist; refusing to "
+                "create a duplicate",
+                profile_id, preset["name"],
+            )
+            return {
+                "filament_id": preset["filament_id"],
+                "expected_hash": expected_hash,
+                "status": "drift",
+            }
+
     try:
         client.sync_push(
             profile_id=preset["filament_id"],
             name=preset["name"],
             content=preset,
+            cloud_id=push_cloud_id,
         )
     except OrcaCloudConflict as exc:
         # Conflict means the profile already exists on Orca Cloud.
@@ -684,6 +753,7 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
                     name=preset["name"],
                     content=preset,
                     original_updated_time=str(server_time),
+                    cloud_id=push_cloud_id,
                 )
             except OrcaCloudConflict:
                 log.warning(
@@ -705,7 +775,7 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
                 "status": "drift",
             }
     # Store cloud resource UUID for exact-match on future pulls
-    target.cloud_id = client.cloud_id(preset["filament_id"])
+    target.cloud_id = push_cloud_id or client.cloud_id(preset["filament_id"])
     target.status = "in_sync"
     target.last_synced_at = _now()
 

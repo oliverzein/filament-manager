@@ -897,17 +897,27 @@ def _push_modal_fragment(job_id: int, status: str, result: dict | None,
     if status in ("queued", "running"):
         return (
             f'<div class="push-modal-state push-modal-running">'
-            f'<div class="push-modal-spinner"></div>'
+            f'<div class="spinner spinner-lg"></div>'
             f'<p>Pushing to printer…</p>'
             f'<p class="push-modal-sub">Job #{job_id} · {status}</p>'
+            f'<button class="button button-ghost" onclick="closePushModal()">Dismiss</button>'
             f'</div>'
             f'<div hx-get="/sync/push-modal/{job_id}" hx-trigger="every 1.5s" '
             f'hx-target="#push-modal-body" hx-swap="innerHTML"></div>'
         )
     if status == "awaiting_input":
+        busy = (result or {}).get("busy") or {}
+        filename = busy.get("filename", "")
+        progress = busy.get("progress", 0)
+        busy_line = (
+            f'<p class="push-modal-busy-detail">Printing: '
+            f'{_html.escape(str(filename))} ({progress}%)</p>'
+            if filename else ""
+        )
         return (
             f'<div class="push-modal-state push-modal-awaiting">'
             f'<h3>Printer is busy</h3>'
+            f'{busy_line}'
             f'<p>The printer is currently printing. Choose how to proceed:</p>'
             f'<div class="button-group">'
             f'<button class="button button-danger" '
@@ -938,7 +948,7 @@ def _push_modal_fragment(job_id: int, status: str, result: dict | None,
         if verify_status in ("queued", "running"):
             return (
                 f'<div class="push-modal-state push-modal-running">'
-                f'<div class="push-modal-spinner"></div>'
+                f'<div class="spinner spinner-lg"></div>'
                 f'<p>Verifying…</p>'
                 f'<p class="push-modal-sub">Push done — checking printer DB</p>'
                 f'</div>'
@@ -966,12 +976,19 @@ def _push_modal_fragment(job_id: int, status: str, result: dict | None,
             f'<div class="push-modal-icon push-modal-icon-err">✗</div>'
             f'<h3>Push failed</h3>'
             f'<p class="push-modal-error-msg">{_html.escape(str(err))}</p>'
-            f'<button class="button button-primary" onclick="closePushModal()">Close</button>'
+            f'<button class="button button-secondary" onclick="closePushModal()">Close</button>'
             f'</div>'
             f'<div hx-get="/sync/hub-fragment" hx-target="#sync-hub-content" '
             f'hx-trigger="load" hx-swap="innerHTML"></div>'
         )
-    return f'<div class="push-modal-state"><p>Unknown status: {status}</p></div>'
+    return (
+        f'<div class="push-modal-state push-modal-error">'
+        f'<div class="push-modal-icon push-modal-icon-err">?</div>'
+        f'<h3>Unexpected state</h3>'
+        f'<p class="push-modal-error-msg">Unknown status: {_html.escape(str(status))}</p>'
+        f'<button class="button button-secondary" onclick="closePushModal()">Close</button>'
+        f'</div>'
+    )
 
 
 def _lookup_verify_job(db: Session, push_job_id: int) -> Job | None:
@@ -1002,7 +1019,7 @@ def sync_push_modal(
             '<div class="push-modal-icon push-modal-icon-err">✗</div>'
             '<h3>Printer not configured</h3>'
             '<p>Set up the printer connection in Settings first.</p>'
-            '<button class="button button-primary" onclick="closePushModal()">Close</button>'
+            '<button class="button button-secondary" onclick="closePushModal()">Close</button>'
             '</div>'
         )
     ids = None
@@ -1033,7 +1050,7 @@ def sync_push_modal_poll(job_id: int, db: DbSession) -> HTMLResponse:
         return HTMLResponse(
             '<div class="push-modal-state push-modal-error">'
             '<h3>Job not found</h3>'
-            '<button class="button button-primary" onclick="closePushModal()">Close</button>'
+            '<button class="button button-secondary" onclick="closePushModal()">Close</button>'
             '</div>'
         )
     verify_job = _lookup_verify_job(db, job.id) if job.status == "done" else None

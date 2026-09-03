@@ -354,7 +354,11 @@ class TestPushModal:
         assert b'id="push-modal"' in r.content
         assert b'openPushModal' in r.content
         assert b'closePushModal' in r.content
-        assert b'push-modal-spinner' in r.content
+        assert b'spinner spinner-lg' in r.content
+        assert b'role="dialog"' in r.content
+        assert b'aria-modal="true"' in r.content
+        assert b'aria-live="polite"' in r.content
+        assert b'tabindex="-1"' in r.content
 
     def test_sync_page_push_buttons_target_modal(self, client):
         """Push buttons POST to /sync/push-modal, not /api/sync/push."""
@@ -550,6 +554,88 @@ class TestPushModal:
         r = client.get("/sync/push-modal/9999")
         assert r.status_code == 200
         assert b"Job not found" in r.content
+
+    def test_push_modal_busy_shows_filename_and_progress(self, client, monkeypatch,
+                                                          sample_db, tmp_path):
+        """Busy push renders the print filename and progress in the modal."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        busy_transport = FakeTransport(busy={"filename": "benchy.gcode", "progress": 73})
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: busy_transport)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.post("/sync/push-modal")
+        assert r.status_code == 200
+        assert b"Printer is busy" in r.content
+        assert b"benchy.gcode" in r.content
+        assert b"73%" in r.content
+        assert b"push-modal-busy-detail" in r.content
+
+    def test_push_modal_unknown_status_has_close_button(self, client, monkeypatch,
+                                                          sample_db, tmp_path):
+        """The unknown-status fallback renders an error state with Close."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.post("/api/sync/push", json={})
+        job_id = r.json()["job_id"]
+        # Manually set the job to an unexpected status via the API
+        with SessionLocal() as session:
+            job = session.get(Job, job_id)
+            job.status = "weird_state"
+            session.commit()
+        r = client.get(f"/sync/push-modal/{job_id}")
+        assert r.status_code == 200
+        assert b"Unexpected state" in r.content
+        assert b"weird_state" in r.content
+        assert b"closePushModal" in r.content
+
+    def test_push_modal_running_has_dismiss_button(self, client, monkeypatch,
+                                                    sample_db, tmp_path):
+        """The running-state fragment includes a Dismiss ghost button."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        # Enqueue a push but don't drain — job stays queued
+        monkeypatch.setattr(jobs, "drain_background", lambda c: None)
+        r = client.post("/sync/push-modal")
+        assert r.status_code == 200
+        assert b"Dismiss" in r.content
+        assert b"closePushModal" in r.content
+        assert b"spinner spinner-lg" in r.content
+
+    def test_push_modal_error_close_is_secondary(self):
+        """Error-state Close button uses button-secondary, not button-primary."""
+        from fm.api.ui import _push_modal_fragment
+        html = _push_modal_fragment(1, "error", {"error": "SSH timeout"})
+        assert "Push failed" in html
+        assert "button-secondary" in html
+        assert "button-primary" not in html
+        assert "closePushModal" in html
+
+    def test_push_modal_unknown_status_escapes_and_has_close(self):
+        """Unknown-status fallback HTML-escapes the status and has Close."""
+        from fm.api.ui import _push_modal_fragment
+        html = _push_modal_fragment(1, "weird<script>", None)
+        assert "Unexpected state" in html
+        assert "weird&lt;script&gt;" in html
+        assert "<script>" not in html
+        assert "button-secondary" in html
+        assert "closePushModal" in html
 
 
 # ---------------------------------------------------------------------------

@@ -57,7 +57,8 @@ einen Background-Drain-Thread startet (`jobs.drain_background`). Das Modal
 pollt `GET /sync/push-modal/{job_id}` alle 1.5s und zeigt:
 - queued/running: Spinner "Pushing to printer…"
 - awaiting_input: Choice-Buttons (Force reboot / Wait / No reboot) im Modal
-  (POST `/sync/jobs/{id}/resolve-modal`)
+  (POST `/sync/jobs/{id}/resolve-modal`); zeigt den Druckdateinamen + Fortschritt
+  aus dem Busy-Check (`result["busy"]`: filename, progress %)
 - done: "Push complete" + automatischer Hub-Refresh via
   `GET /sync/hub-fragment` (drift table + target cards werden per HTMX
   ausgetauscht — kein manuelles Page-Reload nötig)

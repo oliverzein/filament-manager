@@ -92,10 +92,18 @@ def fail(job: Job, error: dict) -> None:
     job.finished_at = _now()
 
 
-def await_input(job: Job, options: list[str]) -> None:
-    """Park ``job`` awaiting user input from ``options``."""
+def await_input(job: Job, options: list[str], *, extra: dict | None = None) -> None:
+    """Park ``job`` awaiting user input from ``options``.
+
+    ``extra`` carries additional context (e.g. ``{"busy": {...}}`` from
+    the busy-check) that is merged into the stored result so the UI can
+    display it.
+    """
+    stored: dict = {"options": options}
+    if extra:
+        stored.update(extra)
     job.status = "awaiting_input"
-    job.result = json.dumps({"options": options})
+    job.result = json.dumps(stored)
 
 
 def log_activity(
@@ -168,7 +176,7 @@ def run_pending(session: Session, config: Config) -> None:
         # run_pending to call await_input instead of complete.
         if isinstance(result, dict) and result.get("_awaiting_input"):
             options = result.get("options", [])
-            await_input(job, options)
+            await_input(job, options, extra={"busy": result.get("busy")} if result.get("busy") else None)
             log_activity(
                 session, job.kind, "warn",
                 {"job_id": job.id, "busy": result.get("busy")},

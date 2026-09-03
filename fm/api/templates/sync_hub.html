@@ -40,6 +40,7 @@
           <div><p class="eyebrow">Health check</p><h2 id="drift-heading">Drift status</h2></div>
           <span class="live-label"><i></i> Live</span>
         </header>
+        <p class="target-note">Status refresh includes a live check against Orca Cloud.</p>
         {% if drift %}
         <div class="table-wrap">
           <table class="drift-table">
@@ -53,11 +54,11 @@
                 <td class="actions-cell">
                   <div class="row-actions">
                     {% if d.printer_db_id %}
-                    <button class="button button-ghost" hx-post="/api/sync/push" hx-vals='{"profile_ids": [{{ d.profile_id }}]}' hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='awaiting_input'){location.reload()}else if(r.status=='error'){orcaToast('Push failed: '+(r.result&&r.result.error||'unknown error'),true)}else{orcaToast('Pushed to printer',false)}}else{orcaToast('Request failed',true)}">Push to Printer</button>
+                    <button class="button button-ghost" hx-post="/api/sync/push" hx-vals='{"profile_ids": [{{ d.profile_id }}]}' hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='awaiting_input'){location.reload()}else if(r.status=='error'){orcaToast('Push failed: '+(r.result&&r.result.error||'unknown error'),true)}else{orcaToast('Pushed to printer — verifying...',false)}}else{orcaToast('Request failed',true)}">Push to Printer</button>
                     {% else %}
                     <span class="muted">Not linked</span>
                     {% endif %}
-                    <button class="button button-ghost" hx-post="/api/sync/preset/{{ d.profile_id }}" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Push failed: '+(r.result||'unknown error'),true)}else{orcaToast('Preset pushed to Orca Cloud',false)}}else{orcaToast('Request failed',true)}">Push to Cloud</button>
+                    <button class="button button-ghost" hx-post="/api/sync/preset/{{ d.profile_id }}" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Push failed: '+(r.result||'unknown error'),true)}else{if(r.result&&r.result.github_backup_scheduled){orcaToast('Preset pushed — GitHub backup scheduled',false)}else{orcaToast('Preset pushed to Orca Cloud',false)}}}else{orcaToast('Request failed',true)}">Push to Cloud</button>
                     <button class="button button-ghost" hx-post="/api/sync/pull/{{ d.profile_id }}" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Pull failed: '+(r.result||'unknown error'),true)}else{orcaToast('Pulled from Orca Cloud',false)}}else{orcaToast('Request failed',true)}">Pull from Cloud</button>
                   </div>
                 </td>
@@ -102,7 +103,7 @@
         </div>
         <span class="target-summary">{{ ns.pdb_sync }} in sync, {{ ns.pdb_drift }} drifted</span>
         <p>Push catalog profiles to the printer database.</p>
-        <button class="button button-primary" hx-post="/api/sync/push" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='awaiting_input'){location.reload()}else if(r.status=='error'){orcaToast('Push failed: '+(r.result&&r.result.error||'unknown error'),true)}else{orcaToast('Push complete: '+(r.result&&r.result.pushed||0)+' profiles, '+(r.result&&r.result.skipped||0)+' skipped',false)}}else{orcaToast('Request failed',true)}">Push to Printer</button>
+        <button class="button button-primary" hx-post="/api/sync/push" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='awaiting_input'){location.reload()}else if(r.status=='error'){orcaToast('Push failed: '+(r.result&&r.result.error||'unknown error'),true)}else{orcaToast('Push complete: '+(r.result&&r.result.pushed||0)+' profiles, '+(r.result&&r.result.skipped||0)+' skipped — verifying...',false)}}else{orcaToast('Request failed',true)}">Push to Printer</button>
       </section>
 
       <section class="panel target-card" aria-labelledby="cloud-target-heading">

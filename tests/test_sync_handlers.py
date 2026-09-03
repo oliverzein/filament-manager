@@ -335,6 +335,8 @@ class TestGeneratePresetHandler:
         assert result["filament_id"].startswith("P")
         assert result["expected_hash"] is not None
         assert result["status"] == "in_sync"
+        # GitHub not configured in test settings → no backup scheduled
+        assert result["github_backup_scheduled"] is False
         # profile filament_id updated
         assert profile.filament_id == result["filament_id"]
         # SyncTarget set

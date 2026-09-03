@@ -709,11 +709,12 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
     target.status = "in_sync"
     target.last_synced_at = _now()
 
-    _enqueue_github_backup(session)
+    backup_scheduled = _enqueue_github_backup(session)
     return {
         "filament_id": preset["filament_id"],
         "expected_hash": expected_hash,
         "status": "in_sync",
+        "github_backup_scheduled": backup_scheduled,
     }
 
 
@@ -729,11 +730,15 @@ def _sanitize_filename(name: str) -> str:
     return _UNSAFE_CHARS.sub('-', name)
 
 
-def _enqueue_github_backup(session: Session) -> None:
-    """Enqueue a github_backup job if GitHub is configured. No-op otherwise."""
+def _enqueue_github_backup(session: Session) -> bool:
+    """Enqueue a github_backup job if GitHub is configured. No-op otherwise.
+
+    Returns True when a job was enqueued, False when GitHub is unconfigured.
+    """
     if _github_client_factory() is None:
-        return
+        return False
     jobs.enqueue(session, "github_backup", {})
+    return True
 
 
 def handle_github_backup(session: Session, config: Config, payload: dict) -> dict:

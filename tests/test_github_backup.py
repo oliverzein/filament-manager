@@ -394,7 +394,10 @@ class TestAutoTrigger:
         mock_github = MagicMock()
         monkeypatch.setattr(sh, "_github_client_factory", lambda: mock_github)
 
-        sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
+        result = sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
+
+        # Return dict signals that a GitHub backup was scheduled
+        assert result["github_backup_scheduled"] is True
 
         # Verify github_backup job was enqueued
         backup_jobs = list(s.scalars(
@@ -420,7 +423,10 @@ class TestAutoTrigger:
         # GitHub not configured
         monkeypatch.setattr(sh, "_github_client_factory", lambda: None)
 
-        sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
+        result = sh.handle_generate_preset(s, cfg, {"profile_id": profile.id})
+
+        # Return dict signals that no GitHub backup was scheduled
+        assert result["github_backup_scheduled"] is False
 
         backup_jobs = list(s.scalars(
             select(Job).where(Job.kind == "github_backup")

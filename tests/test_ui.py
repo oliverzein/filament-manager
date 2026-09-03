@@ -358,3 +358,29 @@ def test_no_old_labels_in_profiles_page(client, seeded_profile):
     """Profiles page must not contain old labels."""
     r = client.get("/profiles")
     assert b"Sync from Orca" not in r.content
+
+
+# ---------------------------------------------------------------------------
+# Profile delete feedback banners
+# ---------------------------------------------------------------------------
+
+def test_profiles_page_deleted_banner(client, seeded_profile):
+    """GET /profiles?deleted=1 renders the success alert banner."""
+    r = client.get("/profiles?deleted=1")
+    assert r.status_code == 200
+    assert b"Profile deleted." in r.content
+    assert b"alert-success" in r.content
+
+def test_profiles_page_cloud_failed_banner(client, seeded_profile):
+    """GET /profiles?deleted=1&cloud_failed=1 renders the warning alert."""
+    r = client.get("/profiles?deleted=1&cloud_failed=1")
+    assert r.status_code == 200
+    assert b"alert-warning" in r.content
+    assert b"Orca Cloud preset could not be deleted" in r.content
+
+def test_profiles_page_no_banner_without_params(client, seeded_profile):
+    """GET /profiles without query params does not render delete banners."""
+    r = client.get("/profiles")
+    assert r.status_code == 200
+    assert b"Profile deleted." not in r.content
+    assert b"Orca Cloud preset could not be deleted" not in r.content

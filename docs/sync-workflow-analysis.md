@@ -11,11 +11,11 @@
 |---|-----------|-------------------------------|--------------|----------------|----------|
 | W1 | `push` | **"Push all profiles"** (Sync-Seite) | Ja (`handle_push`) | Sync-Seite → `POST /api/sync/push` | Catalog → K2 Printer DB |
 | W2 | `verify` | *(kein Button — auto nach push)* | Ja (`handle_verify`) | Auto-enqueue nach W1 | Printer DB → Catalog (read-only check) |
-| W3 | `generate_preset` | *(Icon-Button ohne Textlabel, Upload-Icon)* in Drift-Tabelle | Ja (`handle_generate_preset`) | Sync-Seite Drift-Tabelle → `POST /api/sync/preset/{id}` | Catalog → Orca Cloud |
-| W4 | `refresh_preset_drift` | **"Sync from Orca"** (3 Orte!) + **"Sync now"** (Import-Seite) | Nein — synchron | 3 UI-Buttons + auto in `drift_status()` | Orca Cloud → Catalog (drift update) |
-| W5 | `import_scan` | **"Start import scan"** (Migration-Seite) | Ja (`handle_import_scan`) | Migration-Seite → `POST /migration/import` → `POST /migration/apply` | Printer DB → Catalog (neue Profile) |
-| W6 | *(kein Job — synchron)* | **"Import selected"** (Orca Cloud Import-Seite) | Nein | `/import-orca` → `POST /import-orca/apply` | Orca Cloud → Catalog (neue Profile) |
-| W7 | `github_backup` | **"Backup to GitHub"** (Sync-Seite, konditional) | Ja (`handle_github_backup`) | Sync-Seite → `POST /api/sync/backup-github` + auto nach W3 | Orca Cloud → GitHub |
+| W3 | `generate_preset` | **"Push to Cloud"** (Drift-Tabelle, Text-Button) | Ja (`handle_generate_preset`) | Sync Hub Drift-Tabelle → `POST /sync/preset-modal` → Modal-Overlay | Catalog → Orca Cloud |
+| W4 | `refresh_preset_drift` | **"Pull from Cloud"** (Sync Hub Drift-Tabelle + Cloud presets Card) + **"Pull from Cloud"** (Profile-Edit-Fragment) | Nein — Sync Hub: Job (`pull`-Handler) im Modal; Profile-Edit: synchron im Fragment | Sync Hub → `POST /sync/pull-modal`; Profile-Edit → `POST /profiles/{pid}/sync-from-orca`; + auto in `drift_status()` | Orca Cloud → Catalog (drift update) |
+| W5 | `import_scan` | **"Start import scan"** (Import-Seite, Tab "From Printer DB") | Ja (`handle_import_scan`) | Import-Seite → `POST /import/printer/scan` → `POST /import/printer/apply` | Printer DB → Catalog (neue Profile) |
+| W6 | *(kein Job — synchron)* | **"Import selected"** (Orca Cloud Import-Seite) | Nein | `/import?tab=orca` → `POST /import/orca/apply` | Orca Cloud → Catalog (neue Profile) |
+| W7 | `github_backup` | **"Backup to GitHub"** (Sync-Seite, konditional) | Ja (`handle_github_backup`) | Sync-Seite → `POST /sync/backup-modal` → Modal-Overlay + auto nach W3 | Orca Cloud → GitHub |
 | W8 | *(Teil von W4)* | *(kein eigener Button)* | Nein | Auto-Aufruf in `drift_status()` | Orca Cloud → SyncTarget-Status |
 | W9 | `profile_delete_form` + `sync_delete` | **"Also delete the OrcaSlicer Cloud preset"** (Delete-Seite) | Nein — synchron | Profile Delete → `POST /profiles/{pid}/delete?delete_cloud=1` | Catalog → Orca Cloud (delete) |
 
@@ -28,10 +28,15 @@
 | `apply_preset` (Companion Agent) | Spec §5 | **Entfernt (2026-08)** — konzeptionell ersetzt durch `generate_preset` → Orca Cloud Push → OrcaSlicer-eigener Sync |
 | Companion Agent (`fm-agent`) | Spec §5 | **Entfernt (2026-08)** — ersetzt durch Orca Cloud Sync. Kein Agent-CLI, keine `/api/agent/` Endpoints |
 
-**Registrierte Job-Handler** (`sync_handlers.py:1017-1021`):
+**Registrierte Job-Handler** (`sync_handlers.py`):
 ```
-push, verify, generate_preset, import_scan, github_backup
+push, verify, generate_preset, pull, import_scan, github_backup
 ```
+
+**htmx-Version (wichtig für `hx-on::`-Handler):** `base.html` pinnt
+`htmx.org@1.9.12` (Regressionstest `TestHtmxPin`). Die unversionierte
+`unpkg.com/htmx.org`-URL lieferte htmx 2.x, wo der `hx-on::`-Doppelpunkt-Shorthand
+entfernt wurde — alle Inline-`hx-on::after-request`-Toast-Handler starben still.
 
 ---
 
@@ -74,9 +79,13 @@ als Fallback für Jobs, die beim Seitenladen bereits `awaiting_input` sind
 (z.B. wenn der Benutzer weg navigiert und zurückkehrt). Das Modal existiert
 nur während einer aktiven Push-Session.
 
-**Hinweis:** Cloud-Buttons (Push to Cloud, Pull from Cloud, Backup to GitHub)
-behalten das bestehende Toast-Verhalten — nur die Printer-Push-Buttons
-verwenden das Modal.
+**Hinweis (aktualisiert 2026-09-03):** Alle Sync-Hub-Buttons (Push to Printer,
+Push to Cloud, Pull from Cloud, Backup to GitHub) verwenden jetzt das
+Modal-Overlay — nicht mehr Toast-basiert. `orcaToast()` wurde nach `base.html`
+verschoben (global verfügbar) und dient nur noch für Fehler-Toasts
+(Profile-Edit Pull, Busy-Dialog-Resolve) und den OOB-Erfolgs-Toast im
+Profile-Edit-Orca-Fragment. htmx ist auf `htmx.org@1.9.12` gepinnt
+(unversionierte URL lieferte 2.x, wo `hx-on::`-Handler still sterben).
 
 ### W2: Verify (`verify`)
 ```
@@ -98,7 +107,10 @@ Profile → build_standalone_preset (template + catalog fields)
   → SyncTarget(orca_preset).status = "in_sync"
   → AUTO-ENQUEUE: github_backup job (W7) via _enqueue_github_backup
 ```
-**Trigger:** Manuell (Icon-Button in Drift-Tabelle, per Profil)
+**Trigger:** Manuell ("Push to Cloud" Button in Drift-Tabelle, per Profil —
+öffnet `POST /sync/preset-modal` → Modal-Overlay mit Polling
+`GET /sync/preset-modal/{job_id}`, Ergebnis "Preset pushed" oder
+"Drift detected" + Hub-Refresh)
 **Auto-Nebenwirkung:** Enqueued `github_backup` wenn GitHub konfiguriert (`sync_handlers.py:716`)
 
 ### W4: "Sync from Orca" / Preset Drift Refresh (`refresh_preset_drift`)
@@ -121,10 +133,9 @@ OrcaCloudClient.sync_pull (alle Cloud-Presets)
       - target.actual_state + last_synced_at wie oben
 ```
 **Trigger:**
-1. Manuell — "Sync from Orca" Button auf Profiles-Seite (`POST /profiles/sync-from-orca`) → **adopt=True**
-2. Manuell — "Sync from Orca" Button im Profile-Edit-Formular (`POST /profiles/{pid}/sync-from-orca`) → **adopt=True**
-3. Manuell — "Sync now" Button auf Import-Orca-Seite (`POST /profiles/sync-from-orca`, bulk-Endpoint) → **adopt=True**
-4. **Automatisch** — bei jedem Aufruf von `drift_status()` (`fm/api/sync.py:146`), d.h. bei jedem Laden der Sync-Seite, des Dashboards → **adopt=False (read-only)**
+1. Manuell — "Pull from Cloud" Button im Profile-Edit-Formular (`POST /profiles/{pid}/sync-from-orca`, Fragment-Swap mit `hx-disabled-elt` + Spinner-Indicator + Error-Toast) → **adopt=True**
+2. Manuell — "Pull from Cloud" Button im Sync Hub (`POST /sync/pull-modal` → Modal-Overlay, per-Profil und bulk) → **adopt=True**
+3. **Automatisch** — bei jedem Aufruf von `drift_status()` (`fm/api/sync.py:146`), d.h. bei jedem Laden der Sync-Seite, des Dashboards → **adopt=False (read-only)**
 
 **Fix-Notiz (E3, 2026-09-02):** Bisher machte `refresh_preset_drift` bei jedem Aufruf (auch beim Seitenladen) Baseline-Adopt + nozzle_temperature-Write-back. Jetzt ist `adopt` ein keyword-only Parameter (`adopt: bool = False`); `drift_status()` nutzt den Default (read-only), die sync-from-orca-Routen in `ui.py` übergeben `adopt=True`.
 
@@ -166,8 +177,8 @@ OrcaCloudClient.sync_pull (alle Cloud-Presets, cursor=0)
   → activity_log
 ```
 **Trigger:**
-1. Manuell — "Backup to GitHub" Button auf Sync-Seite (nur wenn `github_configured`)
-2. **Automatisch** nach W3 (`handle_generate_preset` → `_enqueue_github_backup`)
+1. Manuell — "Backup to GitHub" Button auf Sync-Seite (nur wenn `github_configured`): `POST /sync/backup-modal` → Modal-Overlay mit Polling `GET /sync/backup-modal/{job_id}`, Ergebnis "Backup complete: N presets" oder Fehlermeldung + Hub-Refresh
+2. **Automatisch** nach W3 (`handle_generate_preset → _enqueue_github_backup`)
 
 ### W8: Preset Drift Detection (auto, Teil von W4)
 ```
@@ -218,6 +229,8 @@ Settings     → /settings
 | **"Sync status →"** Link | Navigation → `/sync` | — | `profiles.html:5` |
 | Edit/Delete Icon-Buttons | Navigation | — | `profiles.html:23` |
 | Material/Brand Filter + "Apply filters" | Form GET | — | `profiles.html:9-13` |
+| Delete-Banner (`?deleted=1`) | Anzeige `alert-success` "Profile deleted." | W9 (Feedback) | `profiles.html:6` |
+| Cloud-Fail-Banner (`?deleted=1&cloud_failed=1`) | Anzeige `alert-warning` (Cloud-Preset-Delete fehlgeschlagen) | W9 (Feedback) | `profiles.html:6` |
 
 **Änderung (Sync Hub Redesign):** "Sync from Orca" Button entfernt. Bulk-Pull in den Sync Hub verschoben. Stattdessen "Sync status →" Link zur Sync-Seite.
 
@@ -225,7 +238,7 @@ Settings     → /settings
 | Element | Typ | Workflow | Code-Ref |
 |---------|-----|----------|----------|
 | Orca-Fragment (Section 03 "Print settings") | HTMX-Load → `/profiles/{pid}/orca-fragment` | W4 (read) | `profile_form.html:47` |
-| **"Pull from Cloud"** Button (im Orca-Fragment; Label geändert, Route unverändert) | HTMX POST → `/profiles/{pid}/sync-from-orca` | W4 (adopt=True) | `orca_fragment.html` |
+| **"Pull from Cloud"** Button (im Orca-Fragment; Label geändert, Route unverändert) | HTMX POST → `/profiles/{pid}/sync-from-orca` — `hx-disabled-elt` + `hx-indicator`-Spinner + Error-Toast (`orcaToast`, global in base.html); Route fängt Exceptions als `orca_error`-Alert im Fragment | W4 (adopt=True) | `orca_fragment.html` |
 | "Preset source" Template-Dropdown | HTMX | W3 (template selection) | `profile_form.html:24-39` |
 
 ### Sync Hub (`/sync`, `sync_hub.html`) — M3 Two-Column Layout (Sync Hub Redesign)
@@ -237,21 +250,21 @@ Settings     → /settings
 |---------|-----|----------|----------|
 | Drift-Tabelle: "Printer DB" + "Orca preset" Status-Spalten | Anzeige | W2+W8 (read-only drift check) | `_sync_hub_grid.html` |
 | **"Push to Printer"** Button (per Profil, nur wenn `printer_db_id`) | HTMX POST → `/sync/push-modal` (profile_ids) → Modal-Overlay | W1 (per-Profil) | `_sync_hub_grid.html` |
-| **"Push to Cloud"** Button (per Profil) | HTMX POST → `/api/sync/preset/{id}` | W3 | `_sync_hub_grid.html` |
-| **"Pull from Cloud"** Button (per Profil) | HTMX POST → `/api/sync/pull/{id}` | W4 (adopt=True, per-Profil) | `_sync_hub_grid.html` |
+| **"Push to Cloud"** Button (per Profil) | HTMX POST → `/sync/preset-modal` → Modal-Overlay (Polling `GET /sync/preset-modal/{job_id}`) | W3 | `_sync_hub_grid.html` |
+| **"Pull from Cloud"** Button (per Profil) | HTMX POST → `/sync/pull-modal` → Modal-Overlay (Polling `GET /sync/pull-modal/{job_id}`) | W4 (adopt=True, per-Profil) | `_sync_hub_grid.html` |
 | Busy-Dialog (Fallback): **"Force reboot"** / **"Wait"** / **"No reboot"** | HTMX POST → `/sync/jobs/{id}/resolve` | W1 (resolve, page-level fallback) | `_sync_hub_grid.html` |
 
 **Rechte Spalte — Target-Cards:**
 | Element | Typ | Workflow | Code-Ref |
 |---------|-----|----------|----------|
 | Printer DB Card: Summary "N in sync, M drifted" + **"Push to Printer"** Button (bulk) | HTMX POST → `/sync/push-modal` → Modal-Overlay | W1 (bulk) | `_sync_hub_grid.html` |
-| Cloud presets Card: Summary + **"Pull from Cloud (all)"** Button | HTMX POST → `/api/sync/pull` | W4 (adopt=True, bulk) | `_sync_hub_grid.html` |
-| GitHub backup Card: **"Backup to GitHub"** Button (konditional) | HTMX POST → `/api/sync/backup-github` | W7 | `_sync_hub_grid.html` |
+| Cloud presets Card: Summary + **"Pull from Cloud (all)"** Button | HTMX POST → `/sync/pull-modal` → Modal-Overlay (Polling `GET /sync/pull-modal/{job_id}`) | W4 (adopt=True, bulk) | `_sync_hub_grid.html` |
+| GitHub backup Card: **"Backup to GitHub"** Button (konditional) | HTMX POST → `/sync/backup-modal` → Modal-Overlay (Polling `GET /sync/backup-modal/{job_id}`) | W7 | `_sync_hub_grid.html` |
 
-**Push-Modal-Overlay (`#push-modal`):**
+**Action-Modal-Overlay (`#action-modal`):**
 | Element | Typ | Workflow | Code-Ref |
 |---------|-----|----------|----------|
-| Modal-Body (Spinner / Choices / Result) | HTMX-Poll → `GET /sync/push-modal/{job_id}` (alle 1.5s) | W1+W2 (live progress) | `sync_hub.html` + `ui.py:_push_modal_fragment` |
+| Modal-Body (Spinner / Choices / Result) | HTMX-Poll → `GET /sync/{push|preset|pull|backup}-modal/{job_id}` (alle 1.5s) | W1+W2+W3+W4+W7 (live progress) | `sync_hub.html` + `ui.py:_action_modal_fragment` |
 | Choice-Buttons (Force reboot / Wait / No reboot) | HTMX POST → `/sync/jobs/{id}/resolve-modal` | W1 (resolve in modal) | `ui.py:sync_resolve_modal` |
 | Hub-Refresh (hidden div) | HTMX GET → `/sync/hub-fragment` → `#sync-hub-content` (innerHTML) | W1 (post-completion refresh) | `ui.py:sync_hub_fragment` |
 
@@ -262,16 +275,17 @@ Settings     → /settings
 
 **Änderung (Sync Hub Redesign):** "Push all profiles" → "Push to Printer" (Printer DB Card). Icon-Button ersetzt durch Text-Button "Push to Cloud". Neu: per-Profil "Push to Printer" und "Pull from Cloud" Buttons in Drift-Tabelle. Bulk "Pull from Cloud (all)" in Cloud presets Card. "Sync from Orca" Bulk von Profiles-Seite hierher verschoben.
 
-**Änderung (Push-Modal-Overlay, 2026-09-03):** Push-Buttons öffnen sofort ein Modal-Overlay mit Live-Fortschritt (Spinner → Choices → Result). Busy-Choices werden im Modal gezeigt, nicht mehr als seitenweiter Dialog. Nach Abschluss wird der Hub-Inhalt (Drift-Tabelle + Target-Cards) per HTMX-Fragment automatisch aktualisiert — kein manuelles Page-Reload. Grid in `_sync_hub_grid.html` Partial ausgelagert (inkludiert von `sync_hub.html` und gerendert von `GET /sync/hub-fragment`). Cloud-Buttons behalten Toast-Verhalten.
+**Änderung (Action-Modal-Overlay, 2026-09-03):** Alle Sync-Hub-Buttons (Push to Printer, Push to Cloud, Pull from Cloud, Backup to GitHub) öffnen sofort ein Modal-Overlay mit Live-Fortschritt (Spinner → Choices (nur Push) → Result). Busy-Choices werden im Modal gezeigt, nicht mehr als seitenweiter Dialog. Nach Abschluss wird der Hub-Inhalt (Drift-Tabelle + Target-Cards) per HTMX-Fragment automatisch aktualisiert — kein manuelles Page-Reload. Grid in `_sync_hub_grid.html` Partial ausgelagert (inkludiert von `sync_hub.html` und gerendert von `GET /sync/hub-fragment`).
 
 ### Import page — Tab "From Printer DB" (`/import?tab=printer`, `import_printer.html`)
 | Element | Typ | Workflow | Code-Ref |
 |---------|-----|----------|----------|
-| **"Start import scan"** Button | Form POST → `/import/printer/scan` | W5 | `import_printer.html:5` |
-| Proposal-Tabelle mit Checkboxen | Form POST → `/import/printer/apply` | W5 | `import_printer.html:6` |
+| **"Start import scan"** Button | Form POST → `/import/printer/scan` (onsubmit: Button-Disable + "Scanning…" Label) | W5 | `import_printer.html:6` |
+| Scan-Error-Alert (wenn letzter import_scan-Job `error`) | Anzeige `alert-danger` mit Job-Error-Message | W5 | `import_printer.html:5` |
+| Proposal-Tabelle mit Checkboxen | Form POST → `/import/printer/apply` | W5 | `import_printer.html:7` |
 | 3-Schritt-Stepper (Scan → Review → Complete) | Anzeige | W5 | `import_printer.html:4` |
-| **"← Back to scan"** Button (Step 2) | Link → /import?tab=printer&step=scan | W5 (Navigation) | `import_printer.html:6` |
-| **"Back to review"** Link (Step 1, nur wenn import_job existiert) | Link → /import?tab=printer | W5 (Navigation) | `import_printer.html:5` |
+| **"← Back to scan"** Button (Step 2) | Link → /import?tab=printer&step=scan | W5 (Navigation) | `import_printer.html:7` |
+| **"Back to review"** Link (Step 1, nur wenn import_job existiert) | Link → /import?tab=printer | W5 (Navigation) | `import_printer.html:6` |
 
 **Änderung (Sync Hub Redesign):** Ehemals eigene `/migration` Seite. Jetzt Tab "From Printer DB" auf `/import`. Routes: `/import/printer/scan`, `/import/printer/apply`. Wizard-State via URL-Query (`?step=scan`) — Step 1 auch bei vorhandenem import_scan-Job erreichbar; ohne Param bleibt Review beim letzten Scan.
 

@@ -1083,3 +1083,21 @@ class TestImportPage:
         r = client.get("/import?tab=printer")
         assert r.status_code == 200
         assert b"/import?tab=printer&step=scan" in r.content
+
+    def test_import_scan_error_surfaces_alert(self, client, monkeypatch):
+        """When the latest import_scan job errored, /import?tab=printer
+        shows an error alert with the job's error message."""
+        # Make the scan handler raise by pointing at a nonexistent import DB
+        from pathlib import Path
+        monkeypatch.setattr(sh, "_import_db_path", Path("/nonexistent/import_db.json"))
+        client.post("/import/printer/scan")
+        r = client.get("/import?tab=printer")
+        assert r.status_code == 200
+        assert b"Import scan failed" in r.content
+
+    def test_import_scan_form_has_onsubmit(self, client):
+        """The scan form has onsubmit JS that disables the button."""
+        r = client.get("/import?tab=printer")
+        assert r.status_code == 200
+        assert b"onsubmit" in r.content
+        assert b"Scanning" in r.content

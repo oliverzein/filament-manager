@@ -47,9 +47,9 @@
       <div class="awaiting-job" id="awaiting-{{ job.id }}">
         <span>Job #{{ job.id }} · {{ job.kind }}</span>
         <div class="button-group">
-          <button class="button button-danger" hx-post="/sync/jobs/{{ job.id }}/resolve" hx-vals='{"choice": "force_reboot"}' hx-target="#busy-dialog" hx-swap="outerHTML">Force reboot</button>
-          <button class="button button-secondary" hx-post="/sync/jobs/{{ job.id }}/resolve" hx-vals='{"choice": "wait"}' hx-target="#busy-dialog" hx-swap="outerHTML">Wait</button>
-          <button class="button button-ghost" hx-post="/sync/jobs/{{ job.id }}/resolve" hx-vals='{"choice": "no_reboot"}' hx-target="#busy-dialog" hx-swap="outerHTML">No reboot</button>
+          <button class="button button-danger" hx-post="/sync/jobs/{{ job.id }}/resolve" hx-vals='{"choice": "force_reboot"}' hx-target="#busy-dialog" hx-swap="outerHTML" hx-disabled-elt="this" hx-on::after-request="if(event.detail.xhr.status>=400){orcaToast('Resolution failed',true)}">Force reboot</button>
+          <button class="button button-secondary" hx-post="/sync/jobs/{{ job.id }}/resolve" hx-vals='{"choice": "wait"}' hx-target="#busy-dialog" hx-swap="outerHTML" hx-disabled-elt="this" hx-on::after-request="if(event.detail.xhr.status>=400){orcaToast('Resolution failed',true)}">Wait</button>
+          <button class="button button-ghost" hx-post="/sync/jobs/{{ job.id }}/resolve" hx-vals='{"choice": "no_reboot"}' hx-target="#busy-dialog" hx-swap="outerHTML" hx-disabled-elt="this" hx-on::after-request="if(event.detail.xhr.status>=400){orcaToast('Resolution failed',true)}">No reboot</button>
         </div>
       </div>
       {% endfor %}

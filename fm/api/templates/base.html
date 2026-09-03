@@ -54,5 +54,16 @@
     </header>
     <main class="content">{% block content %}{% endblock %}</main>
   </div>
+<div id="orca-toast" class="orca-toast"></div>
+<script>
+function orcaToast(msg, isError) {
+  var t = document.getElementById('orca-toast');
+  if (!t) return;
+  t.innerHTML = '<span>' + msg + '</span>';
+  t.style.background = isError ? 'rgba(255,90,101,.95)' : 'rgba(5,193,104,.95)';
+  t.classList.add('show');
+  setTimeout(function() { t.classList.remove('show'); }, 5000);
+}
+</script>
 </body>
 </html>

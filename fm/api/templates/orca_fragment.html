@@ -40,7 +40,11 @@
             hx-post="/profiles/{{ pid }}/sync-from-orca"
             hx-swap="outerHTML"
             hx-target="#orca-settings"
-            hx-confirm="Pulling adopts the cloud baseline and overwrites this profile's nozzle temperature with the cloud value. Continue?">Pull from Cloud</button>
+            hx-confirm="Pulling adopts the cloud baseline and overwrites this profile's nozzle temperature with the cloud value. Continue?"
+            hx-disabled-elt="this"
+            hx-indicator="#orca-pull-spinner"
+            hx-on::after-request="if(event.detail.xhr.status>=400){orcaToast('Pull failed',true)}">Pull from Cloud</button>
+    <span id="orca-pull-spinner" class="spinner spinner-md htmx-indicator" style="display:none"></span>
   </div>
 </div>
 {% else %}
@@ -53,20 +57,18 @@
             hx-post="/profiles/{{ pid }}/sync-from-orca"
             hx-swap="outerHTML"
             hx-target="#orca-settings"
-            hx-confirm="Pulling adopts the cloud baseline and overwrites this profile's nozzle temperature with the cloud value. Continue?">Pull from Cloud</button>
+            hx-confirm="Pulling adopts the cloud baseline and overwrites this profile's nozzle temperature with the cloud value. Continue?"
+            hx-disabled-elt="this"
+            hx-indicator="#orca-pull-spinner"
+            hx-on::after-request="if(event.detail.xhr.status>=400){orcaToast('Pull failed',true)}">Pull from Cloud</button>
+    <span id="orca-pull-spinner" class="spinner spinner-md htmx-indicator" style="display:none"></span>
   </div>
 </div>
 {% endif %}
 {% if synced_success %}
-<div id="orca-toast" class="orca-toast" hx-swap-oob="innerHTML">
-  <span>Synced from Orca Cloud</span>
+<div hx-swap-oob="innerHTML" id="orca-toast-trigger">
   <script>
-    (function() {
-      var t = document.getElementById('orca-toast');
-      if (!t) return;
-      t.classList.add('show');
-      setTimeout(function() { t.classList.remove('show'); }, 3000);
-    })();
+    orcaToast('Synced from Orca Cloud', false);
   </script>
 </div>
 {% endif %}

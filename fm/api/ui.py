@@ -534,8 +534,40 @@ def sync_from_orca(pid: int, request: Request, db: DbSession) -> HTMLResponse:
              "target_status": target.status if target else None,
              "orca_error": "Orca Cloud not connected — set up the connection in Settings"},
         )
-    refresh_preset_drift(db, adopt=True)
-    db.flush()
+    try:
+        refresh_preset_drift(db, adopt=True)
+        db.flush()
+    except Exception:
+        profile = db.get(Profile, pid)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="profile not found")
+        target = db.scalars(
+            select(SyncTarget).where(
+                SyncTarget.profile_id == pid,
+                SyncTarget.kind == "orca_preset",
+            )
+        ).first()
+        orca_data = None
+        last_synced = None
+        if target and target.actual_state:
+            try:
+                orca_data = json.loads(target.actual_state)
+            except (json.JSONDecodeError, ValueError):
+                orca_data = None
+        if target and target.last_synced_at:
+            last_synced = _fmt_local(target.last_synced_at)
+        if profile.template_override:
+            template_name = profile.template_override
+        else:
+            template_name = f"Generic {profile.type} defaults"
+        return _templates(request).TemplateResponse(
+            request, "orca_fragment.html",
+            {"pid": pid, "orca_data": orca_data, "last_synced": last_synced,
+             "syncing": False, "stale": False, "job_id": None,
+             "synced_success": False, "template_name": template_name,
+             "target_status": target.status if target else None,
+             "orca_error": "Pull failed — check your Orca Cloud connection and try again"},
+        )
 
     profile = db.get(Profile, pid)
     if profile is None:
@@ -1286,7 +1318,6 @@ def sync_hub_fragment(request: Request, db: DbSession) -> HTMLResponse:
 
     Used by the action-modal completion path to refresh the Sync Hub's
     main content (drift table + right-column summaries) without a
-    full page reload.
     """
     drift = drift_status(request, db)
     awaiting_jobs = list(db.scalars(
@@ -1301,7 +1332,6 @@ def sync_hub_fragment(request: Request, db: DbSession) -> HTMLResponse:
         },
     )
 
-
 # ---------------------------------------------------------------------------
 # Migration wizard — one-time import of existing printer DB entries
 # ---------------------------------------------------------------------------
@@ -1313,11 +1343,6 @@ def _latest_import_scan(db: Session) -> Job | None:
             Job.kind == "import_scan", Job.status == "done",
         ).order_by(Job.id.desc())
     ).first()
-
-
-# ---------------------------------------------------------------------------
-# Import page — merged migration + Orca Cloud import
-# ---------------------------------------------------------------------------
 
 @router.get("/import", response_class=HTMLResponse)
 def import_page(request: Request, db: DbSession) -> HTMLResponse:
@@ -1336,6 +1361,20 @@ def import_page(request: Request, db: DbSession) -> HTMLResponse:
             proposals = result.get("proposals", [])
         except (json.JSONDecodeError, ValueError):
             proposals = []
+
+    # Check for the latest import_scan job regardless of status — if it
+    # errored, surface the error message instead of silently returning
+    # to step 1.
+    scan_error = None
+    latest_scan = db.scalars(
+        select(Job).where(Job.kind == "import_scan").order_by(Job.id.desc())
+    ).first()
+    if latest_scan and latest_scan.status == "error" and latest_scan.result:
+        try:
+            err_result = json.loads(latest_scan.result)
+            scan_error = err_result.get("error", "Unknown error")
+        except (json.JSONDecodeError, ValueError):
+            scan_error = "Unknown error"
 
     existing_ids = set(
         db.scalars(
@@ -1369,6 +1408,7 @@ def import_page(request: Request, db: DbSession) -> HTMLResponse:
             "import_job": import_job,
             "applied": applied,
             "show_scan": show_scan,
+            "scan_error": scan_error,
             "orca_proposals": orca_proposals,
             "has_presets": len(all_presets) > 0,
         },

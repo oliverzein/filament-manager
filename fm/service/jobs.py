@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -22,7 +23,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import Config
+from ..db import SessionLocal
 from ..models import ActivityLog, Job
+
 
 log = logging.getLogger(__name__)
 
@@ -120,6 +123,11 @@ def run_pending(session: Session, config: Config) -> None:
     handler results) are contained the same way. Nothing escapes to the
     caller, so the surrounding session commits the recorded state cleanly.
 
+    A ``session.commit()`` is issued after each job state transition
+    (claim → running, complete, fail, await_input) so that concurrent
+    connections — e.g. a polling request from the push-modal overlay —
+    can observe intermediate states while the drain is still in progress.
+
     Jobs whose ``kind`` is not in ``HANDLERS`` are left ``queued``
     without error so registered kinds queued behind them still process.
     """
@@ -128,6 +136,9 @@ def run_pending(session: Session, config: Config) -> None:
         job = claim_next(session, exclude=skipped)
         if job is None:
             return
+        # Commit the "running" state so concurrent polling connections
+        # can observe the transition while the handler executes.
+        session.commit()
         handler = HANDLERS.get(job.kind)
         if handler is None:
             # No server-side handler for this kind — leave queued.
@@ -149,6 +160,7 @@ def run_pending(session: Session, config: Config) -> None:
             detail = {"error": str(exc), "job_id": job.id, "kind": job.kind}
             fail(job, detail)
             log_activity(session, job.kind, "error", detail)
+            session.commit()
             log.exception("job %s (%s) failed", job.id, job.kind)
             continue
         # Handler can request to park the job awaiting user input (e.g. busy
@@ -161,6 +173,7 @@ def run_pending(session: Session, config: Config) -> None:
                 session, job.kind, "warn",
                 {"job_id": job.id, "busy": result.get("busy")},
             )
+            session.commit()
             continue
         # Release the savepoint (commit it) once the handler result is known
         # good; serialization of the result is contained below.
@@ -169,9 +182,31 @@ def run_pending(session: Session, config: Config) -> None:
             log_activity(
                 session, job.kind, "ok", {"job_id": job.id, "result": result}
             )
+            session.commit()
         except Exception as exc:  # noqa: BLE001 - e.g. non-serializable result
             nested.rollback()
             detail = {"error": str(exc), "job_id": job.id, "kind": job.kind}
             fail(job, detail)
             log_activity(session, job.kind, "error", detail)
+            session.commit()
             log.exception("job %s (%s) result recording failed", job.id, job.kind)
+
+
+def drain_background(config: Config) -> None:
+    """Drain the job queue in a background daemon thread.
+
+    Opens its own ``SessionLocal`` session so job state transitions are
+    committed independently of the calling request's session — this lets
+    polling endpoints observe intermediate states (queued → running →
+    done/error/awaiting_input) while the drain is still in progress.
+
+    Tests monkeypatch this to run synchronously (see ``_sync_drain`` in
+    test fixtures) so assertions can check the final job state immediately.
+    """
+    t = threading.Thread(target=_drain_worker, args=(config,), daemon=True)
+    t.start()
+
+
+def _drain_worker(config: Config) -> None:
+    with SessionLocal() as session:
+        run_pending(session, config)

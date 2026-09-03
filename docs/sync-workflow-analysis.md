@@ -45,10 +45,37 @@ Catalog (alle Profile mit printer_db_id)
   → SyncTarget(printer_db).expected_hash = hash(entry)
   → SyncTarget(printer_db).status = "pending"
   → AUTO-ENQUEUE: verify job (W2)
-  → Bei "busy": _awaiting_input → UI-Busy-Dialog
+  → Bei "busy": _awaiting_input → Push-Modal-Overlay (Choice im Modal)
 ```
-**Trigger:** Manuell ("Push all profiles" Button)
+**Trigger:** Manuell ("Push to Printer" Button — per-Profil in Drift-Tabelle oder Bulk in Printer DB Card)
 **Auto-Nebenwirkung:** Enqueued immer einen `verify` Job (`sync_handlers.py:534`)
+
+**UI-Overlay (Kategorie C, 2026-09-03):** Der Push-Button öffnet sofort ein
+Modal-Overlay (`#push-modal`) mit Spinner. Der POST geht an
+`POST /sync/push-modal` (HTML-Fragment), der den Job enqueued, committet und
+einen Background-Drain-Thread startet (`jobs.drain_background`). Das Modal
+pollt `GET /sync/push-modal/{job_id}` alle 1.5s und zeigt:
+- queued/running: Spinner "Pushing to printer…"
+- awaiting_input: Choice-Buttons (Force reboot / Wait / No reboot) im Modal
+  (POST `/sync/jobs/{id}/resolve-modal`)
+- done: "Push complete" + automatischer Hub-Refresh via
+  `GET /sync/hub-fragment` (drift table + target cards werden per HTMX
+  ausgetauscht — kein manuelles Page-Reload nötig)
+- error: Fehlermeldung im Modal
+
+**Background-Drain:** `run_pending` committet jetzt nach jedem Job-State-Transition
+(claim → running, complete, fail, await_input), so dass konkurrierende
+Polling-Verbindungen die Zwischenzustände sehen. `drain_background` öffnet
+eine eigene `SessionLocal`-Session im Daemon-Thread.
+
+**Page-Level Busy-Dialog (Fallback):** Der seitenweite `#busy-dialog` bleibt
+als Fallback für Jobs, die beim Seitenladen bereits `awaiting_input` sind
+(z.B. wenn der Benutzer weg navigiert und zurückkehrt). Das Modal existiert
+nur während einer aktiven Push-Session.
+
+**Hinweis:** Cloud-Buttons (Push to Cloud, Pull from Cloud, Backup to GitHub)
+behalten das bestehende Toast-Verhalten — nur die Printer-Push-Buttons
+verwenden das Modal.
 
 ### W2: Verify (`verify`)
 ```
@@ -207,25 +234,34 @@ Settings     → /settings
 **Linke Spalte — Drift-Tabelle:**
 | Element | Typ | Workflow | Code-Ref |
 |---------|-----|----------|----------|
-| Drift-Tabelle: "Printer DB" + "Orca preset" Status-Spalten | Anzeige | W2+W8 (read-only drift check) | `sync_hub.html:46-52` |
-| **"Push to Printer"** Button (per Profil, nur wenn `printer_db_id`) | HTMX POST → `/api/sync/push` (profile_ids) | W1 (per-Profil) | `sync_hub.html:56` |
-| **"Push to Cloud"** Button (per Profil) | HTMX POST → `/api/sync/preset/{id}` | W3 | `sync_hub.html:60` |
-| **"Pull from Cloud"** Button (per Profil) | HTMX POST → `/api/sync/pull/{id}` | W4 (adopt=True, per-Profil) | `sync_hub.html:61` |
-| Busy-Dialog: **"Force reboot"** / **"Wait"** / **"No reboot"** | HTMX POST → `/sync/jobs/{id}/resolve` | W1 (resolve) | `sync_hub.html:75-87` |
+| Drift-Tabelle: "Printer DB" + "Orca preset" Status-Spalten | Anzeige | W2+W8 (read-only drift check) | `_sync_hub_grid.html` |
+| **"Push to Printer"** Button (per Profil, nur wenn `printer_db_id`) | HTMX POST → `/sync/push-modal` (profile_ids) → Modal-Overlay | W1 (per-Profil) | `_sync_hub_grid.html` |
+| **"Push to Cloud"** Button (per Profil) | HTMX POST → `/api/sync/preset/{id}` | W3 | `_sync_hub_grid.html` |
+| **"Pull from Cloud"** Button (per Profil) | HTMX POST → `/api/sync/pull/{id}` | W4 (adopt=True, per-Profil) | `_sync_hub_grid.html` |
+| Busy-Dialog (Fallback): **"Force reboot"** / **"Wait"** / **"No reboot"** | HTMX POST → `/sync/jobs/{id}/resolve` | W1 (resolve, page-level fallback) | `_sync_hub_grid.html` |
 
 **Rechte Spalte — Target-Cards:**
 | Element | Typ | Workflow | Code-Ref |
 |---------|-----|----------|----------|
-| Printer DB Card: Summary "N in sync, M drifted" + **"Push to Printer"** Button (bulk) | HTMX POST → `/api/sync/push` | W1 (bulk) | `sync_hub.html:98-106` |
-| Cloud presets Card: Summary + **"Pull from Cloud (all)"** Button | HTMX POST → `/api/sync/pull` | W4 (adopt=True, bulk) | `sync_hub.html:108-116` |
-| GitHub backup Card: **"Backup to GitHub"** Button (konditional) | HTMX POST → `/api/sync/backup-github` | W7 | `sync_hub.html:118-126` |
+| Printer DB Card: Summary "N in sync, M drifted" + **"Push to Printer"** Button (bulk) | HTMX POST → `/sync/push-modal` → Modal-Overlay | W1 (bulk) | `_sync_hub_grid.html` |
+| Cloud presets Card: Summary + **"Pull from Cloud (all)"** Button | HTMX POST → `/api/sync/pull` | W4 (adopt=True, bulk) | `_sync_hub_grid.html` |
+| GitHub backup Card: **"Backup to GitHub"** Button (konditional) | HTMX POST → `/api/sync/backup-github` | W7 | `_sync_hub_grid.html` |
+
+**Push-Modal-Overlay (`#push-modal`):**
+| Element | Typ | Workflow | Code-Ref |
+|---------|-----|----------|----------|
+| Modal-Body (Spinner / Choices / Result) | HTMX-Poll → `GET /sync/push-modal/{job_id}` (alle 1.5s) | W1+W2 (live progress) | `sync_hub.html` + `ui.py:_push_modal_fragment` |
+| Choice-Buttons (Force reboot / Wait / No reboot) | HTMX POST → `/sync/jobs/{id}/resolve-modal` | W1 (resolve in modal) | `ui.py:sync_resolve_modal` |
+| Hub-Refresh (hidden div) | HTMX GET → `/sync/hub-fragment` → `#sync-hub-content` (innerHTML) | W1 (post-completion refresh) | `ui.py:sync_hub_fragment` |
 
 **Unterer Bereich:**
 | Element | Typ | Workflow | Code-Ref |
 |---------|-----|----------|----------|
-| "Recent jobs" Queue (auto-poll alle 3s) | Anzeige | Alle | `sync_hub.html:130` |
+| "Recent jobs" Queue (auto-poll alle 3s) | Anzeige | Alle | `sync_hub.html` |
 
 **Änderung (Sync Hub Redesign):** "Push all profiles" → "Push to Printer" (Printer DB Card). Icon-Button ersetzt durch Text-Button "Push to Cloud". Neu: per-Profil "Push to Printer" und "Pull from Cloud" Buttons in Drift-Tabelle. Bulk "Pull from Cloud (all)" in Cloud presets Card. "Sync from Orca" Bulk von Profiles-Seite hierher verschoben.
+
+**Änderung (Push-Modal-Overlay, 2026-09-03):** Push-Buttons öffnen sofort ein Modal-Overlay mit Live-Fortschritt (Spinner → Choices → Result). Busy-Choices werden im Modal gezeigt, nicht mehr als seitenweiter Dialog. Nach Abschluss wird der Hub-Inhalt (Drift-Tabelle + Target-Cards) per HTMX-Fragment automatisch aktualisiert — kein manuelles Page-Reload. Grid in `_sync_hub_grid.html` Partial ausgelagert (inkludiert von `sync_hub.html` und gerendert von `GET /sync/hub-fragment`). Cloud-Buttons behalten Toast-Verhalten.
 
 ### Import page — Tab "From Printer DB" (`/import?tab=printer`, `import_printer.html`)
 | Element | Typ | Workflow | Code-Ref |
@@ -338,6 +374,8 @@ Drei Buttons mit identischem oder ähnlichem Label, die alle `refresh_preset_dri
 - Der SyncTarget-Status geht erst nach Verify von "pending" → "in_sync" — in der Zwischenzeit zeigt die Drift-Tabelle "pending", was wie ein Fehler aussehen kann
 
 **Fix-Notiz (Kategorie C, 2026-09-03):** Push-Toasts enden jetzt mit "— verifying..." (per-Profil: "Pushed to printer — verifying...", bulk: "Push complete: N profiles, M skipped — verifying..."). Der Verify-Job erscheint in der auto-pollenden "Recent jobs" Queue.
+
+**Update (Push-Modal-Overlay, 2026-09-03):** Die Toast-basierte Push-Rückmeldung wurde durch das Modal-Overlay ersetzt. Das Modal zeigt "Verifying…" als Spinner-Phase, während der Verify-Job läuft, und "Push complete" mit Hub-Refresh nach Abschluss. Die Drift-Tabelle zeigt `in_sync` sofort nach dem Push (berechnet aus der Cache-Datei, nicht vom Verify-Job). Cloud-Buttons (Push to Cloud etc.) behalten das Toast-Verhalten.
 
 ### V6: Migration vs. Import-Orca — zwei Import-Workflows mit ähnlichem Zweck — **GEFIXT**
 

@@ -32,7 +32,7 @@ def init_engine(url: str) -> Engine:
 
     Returns the engine so callers may dispose it explicitly.
     """
-    engine = create_engine(url, future=True)
+    engine = create_engine(url, future=True, connect_args={"timeout": 30})
     Base.metadata.create_all(engine)
     _migrate(engine)
     SessionLocal.configure(bind=engine)

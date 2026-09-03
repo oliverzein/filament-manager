@@ -19,6 +19,7 @@ from fm.api.app import create_app, Settings
 from fm.config import Config
 from fm.db import SessionLocal
 from fm.models import Job, Profile, SyncTarget
+from fm.service import jobs
 from fm.service import sync_handlers as sh
 
 
@@ -331,6 +332,224 @@ class TestSyncPage:
         r = client.post(f"/sync/jobs/{job_id}/resolve",
                         data={"choice": "bogus"})
         assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Push modal — overlay with live progress, busy choices, hub refresh
+# ---------------------------------------------------------------------------
+
+def _sync_drain(config):
+    """Synchronous replacement for jobs.drain_background (tests only)."""
+    with SessionLocal() as session:
+        jobs.run_pending(session, config)
+
+
+class TestPushModal:
+    """Tests for the push-modal overlay endpoints."""
+
+    def test_sync_page_has_push_modal_scaffolding(self, client):
+        """The /sync page contains the modal overlay container and JS."""
+        r = client.get("/sync")
+        assert r.status_code == 200
+        assert b'id="push-modal"' in r.content
+        assert b'openPushModal' in r.content
+        assert b'closePushModal' in r.content
+        assert b'push-modal-spinner' in r.content
+
+    def test_sync_page_push_buttons_target_modal(self, client):
+        """Push buttons POST to /sync/push-modal, not /api/sync/push."""
+        r = client.get("/sync")
+        assert b'/sync/push-modal' in r.content
+        # Old inline JS (location.reload for awaiting_input) should be gone
+        # from push buttons — but orcaToast still appears for cloud buttons.
+        assert b"location.reload()" not in r.content
+
+    def test_push_modal_returns_running_fragment(self, client, monkeypatch,
+                                                  sample_db, tmp_path):
+        """POST /sync/push-modal returns a fragment with spinner + polling."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.post("/sync/push-modal")
+        assert r.status_code == 200
+        # With synchronous drain, the push completes immediately.
+        # The fragment should show done state (push + verify both complete).
+        assert b"push-modal-state" in r.content
+
+    def test_push_modal_done_shows_success(self, client, monkeypatch,
+                                            sample_db, tmp_path):
+        """After push+verify complete, the poll fragment shows success."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        # Push via the JSON endpoint (synchronous drain) to get a job_id
+        r = client.post("/api/sync/push", json={})
+        job_id = r.json()["job_id"]
+        # Poll the modal endpoint
+        r = client.get(f"/sync/push-modal/{job_id}")
+        assert r.status_code == 200
+        assert b"Push complete" in r.content
+        assert b"profile(s) pushed" in r.content
+
+    def test_push_modal_busy_shows_choices(self, client, monkeypatch,
+                                            sample_db, tmp_path):
+        """Busy push renders choice buttons inside the modal fragment."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        busy_transport = FakeTransport(busy={"filename": "x.gcode", "progress": 50})
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: busy_transport)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.post("/sync/push-modal")
+        assert r.status_code == 200
+        assert b"Printer is busy" in r.content
+        assert b"Force reboot" in r.content
+        assert b"Wait" in r.content
+        assert b"No reboot" in r.content
+        # Choice buttons should target the resolve-modal endpoint
+        assert b"/sync/jobs/" in r.content
+        assert b"resolve-modal" in r.content
+
+    def test_push_modal_resolve_force_reboot(self, client, monkeypatch,
+                                               sample_db, tmp_path):
+        """Resolve-modal with force_reboot transitions to done."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        busy_transport = FakeTransport(busy={"filename": "x.gcode", "progress": 50})
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: busy_transport)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        # Push to get an awaiting_input job
+        r = client.post("/api/sync/push", json={})
+        job_id = r.json()["job_id"]
+        assert get_job_status(client, job_id) == "awaiting_input"
+        # Resolve via the modal endpoint
+        # Switch transport to non-busy so force_reboot succeeds
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: FakeTransport())
+        r = client.post(f"/sync/jobs/{job_id}/resolve-modal",
+                        data={"choice": "force_reboot"})
+        assert r.status_code == 200
+        assert get_job_status(client, job_id) == "done"
+        assert b"Push complete" in r.content
+
+    def test_push_modal_resolve_wait_stays_awaiting(self, client, monkeypatch,
+                                                      sample_db, tmp_path):
+        """Resolve-modal with wait retries — still busy → awaiting."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        busy_transport = FakeTransport(busy={"filename": "x.gcode", "progress": 50})
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: busy_transport)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.post("/api/sync/push", json={})
+        job_id = r.json()["job_id"]
+        r = client.post(f"/sync/jobs/{job_id}/resolve-modal",
+                        data={"choice": "wait"})
+        assert r.status_code == 200
+        assert get_job_status(client, job_id) == "awaiting_input"
+        assert b"Printer is busy" in r.content
+
+    def test_push_modal_resolve_invalid_choice_422(self, client, monkeypatch,
+                                                     sample_db, tmp_path):
+        """Invalid choice returns 422 from the modal resolve endpoint."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        busy_transport = FakeTransport(busy={"filename": "x.gcode", "progress": 50})
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: busy_transport)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.post("/api/sync/push", json={})
+        job_id = r.json()["job_id"]
+        r = client.post(f"/sync/jobs/{job_id}/resolve-modal",
+                        data={"choice": "bogus"})
+        assert r.status_code == 422
+
+    def test_push_modal_resolve_not_awaiting_409(self, client, monkeypatch,
+                                                   sample_db, tmp_path):
+        """Resolving a non-awaiting job returns 409."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.post("/api/sync/push", json={})
+        job_id = r.json()["job_id"]
+        r = client.post(f"/sync/jobs/{job_id}/resolve-modal",
+                        data={"choice": "force_reboot"})
+        assert r.status_code == 409
+
+    def test_hub_fragment_returns_drift(self, client, monkeypatch,
+                                          sample_db, tmp_path):
+        """GET /sync/hub-fragment returns drift table HTML."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        r = client.get("/sync/hub-fragment")
+        assert r.status_code == 200
+        assert b"drift-table" in r.content
+        assert b"target-card" in r.content
+        # Should contain the profile name
+        assert b"Sunlu" in r.content
+
+    def test_hub_fragment_shows_fresh_status_after_push(self, client, monkeypatch,
+                                                          sample_db, tmp_path):
+        """After a push, the hub fragment shows updated drift status."""
+        monkeypatch.setattr(jobs, "drain_background", _sync_drain)
+        cache = tmp_path / "cache.json"
+        cache.write_text(json.dumps(sample_db))
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        client.post("/api/profiles", json={
+            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
+            "min_temp": 205, "max_temp": 215, "density": 1.23,
+        })
+        # Before push, drift shows "new" (no printer_db_id)
+        r = client.get("/sync/hub-fragment")
+        assert b"new" in r.content or b"pending" in r.content
+        # Push
+        client.post("/api/sync/push", json={})
+        # After push, hub fragment should show in_sync
+        r = client.get("/sync/hub-fragment")
+        assert b"in_sync" in r.content
+
+    def test_push_modal_poll_404_for_missing_job(self, client):
+        """Polling a non-existent job returns a not-found fragment."""
+        r = client.get("/sync/push-modal/9999")
+        assert r.status_code == 200
+        assert b"Job not found" in r.content
 
 
 # ---------------------------------------------------------------------------

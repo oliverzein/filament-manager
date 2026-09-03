@@ -244,25 +244,36 @@ presets aligned.
 
 ### Push to Printer
 
-Pushes all catalog profiles to the Creality K2 printer's filament
+Pushes catalog profiles to the Creality K2 printer's filament
 database. This writes custom entries (99xxx IDs) to the printer.
 
 1. Go to **Sync**.
-2. Click **Push to Printer** (bulk button in the Printer DB card).
-3. The app rebuilds the printer DB from your catalog and uploads it.
-   This involves:
-   - Checking if the printer is busy (printing/paused).
-   - Backing up the current printer DB.
-   - Uploading the new DB.
-   - Rebooting the printer to protect against cloud-sync overwrite.
-   - Waiting for the printer to come back online.
-4. After the push, a **verify** job runs automatically to confirm
-   entries survived.
+2. Click **Push to Printer** — either the bulk button in the Printer DB
+   card (pushes all profiles) or the per-profile button in the drift
+   table (pushes only that profile).
+3. An overlay modal appears instantly with a spinner showing
+   "Pushing to printer…". The modal shows live progress as the
+   operation runs:
+   - **Pushing** — the app rebuilds the printer DB, uploads it via SSH,
+     and reboots the printer.
+   - **Verifying** — after the push, a verify job runs automatically to
+     confirm entries survived. The modal shows "Verifying…" while this
+     runs.
+   - **Push complete** — the modal shows a summary (N profiles pushed,
+     M skipped) and the Sync Hub's drift table + target-card summaries
+     refresh automatically to show current statuses. No manual page
+     reload is needed.
+4. Click **Close** to dismiss the modal.
 
 > **Important:** The push reboots your printer. Do not start a push
-> while a print is running. If the printer is busy, the job parks as
-> awaiting_input and a dialog appears with options (see
+> while a print is running. If the printer is busy, the modal shows
+> the three resolution options inside the overlay (see
 > [below](#printer-busy--resolution-options)).
+
+> **Note:** The per-profile "Push to Printer" button only appears for
+> profiles that already have a `printer_db_id` (i.e., have been pushed
+> before). To push a new profile for the first time, use the bulk
+> "Push to Printer" button in the Printer DB card.
 
 ### Generate Orca Cloud Preset
 
@@ -316,16 +327,23 @@ falls back to the last known sync status (pending / in_sync / error).
 
 ### Printer Busy — Resolution Options
 
-If the printer is printing or paused when you trigger a push, the job
-parks as `awaiting_input` and a dialog appears on the Sync page with
-three options per job:
+If the printer is printing or paused when you trigger a push, the
+operation pauses and the push modal shows three choice buttons inside
+the overlay:
 
 | Option | What happens |
 |---|---|
 | **Force reboot** | Reboots the printer immediately. **This kills the active print.** |
-| **Wait** | Retries the push — if the printer finishes, the push proceeds; if still busy, the dialog reappears. |
+| **Wait** | Retries the push — if the printer finishes, the push proceeds; if still busy, the choices reappear in the modal. |
 | **No reboot** | Uploads the DB but skips the reboot. **Dangerous** — cloud sync may overwrite within ~12 minutes. Reboot manually later. |
 
+After choosing an option, the modal continues showing live progress
+until the operation completes. The Sync Hub then refreshes
+automatically.
+
+> **Fallback:** If you navigate away from the Sync page while a job is
+> awaiting input, a page-level busy dialog appears when you return to
+> the Sync page, showing the same three options.
 ---
 
 ## Import from Orca Cloud

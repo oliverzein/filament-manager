@@ -8,6 +8,7 @@ Functional pages only; visual/layout refinement is a separate designer pass
 """
 from __future__ import annotations
 
+import html as _html
 import json
 import subprocess
 from datetime import datetime, timezone
@@ -869,6 +870,249 @@ def sync_resolve_job(
         f'<p>The printer is busy. Choose how to proceed:</p>'
         f'{buttons}'
         f'</section>'
+    )
+
+# ---------------------------------------------------------------------------
+# Push modal — overlay with live progress, busy choices, hub refresh
+# ---------------------------------------------------------------------------
+
+def _parse_job_result(result_json: str | None) -> dict | None:
+    if not result_json:
+        return None
+    try:
+        return json.loads(result_json)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def _push_modal_fragment(job_id: int, status: str, result: dict | None,
+                         verify_status: str | None = None,
+                         verify_result: dict | None = None) -> str:
+    """Render the push-modal body HTML for a given job state.
+
+    ``verify_status`` / ``verify_result`` carry the auto-enqueued verify
+    job's state so the modal can show "Verifying…" while verify runs
+    after the push job is done.
+    """
+    if status in ("queued", "running"):
+        return (
+            f'<div class="push-modal-state push-modal-running">'
+            f'<div class="push-modal-spinner"></div>'
+            f'<p>Pushing to printer…</p>'
+            f'<p class="push-modal-sub">Job #{job_id} · {status}</p>'
+            f'</div>'
+            f'<div hx-get="/sync/push-modal/{job_id}" hx-trigger="every 1.5s" '
+            f'hx-target="#push-modal-body" hx-swap="innerHTML"></div>'
+        )
+    if status == "awaiting_input":
+        return (
+            f'<div class="push-modal-state push-modal-awaiting">'
+            f'<h3>Printer is busy</h3>'
+            f'<p>The printer is currently printing. Choose how to proceed:</p>'
+            f'<div class="button-group">'
+            f'<button class="button button-danger" '
+            f'hx-post="/sync/jobs/{job_id}/resolve-modal" '
+            f'hx-vals=\'{{"choice": "force_reboot"}}\' '
+            f'hx-target="#push-modal-body" hx-swap="innerHTML">'
+            f'Force reboot</button>'
+            f'<button class="button button-secondary" '
+            f'hx-post="/sync/jobs/{job_id}/resolve-modal" '
+            f'hx-vals=\'{{"choice": "wait"}}\' '
+            f'hx-target="#push-modal-body" hx-swap="innerHTML">'
+            f'Wait</button>'
+            f'<button class="button button-ghost" '
+            f'hx-post="/sync/jobs/{job_id}/resolve-modal" '
+            f'hx-vals=\'{{"choice": "no_reboot"}}\' '
+            f'hx-target="#push-modal-body" hx-swap="innerHTML">'
+            f'No reboot</button>'
+            f'</div>'
+            f'<p class="push-modal-sub">Job #{job_id} · awaiting input</p>'
+            f'</div>'
+        )
+    if status == "done":
+        # When a verify job is still running, show "Verifying…" and
+        # keep polling.  When verify is done (or errored, or absent),
+        # show the push summary and trigger a hub refresh — the drift
+        # table is computed from the cache file, not the verify job,
+        # so it reflects reality regardless of verify outcome.
+        if verify_status in ("queued", "running"):
+            return (
+                f'<div class="push-modal-state push-modal-running">'
+                f'<div class="push-modal-spinner"></div>'
+                f'<p>Verifying…</p>'
+                f'<p class="push-modal-sub">Push done — checking printer DB</p>'
+                f'</div>'
+                f'<div hx-get="/sync/push-modal/{job_id}" hx-trigger="every 1.5s" '
+                f'hx-target="#push-modal-body" hx-swap="innerHTML"></div>'
+            )
+        pushed = (result or {}).get("pushed", 0)
+        skipped = (result or {}).get("skipped", 0)
+        sub = "Verification complete." if verify_status == "done" else "Push complete."
+        return (
+            f'<div class="push-modal-state push-modal-done">'
+            f'<div class="push-modal-icon push-modal-icon-ok">✓</div>'
+            f'<h3>Push complete</h3>'
+            f'<p>{pushed} profile(s) pushed, {skipped} skipped.</p>'
+            f'<p class="push-modal-sub">{sub}</p>'
+            f'<button class="button button-primary" onclick="closePushModal()">Close</button>'
+            f'</div>'
+            f'<div hx-get="/sync/hub-fragment" hx-target="#sync-hub-content" '
+            f'hx-trigger="load" hx-swap="innerHTML"></div>'
+        )
+    if status == "error":
+        err = (result or {}).get("error", "Unknown error")
+        return (
+            f'<div class="push-modal-state push-modal-error">'
+            f'<div class="push-modal-icon push-modal-icon-err">✗</div>'
+            f'<h3>Push failed</h3>'
+            f'<p class="push-modal-error-msg">{_html.escape(str(err))}</p>'
+            f'<button class="button button-primary" onclick="closePushModal()">Close</button>'
+            f'</div>'
+            f'<div hx-get="/sync/hub-fragment" hx-target="#sync-hub-content" '
+            f'hx-trigger="load" hx-swap="innerHTML"></div>'
+        )
+    return f'<div class="push-modal-state"><p>Unknown status: {status}</p></div>'
+
+
+def _lookup_verify_job(db: Session, push_job_id: int) -> Job | None:
+    """Find the latest verify job enqueued after ``push_job_id``."""
+    return db.scalars(
+        select(Job).where(
+            Job.kind == "verify", Job.id > push_job_id,
+        ).order_by(Job.id.desc())
+    ).first()
+
+
+@router.post("/sync/push-modal", response_class=HTMLResponse)
+def sync_push_modal(
+    request: Request, db: DbSession,
+    profile_ids: str | None = Form(None),
+) -> HTMLResponse:
+    """Enqueue a push job, start background drain, return modal fragment.
+
+    HTMX form endpoint: the push buttons POST here with optional
+    ``profile_ids`` (comma-separated). The job is committed immediately
+    so the background drain thread can see it. Returns the modal body
+    fragment (spinner + polling).
+    """
+    config = getattr(request.app.state, "config", None)
+    if config is None:
+        return HTMLResponse(
+            '<div class="push-modal-state push-modal-error">'
+            '<div class="push-modal-icon push-modal-icon-err">✗</div>'
+            '<h3>Printer not configured</h3>'
+            '<p>Set up the printer connection in Settings first.</p>'
+            '<button class="button button-primary" onclick="closePushModal()">Close</button>'
+            '</div>'
+        )
+    ids = None
+    if profile_ids:
+        ids = [int(x.strip()) for x in profile_ids.split(",") if x.strip()]
+    payload = {"profile_ids": ids, "force_reboot": False, "no_reboot": False}
+    job = jobs.enqueue(db, "push", payload)
+    db.flush()
+    db.commit()
+    jobs.drain_background(config)
+    # Re-read to pick up any state changes from the (possibly synchronous
+    # in tests) background drain.
+    db.expire_all()
+    job = db.get(Job, job.id)
+    verify_job = _lookup_verify_job(db, job.id) if job.status == "done" else None
+    return HTMLResponse(_push_modal_fragment(
+        job.id, job.status, _parse_job_result(job.result),
+        verify_job.status if verify_job else None,
+        _parse_job_result(verify_job.result) if verify_job else None,
+    ))
+
+
+@router.get("/sync/push-modal/{job_id}", response_class=HTMLResponse)
+def sync_push_modal_poll(job_id: int, db: DbSession) -> HTMLResponse:
+    """Poll endpoint: return modal fragment for the job's current state."""
+    job = db.get(Job, job_id)
+    if job is None:
+        return HTMLResponse(
+            '<div class="push-modal-state push-modal-error">'
+            '<h3>Job not found</h3>'
+            '<button class="button button-primary" onclick="closePushModal()">Close</button>'
+            '</div>'
+        )
+    verify_job = _lookup_verify_job(db, job.id) if job.status == "done" else None
+    return HTMLResponse(_push_modal_fragment(
+        job.id, job.status, _parse_job_result(job.result),
+        verify_job.status if verify_job else None,
+        _parse_job_result(verify_job.result) if verify_job else None,
+    ))
+
+
+@router.post("/sync/jobs/{job_id}/resolve-modal", response_class=HTMLResponse)
+def sync_resolve_modal(
+    request: Request, job_id: int, db: DbSession,
+    choice: str = Form(...),
+) -> HTMLResponse:
+    """Resolve an awaiting_input job from the modal, start background drain.
+
+    Same logic as ``POST /sync/jobs/{id}/resolve`` but returns a modal
+    body fragment instead of a busy-dialog fragment.
+    """
+    config = getattr(request.app.state, "config", None)
+    if config is None:
+        raise HTTPException(status_code=503, detail="printer not configured")
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if job.status != "awaiting_input":
+        raise HTTPException(
+            status_code=409, detail="job is not awaiting input"
+        )
+
+    payload = json.loads(job.payload) if job.payload else {}
+    if choice == "force_reboot":
+        payload["force_reboot"] = True
+    elif choice == "no_reboot":
+        payload["no_reboot"] = True
+    elif choice == "wait":
+        pass
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail="invalid choice; expected force_reboot|wait|no_reboot",
+        )
+
+    job.payload = json.dumps(payload)
+    job.status = "queued"
+    job.result = None
+    db.flush()
+    db.commit()
+    jobs.drain_background(config)
+    db.expire_all()
+    job = db.get(Job, job_id)
+    verify_job = _lookup_verify_job(db, job.id) if job.status == "done" else None
+    return HTMLResponse(_push_modal_fragment(
+        job.id, job.status, _parse_job_result(job.result),
+        verify_job.status if verify_job else None,
+        _parse_job_result(verify_job.result) if verify_job else None,
+    ))
+
+
+@router.get("/sync/hub-fragment", response_class=HTMLResponse)
+def sync_hub_fragment(request: Request, db: DbSession) -> HTMLResponse:
+    """Return the drift table + target cards as an HTMX fragment.
+
+    Used by the push-modal completion path to refresh the Sync Hub's
+    main content (drift table + right-column summaries) without a
+    full page reload.
+    """
+    drift = drift_status(request, db)
+    awaiting_jobs = list(db.scalars(
+        select(Job).where(Job.status == "awaiting_input").order_by(Job.id)
+    ))
+    return _templates(request).TemplateResponse(
+        request, "_sync_hub_grid.html",
+        {
+            "drift": drift,
+            "awaiting_jobs": awaiting_jobs,
+            "github_configured": load_github_config() is not None,
+        },
     )
 
 

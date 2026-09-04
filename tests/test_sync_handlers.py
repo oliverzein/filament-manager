@@ -261,6 +261,7 @@ class TestVerifyHandler:
         s = inmemory_session
         profile = _make_profile(s, printer_db_id="99001")
         target = sh._get_or_create_target(s, profile.id, "printer_db")
+        target.printer_db_id = "99001"
         target.expected_hash = "somehash"
 
         # DB with low version (cloud-sync rollback)
@@ -291,6 +292,7 @@ class TestVerifyHandler:
         s = inmemory_session
         profile = _make_profile(s, printer_db_id="99001")
         target = sh._get_or_create_target(s, profile.id, "printer_db")
+        target.printer_db_id = "99001"
         target.expected_hash = "somehash"
 
         # DB without the 99001 entry (remove it)
@@ -1087,11 +1089,12 @@ class TestPresetDriftComputation:
         assert "_drift_detail" not in state
 
 
-class TestOrphanRemoval:
-    """[P2] Finding 5: _rebuild_printer_db must remove 99xxx entries with no
-    catalog profile so deleted profiles don't linger on the printer."""
+class TestOrphanPreservation:
+    """[F3/B] Orphan Rule: custom 99xxx entries must NOT be removed when
+    their catalog profile is deleted — they persist on the printer until
+    explicitly removed via a separate action."""
 
-    def test_deleted_profile_orphan_removed(
+    def test_deleted_profile_orphan_preserved(
         self, inmemory_session, cfg, tmp_path, sample_db, monkeypatch
     ):
         s = inmemory_session
@@ -1108,11 +1111,11 @@ class TestOrphanRemoval:
         s.delete(profile)
         s.flush()
 
-        # Push again — orphan 99001 should be removed
+        # Push again — orphan 99001 must STILL be present (Orphan Rule F3/B)
         sh.handle_push(s, cfg, {})
 
         pushed_db = json.loads(cache.read_text())
-        assert find_entry(pushed_db, "99001") is None
+        assert find_entry(pushed_db, "99001") is not None
 
 
 class TestImportScanTempFileCleanup:

@@ -31,7 +31,7 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -50,8 +50,8 @@ from ..printer.dbcodec import (
 )
 from ..printer.pipeline import canonical_hash, run_push
 from ..printer.transport import PrinterTransport, SshTransport
+from ..presets.flattener import find_system_preset, flatten_preset
 from ..presets.builder import build_standalone_preset
-from ..presets.flattener import find_system_preset
 from ..orca_cloud import OrcaCloudClient, OrcaCloudConflict, OrcaCloudError
 from ..github_backup import GitHubBackupClient
 from ..settings_store import load_github_config, load_orca_token, save_orca_token
@@ -236,6 +236,105 @@ def _profile_to_values(profile: Profile, entry_id: str) -> dict:
     if profile.max_volumetric is not None:
         values["maxVolumetric"] = profile.max_volumetric
     return values
+
+
+# ---------------------------------------------------------------------------
+# Cloud preset → printer-DB entry values adapter
+# ---------------------------------------------------------------------------
+
+def _cloud_preset_to_entry_values(preset: dict, entry_id: str) -> dict:
+    """Map an Orca Cloud / flattened preset dict to dbcodec build_entry values convention."""
+    def _unwrap(v, default=""):
+        if isinstance(v, list):
+            v = v[0] if v else default
+        if v is None:
+            return default
+        s = str(v).strip()
+        if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
+            s = s[1:-1].strip()
+        return s
+
+    def _to_int(v, default=0):
+        s = _unwrap(v)
+        try:
+            return int(float(s))
+        except (ValueError, TypeError):
+            return default
+
+    def _to_float(v, default=None):
+        s = _unwrap(v)
+        try:
+            return float(s)
+        except (ValueError, TypeError):
+            return default
+
+    name = _unwrap(preset.get("name") or preset.get("filament_settings_id") or "Custom Filament")
+    brand = _unwrap(preset.get("filament_vendor") or "Generic")
+    ftype = _unwrap(preset.get("filament_type") or "PLA")
+
+    min_temp = _to_int(preset.get("nozzle_temperature_range_low"), 200)
+    max_temp = _to_int(preset.get("nozzle_temperature_range_high"), 230)
+    if min_temp >= max_temp:
+        max_temp = min_temp + 20
+
+    values = {
+        "id": str(entry_id),
+        "brand": brand,
+        "name": name,
+        "type": ftype,
+        "minTemp": min_temp,
+        "maxTemp": max_temp,
+        "dryingTemp": 0,
+        "dryingTime": 0,
+    }
+
+    nozzle_temp = _to_int(preset.get("nozzle_temperature"), None)
+    if nozzle_temp is not None:
+        values["nozzle_temperature"] = nozzle_temp
+
+    density = _to_float(preset.get("filament_density"))
+    if density is not None:
+        values["density"] = density
+
+    flow_ratio = _to_float(preset.get("filament_flow_ratio"))
+    if flow_ratio is not None:
+        values["flowRatio"] = flow_ratio
+
+    pa = _to_float(preset.get("pressure_advance"))
+    if pa is not None:
+        values["pa"] = pa
+
+    max_vol = _to_float(preset.get("filament_max_volumetric_speed"))
+    if max_vol is not None:
+        values["maxVolumetric"] = max_vol
+
+    return values
+
+
+def _is_stock_rfid_preset(preset: dict) -> bool:
+    """Check if a cloud preset dict has a stock-RFID brand (e.g. Creality)."""
+    vendor = preset.get("filament_vendor")
+    if isinstance(vendor, list):
+        vendor = vendor[0] if vendor else ""
+    return (str(vendor or "").strip().lower()) in STOCK_RFID_BRANDS
+
+
+def _flatten_cloud_preset(preset: dict) -> dict:
+    """Flatten a cloud preset dict via ``flatten_preset`` (temp-file round-trip).
+
+    Writes the preset to a temporary JSON file so ``flatten_preset`` can
+    resolve ``inherits`` against bundled system templates, then returns the
+    flattened dict.
+    """
+    with tempfile.NamedTemporaryFile(
+        suffix=".json", delete=False, mode="w"
+    ) as f:
+        json.dump(preset, f)
+        path = Path(f.name)
+    try:
+        return flatten_preset(path)
+    finally:
+        path.unlink(missing_ok=True)
 
 # Brands whose spool RFID tags already match stock 01xxx printer DB
 # entries (tag carries "1" + stock entry ID — direct ID lookup, no
@@ -425,29 +524,103 @@ def compute_printer_db_drift(session: Session, config: Config | None) -> dict[in
 # ---------------------------------------------------------------------------
 # DB rebuild
 # ---------------------------------------------------------------------------
-
 def _rebuild_printer_db(
     session: Session, config: Config, transport: PrinterTransport,
     profile_ids: list[int] | None = None,
-) -> tuple[dict, list[tuple[Profile, dict]], list[int]]:
-    """Rebuild the local printer DB from cache copy + catalog.
+    cloud_resource_ids: list[str] | None = None,
+) -> tuple[dict, list[tuple[Any, dict]], list[int]]:
+    """Rebuild the local printer DB from live cloud presets or catalog fallback.
 
-    For each target profile: remove any existing custom entry (by
-    ``printer_db_id``), assign a new 99xxx ID if the profile has none, then
-    insert a fresh entry via ``build_entry``.  After processing, orphaned
-    custom entries (99xxx IDs with no matching catalog profile) are removed so
-    deleted profiles don't linger on the printer forever.
+    **Primary path** (Orca Cloud configured): pull filament presets via
+    ``sync_pull``, filter by ``cloud_resource_ids`` if provided, skip stock
+    Creality presets, flatten inherited presets, and build entries via
+    ``build_entry``.  ``printer_db_id`` is mapped via existing ``SyncTarget``
+    rows (``cloud_id == res_id``) or allocated as ``next_free_id``.
 
-    Stock-RFID profiles (e.g. Creality) are excluded from the push set —
-    their spool tags already match stock 01xxx entries, so a 99xxx
-    duplicate would never match a tag.  They are reported as skipped IDs.
+    **Fallback path** (no Orca Cloud client): rebuild from cache DB + catalog
+    ``Profile`` rows, filtered by ``profile_ids`` if provided.  Stock-RFID
+    profiles (e.g. Creality) are excluded and reported as skipped IDs.
+
+    **Orphan Rule F3/B**: existing custom 99xxx entries missing from the
+    cloud / catalog are *never* removed here — they persist on the printer
+    until explicitly deleted via a separate action.
 
     Returns ``(db, pushed, skipped_ids)`` where ``pushed`` is a list of
-    ``(profile, entry)`` tuples and ``skipped_ids`` is a list of profile
-    IDs that were not pushed.
+    ``(SyncTarget | Profile | None, entry)`` tuples and ``skipped_ids`` is a
+    list of profile IDs that were not pushed (fallback path only).
     """
     db = _load_cache_db(config, transport)
+    client = _orca_client_factory()
 
+    if client is not None:
+        db, pushed, skipped = _rebuild_from_cloud(
+            session, config, db, client, cloud_resource_ids,
+        )
+        if pushed:
+            return db, pushed, skipped
+        # Cloud returned no presets → fall back to cache + catalog targets.
+    return _rebuild_from_catalog(session, config, db, profile_ids)
+
+
+def _rebuild_from_cloud(
+    session: Session, config: Config, db: dict,
+    client: OrcaCloudClient,
+    cloud_resource_ids: list[str] | None = None,
+) -> tuple[dict, list[tuple[Any, dict]], list[int]]:
+    """Cloud-first rebuild: source entries from live Orca Cloud presets."""
+    pulled = client.sync_pull(cursor=0)
+    presets = _cloud_presets_to_local(pulled.get("upserts", []))
+
+    if cloud_resource_ids:
+        id_set = set(cloud_resource_ids)
+        presets = [p for p in presets if p.get("_path") in id_set]
+
+    pushed: list[tuple[Any, dict]] = []
+    skipped_ids: list[int] = []
+
+    for preset in presets:
+        if _is_stock_rfid_preset(preset):
+            continue
+
+        res_id = preset.get("_path", "")
+
+        # Map printer_db_id via SyncTarget where cloud_id == res_id
+        target = session.scalars(
+            select(SyncTarget).where(
+                SyncTarget.cloud_id == res_id,
+                SyncTarget.kind == "printer_db",
+            )
+        ).first()
+
+        if target is not None and target.printer_db_id:
+            entry_id = target.printer_db_id
+            existing = find_entry(db, entry_id)
+            if existing is not None:
+                remove_entry(db, entry_id)
+        else:
+            entry_id = str(next_free_id(db, config.id_range_start))
+            if target is not None:
+                target.printer_db_id = entry_id
+
+        flat = _flatten_cloud_preset(preset)
+        values = _cloud_preset_to_entry_values(flat, entry_id)
+        entry = build_entry(db, values)
+        insert_entry(db, entry)
+        pushed.append((target, entry))
+
+    # Orphan Rule F3/B: do NOT remove custom 99xxx entries missing from cloud.
+    return db, pushed, skipped_ids
+
+
+def _rebuild_from_catalog(
+    session: Session, config: Config, db: dict,
+    profile_ids: list[int] | None = None,
+) -> tuple[dict, list[tuple[Any, dict]], list[int]]:
+    """Fallback rebuild: source entries from cache DB + catalog Profile rows.
+
+    Used when no Orca Cloud client is configured.  Preserves the pre-rework
+    behavior minus orphan removal (Orphan Rule F3/B).
+    """
     if profile_ids:
         all_profiles = list(session.scalars(
             select(Profile).where(Profile.id.in_(profile_ids))
@@ -459,7 +632,7 @@ def _rebuild_printer_db(
     profiles = [p for p in all_profiles if not _is_stock_rfid(p)]
     skipped_ids = [p.id for p in all_profiles if _is_stock_rfid(p)]
 
-    pushed: list[tuple[Profile, dict]] = []
+    pushed: list[tuple[Any, dict]] = []
     for profile in profiles:
         entry_id = profile.printer_db_id
         if entry_id:
@@ -475,33 +648,31 @@ def _rebuild_printer_db(
         insert_entry(db, entry)
         pushed.append((profile, entry))
 
-    # Remove orphaned custom entries — 99xxx IDs with no current catalog
-    # profile.  Deleted profiles would otherwise be re-pushed indefinitely.
-    current_db_ids = set(session.scalars(
-        select(Profile.printer_db_id).where(Profile.printer_db_id.isnot(None))
-    ))
-    for entry in find_custom_entries(db):
-        eid = entry["base"]["id"]
-        if eid not in current_db_ids:
-            remove_entry(db, eid)
-
+    # Orphan Rule F3/B: do NOT remove orphaned custom 99xxx entries.
     return db, pushed, skipped_ids
 
 
 # ---------------------------------------------------------------------------
 # Handlers
 # ---------------------------------------------------------------------------
-
 def handle_push(session: Session, config: Config, payload: dict) -> dict:
     """Push handler: rebuild printer DB, ``run_push``, update SyncTargets,
     enqueue verify.  Busy → ``_awaiting_input`` sentinel.
+
+    ``payload`` may contain ``cloud_resource_ids`` (list of Orca Cloud
+    resource UUIDs) to filter which cloud presets are pushed, or
+    ``profile_ids`` for the catalog fallback path.
     """
     profile_ids = payload.get("profile_ids")
+    cloud_resource_ids = payload.get("cloud_resource_ids")
     force_reboot = payload.get("force_reboot", False)
     no_reboot = payload.get("no_reboot", False)
 
     transport = _get_transport(config)
-    db, pushed, skipped = _rebuild_printer_db(session, config, transport, profile_ids)
+    db, pushed, skipped = _rebuild_printer_db(
+        session, config, transport, profile_ids,
+        cloud_resource_ids=cloud_resource_ids,
+    )
 
     cache_path = _cache_db_path if _cache_db_path is not None else _resolve_cache_path()
     local_path = Path(cache_path) if cache_path is not None else Path(
@@ -522,9 +693,15 @@ def handle_push(session: Session, config: Config, payload: dict) -> dict:
             "busy": result["job"],
         }
 
-    # Success — update SyncTargets + printer_db_id
-    for profile, entry in pushed:
-        target = _get_or_create_target(session, profile.id, "printer_db")
+    # Success — update SyncTargets: set expected_hash, printer_db_id, status
+    for item, entry in pushed:
+        if isinstance(item, Profile):
+            target = _get_or_create_target(session, item.id, "printer_db")
+            target.printer_db_id = item.printer_db_id
+        elif isinstance(item, SyncTarget):
+            target = item
+        else:
+            continue
         target.expected_hash = _entry_hash(entry)
         target.status = "pending"  # verify will set in_sync
         target.last_synced_at = _now()
@@ -539,14 +716,20 @@ def handle_push(session: Session, config: Config, payload: dict) -> dict:
 def handle_verify(session: Session, config: Config, payload: dict) -> dict:
     """Verify handler: pull fresh DB, floor-check + presence + hash compare,
     update SyncTarget.status.  Cloud-sync rollback → error + warn.
+
+    Verifies entries against ``SyncTarget`` rows where ``kind == "printer_db"``
+    and ``printer_db_id`` is set (cloud-first and catalog fallback alike).
     """
     transport = _get_transport(config)
 
-    profiles = list(session.scalars(
-        select(Profile).where(Profile.printer_db_id.isnot(None))
-        .order_by(Profile.id)
+    targets = list(session.scalars(
+        select(SyncTarget).where(
+            SyncTarget.kind == "printer_db",
+            SyncTarget.printer_db_id.isnot(None),
+        )
+        .order_by(SyncTarget.id)
     ))
-    expected_ids = [p.printer_db_id for p in profiles]
+    expected_ids = [t.printer_db_id for t in targets]
 
     # Pull fresh DB from printer (ignoring cache)
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
@@ -567,18 +750,17 @@ def handle_verify(session: Session, config: Config, payload: dict) -> dict:
 
     cloud_rollback = not version_ok
 
-    # Presence + hash check per profile
+    # Presence + hash check per SyncTarget
     ids = {e.get("base", {}).get("id")
            for e in db.get("result", {}).get("list", [])}
 
-    for profile in profiles:
-        target = _get_or_create_target(session, profile.id, "printer_db")
+    for target in targets:
         if cloud_rollback:
             target.status = "error"
-        elif profile.printer_db_id not in ids:
+        elif target.printer_db_id not in ids:
             target.status = "error"
         else:
-            entry = find_entry(db, profile.printer_db_id)
+            entry = find_entry(db, target.printer_db_id)
             actual = _entry_hash(entry) if entry else None
             if target.expected_hash and actual == target.expected_hash:
                 target.status = "in_sync"

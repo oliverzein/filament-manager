@@ -18,7 +18,7 @@ from conftest import FakeTransport
 from fm.api.app import create_app, Settings
 from fm.config import Config
 from fm.db import SessionLocal
-from fm.models import Job, Profile, SyncTarget
+from fm.models import Job, Profile, ProfileCache, SyncTarget
 from fm.service import jobs
 from fm.service import sync_handlers as sh
 
@@ -178,16 +178,16 @@ class TestSyncPage:
         r = client.get("/sync")
         assert r.status_code == 200
         assert b"Sync Hub" in r.content
-        assert b"drift-table" in r.content
+        assert b"preset-table" in r.content
 
     def test_sync_page_has_direction_clear_labels(self, client):
-        """No old labels; new direction-clear labels present."""
+        """New direction-clear labels present; obsolete ones gone."""
         r = client.get("/sync")
         assert b"Push to Printer" in r.content
-        assert b"Push to Cloud" in r.content
-        assert b"Pull from Cloud" in r.content
         assert b"Backup to GitHub" in r.content
-        # Old labels must NOT appear
+        # Obsolete labels must NOT appear
+        assert b"Push to Cloud" not in r.content
+        assert b"Pull from Cloud" not in r.content
         assert b"Sync from Orca" not in r.content
         assert b"Push all" not in r.content
         assert b"Sync now" not in r.content
@@ -511,41 +511,64 @@ class TestPushModal:
                         data={"choice": "force_reboot"})
         assert r.status_code == 409
 
-    def test_hub_fragment_returns_drift(self, client, monkeypatch,
-                                          sample_db, tmp_path):
-        """GET /sync/hub-fragment returns drift table HTML."""
+    def test_hub_fragment_returns_preset_table(self, client, monkeypatch,
+                                                sample_db, tmp_path):
+        """GET /sync/hub-fragment returns preset table HTML."""
         monkeypatch.setattr(jobs, "drain_background", _sync_drain)
         cache = tmp_path / "cache.json"
         cache.write_text(json.dumps(sample_db))
         monkeypatch.setattr(sh, "_cache_db_path", cache)
-        client.post("/api/profiles", json={
-            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
-            "min_temp": 205, "max_temp": 215, "density": 1.23,
-        })
+        with SessionLocal() as s:
+            s.add(ProfileCache(
+                cloud_resource_id="uuid-hub",
+                name="Sunlu PLA+",
+                vendor="Sunlu",
+                type="PLA",
+                is_inherited=False,
+                deleted_from_cloud=False,
+            ))
+            s.commit()
         r = client.get("/sync/hub-fragment")
         assert r.status_code == 200
-        assert b"drift-table" in r.content
+        assert b"preset-table" in r.content
         assert b"target-card" in r.content
-        # Should contain the profile name
         assert b"Sunlu" in r.content
 
     def test_hub_fragment_shows_fresh_status_after_push(self, client, monkeypatch,
                                                           sample_db, tmp_path):
-        """After a push, the hub fragment shows updated drift status."""
+        """After a push+verify, the hub fragment shows updated status."""
         monkeypatch.setattr(jobs, "drain_background", _sync_drain)
         cache = tmp_path / "cache.json"
         cache.write_text(json.dumps(sample_db))
         monkeypatch.setattr(sh, "_cache_db_path", cache)
-        client.post("/api/profiles", json={
-            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
-            "min_temp": 205, "max_temp": 215, "density": 1.23,
-        })
-        # Before push, drift shows "new" (no printer_db_id)
+        with SessionLocal() as s:
+            s.add(ProfileCache(
+                cloud_resource_id="uuid-sync",
+                name="Sunlu PLA+",
+                vendor="Sunlu",
+                type="PLA",
+                is_inherited=False,
+                deleted_from_cloud=False,
+            ))
+            s.add(SyncTarget(
+                cloud_id="uuid-sync",
+                printer_db_id="99001",
+                kind="printer_db",
+                status="pending",
+            ))
+            s.commit()
+        # Before verify, hub shows pending
         r = client.get("/sync/hub-fragment")
-        assert b"new" in r.content or b"pending" in r.content
-        # Push
-        client.post("/api/sync/push", json={})
-        # After push, hub fragment should show in_sync
+        assert b"pending" in r.content
+        # Simulate verify setting status to in_sync
+        with SessionLocal() as s:
+            t = s.scalars(select(SyncTarget).where(
+                SyncTarget.cloud_id == "uuid-sync",
+                SyncTarget.kind == "printer_db",
+            )).first()
+            t.status = "in_sync"
+            s.commit()
+        # After verify, hub fragment shows in_sync
         r = client.get("/sync/hub-fragment")
         assert b"in_sync" in r.content
 
@@ -953,23 +976,15 @@ class TestHtmxPin:
 class TestSyncPageModalWiring:
     """Verify the /sync page wires all operations to the action modal."""
 
-    def test_sync_page_has_preset_modal_buttons(self, client):
-        """Push to Cloud buttons POST to /sync/preset-modal."""
+    def test_sync_page_no_obsolete_modal_buttons(self, client):
+        """Push to Cloud and Pull from Cloud buttons are gone from the sync hub."""
         client.post("/api/profiles", json={
             "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
             "min_temp": 205, "max_temp": 215, "density": 1.23,
         })
         r = client.get("/sync")
-        assert b"/sync/preset-modal" in r.content
-
-    def test_sync_page_has_pull_modal_buttons(self, client):
-        """Pull from Cloud buttons POST to /sync/pull-modal."""
-        client.post("/api/profiles", json={
-            "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
-            "min_temp": 205, "max_temp": 215, "density": 1.23,
-        })
-        r = client.get("/sync")
-        assert b"/sync/pull-modal" in r.content
+        assert b"/sync/preset-modal" not in r.content
+        assert b"/sync/pull-modal" not in r.content
 
     def test_sync_page_has_backup_modal_button(self, client, monkeypatch):
         """Backup to GitHub button POSTs to /sync/backup-modal when configured."""

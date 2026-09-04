@@ -12,6 +12,7 @@ import html as _html
 import json
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated
 
@@ -26,6 +27,7 @@ from ..models import ActivityLog, Job, Profile, ProfileCache, Spool, SyncTarget
 from ..service import jobs
 from ..service import sync_handlers
 from ..service.sync_handlers import _entry_hash, refresh_preset_drift, _cloud_presets_to_local, canonical_hash
+from ..printer.dbcodec import load_db, save_db, remove_entry
 from .sync import drift_status, _get_config
 from .catalog import _validate, perform_delete
 from ..settings_store import (
@@ -784,14 +786,50 @@ def spool_duplicate_form(sid: int, db: DbSession) -> RedirectResponse:
 
 
 # ---------------------------------------------------------------------------
-# Sync page — drift table, action buttons, busy dialog, job progress
+# Sync page — preset & status table, action buttons, busy dialog, job progress
 # ---------------------------------------------------------------------------
+
+def _preset_status_rows(db: Session) -> list[dict]:
+    """Build Preset & Status Table rows from ProfileCache + SyncTarget.
+
+    Each row carries: name, vendor, type, cloud_resource_id, printer_db_id,
+    status (in_sync|pending|orphan), deleted_from_cloud, is_inherited.
+    """
+    presets = list(db.scalars(
+        select(ProfileCache).order_by(ProfileCache.vendor, ProfileCache.name)
+    ))
+    rows: list[dict] = []
+    for p in presets:
+        target = db.scalars(
+            select(SyncTarget).where(
+                SyncTarget.cloud_id == p.cloud_resource_id,
+                SyncTarget.kind == "printer_db",
+            )
+        ).first()
+        if p.deleted_from_cloud:
+            status = "orphan"
+        elif target is not None and target.status == "in_sync":
+            status = "in_sync"
+        else:
+            status = "pending"
+        rows.append({
+            "name": p.name,
+            "vendor": p.vendor,
+            "type": p.type,
+            "cloud_resource_id": p.cloud_resource_id,
+            "printer_db_id": target.printer_db_id if target else None,
+            "status": status,
+            "deleted_from_cloud": p.deleted_from_cloud,
+            "is_inherited": p.is_inherited,
+        })
+    return rows
+
 
 @router.get("/sync", response_class=HTMLResponse)
 def sync_page(request: Request, db: DbSession) -> HTMLResponse:
-    """Drift table per profile, HTMX action buttons, busy dialog for
-    awaiting_input jobs, and a job progress area."""
-    drift = drift_status(request, db)
+    """Preset & Status Table from ProfileCache, HTMX action buttons, busy
+    dialog for awaiting_input jobs, and a job progress area."""
+    presets = _preset_status_rows(db)
     awaiting_jobs = list(db.scalars(
         select(Job).where(Job.status == "awaiting_input").order_by(Job.id)
     ))
@@ -801,7 +839,7 @@ def sync_page(request: Request, db: DbSession) -> HTMLResponse:
     return _templates(request).TemplateResponse(
         request, "sync_hub.html",
         {
-            "drift": drift,
+            "presets": presets,
             "awaiting_jobs": awaiting_jobs,
             "recent_jobs": recent_jobs,
             "github_configured": load_github_config() is not None,
@@ -1184,13 +1222,15 @@ def _enqueue_and_modal(
 def sync_push_modal(
     request: Request, db: DbSession,
     profile_ids: str | None = Form(None),
+    cloud_resource_ids: str | None = Form(None),
 ) -> HTMLResponse:
     """Enqueue a push job, start background drain, return modal fragment.
 
     HTMX form endpoint: the push buttons POST here with optional
-    ``profile_ids`` (comma-separated). The job is committed immediately
-    so the background drain thread can see it. Returns the modal body
-    fragment (spinner + polling).
+    ``cloud_resource_ids`` (comma-separated Orca Cloud UUIDs) or
+    ``profile_ids`` (comma-separated catalog IDs, legacy fallback). The
+    job is committed immediately so the background drain thread can see
+    it. Returns the modal body fragment (spinner + polling).
     """
     config = getattr(request.app.state, "config", None)
     if config is None:
@@ -1205,7 +1245,15 @@ def sync_push_modal(
     ids = None
     if profile_ids:
         ids = [int(x.strip()) for x in profile_ids.split(",") if x.strip()]
-    payload = {"profile_ids": ids, "force_reboot": False, "no_reboot": False}
+    cloud_ids = None
+    if cloud_resource_ids:
+        cloud_ids = [x.strip() for x in cloud_resource_ids.split(",") if x.strip()]
+    payload = {
+        "profile_ids": ids,
+        "cloud_resource_ids": cloud_ids,
+        "force_reboot": False,
+        "no_reboot": False,
+    }
     return _enqueue_and_modal(request, db, "push", "push", payload)
 
 
@@ -1319,23 +1367,77 @@ def sync_resolve_modal(
 
 @router.get("/sync/hub-fragment", response_class=HTMLResponse)
 def sync_hub_fragment(request: Request, db: DbSession) -> HTMLResponse:
-    """Return the drift table + target cards as an HTMX fragment.
+    """Return the preset & status table + target cards as an HTMX fragment.
 
     Used by the action-modal completion path to refresh the Sync Hub's
-    main content (drift table + right-column summaries) without a
+    main content (preset table + right-column summaries) without a
+    full page reload.
     """
-    drift = drift_status(request, db)
+    presets = _preset_status_rows(db)
     awaiting_jobs = list(db.scalars(
         select(Job).where(Job.status == "awaiting_input").order_by(Job.id)
     ))
     return _templates(request).TemplateResponse(
         request, "_sync_hub_grid.html",
         {
-            "drift": drift,
+            "presets": presets,
             "awaiting_jobs": awaiting_jobs,
             "github_configured": load_github_config() is not None,
         },
     )
+
+# ---------------------------------------------------------------------------
+# Orphan printer DB entry removal — Double-Confirm typed token
+# ---------------------------------------------------------------------------
+
+@router.post("/sync/printer-db/{entry_id}/remove", response_class=HTMLResponse)
+def sync_printer_db_remove(
+    request: Request, entry_id: str, db: DbSession,
+    confirm: str = Form(...),
+) -> RedirectResponse:
+    """Remove an orphan printer DB entry and its SyncTarget.
+
+    Double-Confirm: the typed ``confirm`` token must match ``entry_id``
+    exactly (e.g. ``99001``) before any deletion proceeds.  Loads the
+    cached printer DB, calls ``remove_entry`` (which refuses stock IDs),
+    saves the cache, and removes the SyncTarget row.
+    """
+    if confirm != entry_id:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Typed token must match entry ID exactly: {entry_id}",
+        )
+    # Locate the SyncTarget tracking this printer DB entry.
+    target = db.scalars(
+        select(SyncTarget).where(
+            SyncTarget.printer_db_id == entry_id,
+            SyncTarget.kind == "printer_db",
+        )
+    ).first()
+    if target is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No SyncTarget for printer DB entry {entry_id}",
+        )
+    # Remove from the cached printer DB (if a cache is available).
+    config = getattr(request.app.state, "config", None)
+    cache_path = (
+        sync_handlers._cache_db_path
+        if sync_handlers._cache_db_path is not None
+        else sync_handlers._resolve_cache_path()
+    )
+    if cache_path is not None and Path(cache_path).exists():
+        printer_db = load_db(cache_path)
+        remove_entry(printer_db, entry_id)
+        save_db(cache_path, printer_db)
+    # Remove the SyncTarget.
+    db.delete(target)
+    jobs.log_activity(
+        db, "printer_db_remove", "ok",
+        {"entry_id": entry_id, "sync_target_id": target.id},
+    )
+    db.commit()
+    return RedirectResponse(url="/sync?removed=1", status_code=303)
 
 # ---------------------------------------------------------------------------
 # Migration wizard — one-time import of existing printer DB entries

@@ -1,33 +1,44 @@
-{# Partial: drift table + busy dialog + target cards.
+{# Partial: preset & status table + busy dialog + target cards.
    Included by sync_hub.html and rendered by GET /sync/hub-fragment
    for post-operation HTMX refresh. #}
 <div class="sync-hub-grid">
   <div class="sync-hub-left">
-    <section id="drift-table" class="panel" aria-labelledby="drift-heading">
+    <section id="preset-table" class="panel" aria-labelledby="preset-heading">
       <header class="panel-heading">
-        <div><p class="eyebrow">Health check</p><h2 id="drift-heading">Drift status</h2></div>
+        <div><p class="eyebrow">Cloud presets</p><h2 id="preset-heading">Preset &amp; Status</h2></div>
         <span class="live-label"><i></i> Live</span>
       </header>
-      <p class="target-note">Status refresh includes a live check against Orca Cloud.</p>
-      {% if drift %}
+      <p class="target-note">Cached presets from Orca Cloud with printer DB sync status.</p>
+      {% if presets %}
       <div class="table-wrap">
         <table class="drift-table">
-          <thead><tr><th>Profile</th><th>Printer DB</th><th>Orca preset</th><th class="actions-cell">Actions</th></tr></thead>
+          <thead><tr><th>Preset</th><th>Printer DB</th><th>Status</th><th class="actions-cell">Actions</th></tr></thead>
           <tbody>
-          {% for d in drift %}
+          {% for p in presets %}
             <tr>
-              <td><span class="cell-main">{{ d.name if d.name.lower().startswith(d.brand.lower()) else d.brand ~ ' ' ~ d.name }}</span></td>
-              <td><span class="status-badge status-{{ d.printer_db.status | status_class }}"{% if d.printer_db.detail %} title="{{ d.printer_db.detail }}"{% endif %}>{{ d.printer_db.status | replace('_', ' ') }}</span></td>
-              <td><span class="status-badge status-{{ d.orca_preset.status | status_class }}"{% if d.orca_preset.detail %} title="{{ d.orca_preset.detail }}"{% endif %}>{{ d.orca_preset.status | replace('_', ' ') }}</span></td>
+              <td>
+                <span class="cell-main">{{ p.vendor }} {{ p.name }}</span>
+                <span class="cell-sub">{{ p.type }}{% if p.is_inherited %} · inherited{% endif %}</span>
+              </td>
+              <td>
+                {% if p.printer_db_id %}
+                  <span class="cell-main">{{ p.printer_db_id }}</span>
+                {% elif p.status == 'orphan' %}
+                  <span class="cell-main">{{ p.printer_db_id or '—' }}</span>
+                {% else %}
+                  <span class="muted">Not pushed</span>
+                {% endif %}
+              </td>
+              <td>
+                <span class="status-badge status-{{ p.status | status_class }}">{{ p.status | replace('_', ' ') }}</span>
+              </td>
               <td class="actions-cell">
                 <div class="row-actions">
-                  {% if d.printer_db_id %}
-                  <button class="button button-ghost" hx-post="/sync/push-modal" hx-vals='{"profile_ids": "{{ d.profile_id }}"}' hx-target="#action-modal-body" hx-swap="innerHTML" hx-on::before-request="openActionModal()">Push to Printer</button>
+                  {% if p.status == 'orphan' and p.printer_db_id %}
+                  <button class="button button-danger" hx-post="/sync/printer-db/{{ p.printer_db_id }}/remove" hx-vals='{"confirm": "{{ p.printer_db_id }}"}' hx-target="#sync-hub-content" hx-swap="innerHTML" hx-confirm="This removes orphan printer DB entry {{ p.printer_db_id }} and its SyncTarget. Continue?">Remove</button>
                   {% else %}
-                  <span class="muted">Not linked</span>
+                  <button class="button button-ghost" hx-post="/sync/push-modal" hx-vals='{"cloud_resource_ids": "{{ p.cloud_resource_id }}"}' hx-target="#action-modal-body" hx-swap="innerHTML" hx-on::before-request="openActionModal()">Push to Printer</button>
                   {% endif %}
-                  <button class="button button-ghost" hx-post="/sync/preset-modal" hx-vals='{"profile_id": "{{ d.profile_id }}"}' hx-target="#action-modal-body" hx-swap="innerHTML" hx-on::before-request="openActionModal()">Push to Cloud</button>
-                  <button class="button button-ghost" hx-post="/sync/pull-modal" hx-vals='{"profile_id": "{{ d.profile_id }}"}' hx-target="#action-modal-body" hx-swap="innerHTML" hx-confirm="Pulling adopts the cloud baseline and overwrites this profile's nozzle temperature with the cloud value. Continue?" hx-on::before-request="openActionModal()">Pull from Cloud</button>
                 </div>
               </td>
             </tr>
@@ -36,7 +47,7 @@
         </table>
       </div>
       {% else %}
-      <div class="empty-state compact"><p>No profiles tracked.</p></div>
+      <div class="empty-state compact"><p>No cached presets. Pull from Orca Cloud via the Import page.</p></div>
       {% endif %}
     </section>
 
@@ -58,10 +69,15 @@
   </div>
 
   <aside class="sync-hub-right" aria-label="Sync targets">
-    {% set ns = namespace(pdb_sync=0, pdb_drift=0, orca_sync=0, orca_attention=0) %}
-    {% for d in drift %}
-      {% if d.printer_db.status == 'in_sync' %}{% set ns.pdb_sync = ns.pdb_sync + 1 %}{% elif d.printer_db.status not in ('pending', 'stock') %}{% set ns.pdb_drift = ns.pdb_drift + 1 %}{% endif %}
-      {% if d.orca_preset.status == 'in_sync' %}{% set ns.orca_sync = ns.orca_sync + 1 %}{% else %}{% set ns.orca_attention = ns.orca_attention + 1 %}{% endif %}
+    {% set ns = namespace(pdb_sync=0, pdb_not_pushed=0, orca_cached=0, orca_orphans=0) %}
+    {% for p in presets %}
+      {% set ns.orca_cached = ns.orca_cached + 1 %}
+      {% if p.status == 'in_sync' %}
+        {% set ns.pdb_sync = ns.pdb_sync + 1 %}
+      {% else %}
+        {% set ns.pdb_not_pushed = ns.pdb_not_pushed + 1 %}
+      {% endif %}
+      {% if p.status == 'orphan' %}{% set ns.orca_orphans = ns.orca_orphans + 1 %}{% endif %}
     {% endfor %}
 
     <section class="panel target-card" aria-labelledby="printer-target-heading">
@@ -69,8 +85,8 @@
         <span class="stat-icon purple" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2h10v4H7V2Zm-3 6h16a2 2 0 0 1 2 2v8h-4v4H6v-4H2v-8a2 2 0 0 1 2-2Zm4 8v4h8v-4H8Zm9-5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"/></svg></span>
         <div><p class="eyebrow">Printer database</p><h2 id="printer-target-heading">Printer DB</h2></div>
       </div>
-      <span class="target-summary">{{ ns.pdb_sync }} in sync, {{ ns.pdb_drift }} drifted</span>
-      <p>Push catalog profiles to the printer database.</p>
+      <span class="target-summary">{{ ns.pdb_sync }} in sync, {{ ns.pdb_not_pushed }} not pushed</span>
+      <p>Push cached presets to the printer database.</p>
       <button class="button button-primary" hx-post="/sync/push-modal" hx-target="#action-modal-body" hx-swap="innerHTML" hx-on::before-request="openActionModal()">Push to Printer</button>
     </section>
 
@@ -79,9 +95,8 @@
         <span class="stat-icon blue" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0 0 5.26 8.02 5.994 5.994 0 0 0 6 20h13a5 5 0 0 0 .35-9.96ZM13 13v4h-2v-4H8l4-4 4 4h-3Z"/></svg></span>
         <div><p class="eyebrow">Orca Cloud</p><h2 id="cloud-target-heading">Cloud presets</h2></div>
       </div>
-      <span class="target-summary">{{ ns.orca_sync }} in sync, {{ ns.orca_attention }} need attention</span>
-      <p><strong>Pull from Cloud</strong> adopts the cloud baseline and writes temperatures back to the catalog. <strong>Push to Cloud</strong> generates a fresh preset from catalog values.</p>
-      <button class="button button-secondary" hx-post="/sync/pull-modal" hx-target="#action-modal-body" hx-swap="innerHTML" hx-confirm="Pulling adopts the cloud baseline and overwrites all profiles' nozzle temperatures with the cloud values. Continue?" hx-on::before-request="openActionModal()">Pull from Cloud (all)</button>
+      <span class="target-summary">{{ ns.orca_cached }} cached presets, {{ ns.orca_orphans }} orphans</span>
+      <p>Orca Cloud is the sole source of filament presets. Import new presets from the Import page.</p>
     </section>
 
     <section class="panel target-card" aria-labelledby="backup-target-heading">

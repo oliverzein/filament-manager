@@ -56,6 +56,8 @@ class Spool(Base):
     updated_at: Mapped[datetime] = mapped_column()
 
     profile: Mapped["Profile"] = relationship(back_populates="spools")
+    cloud_resource_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("profile_cache.cloud_resource_id"), default=None, index=True)
+    cached_profile: Mapped["ProfileCache | None"] = relationship(back_populates="spools")
 
 
 class SyncTarget(Base):
@@ -69,6 +71,7 @@ class SyncTarget(Base):
     actual_state: Mapped[str | None] = mapped_column(default=None)  # JSON strings
     status: Mapped[str] = mapped_column(String(16), default="pending")  # in_sync|drift|pending|error
     last_synced_at: Mapped[datetime | None] = mapped_column(default=None)
+    printer_db_id: Mapped[str | None] = mapped_column(String(16), default=None)  # "99xxx" printer DB row this target mirrors
 
 
 class Job(Base):
@@ -91,3 +94,19 @@ class ActivityLog(Base):
     action: Mapped[str] = mapped_column(String(64))
     detail: Mapped[str] = mapped_column(default="{}")
     outcome: Mapped[str] = mapped_column(String(8))  # ok|warn|error
+
+
+class ProfileCache(Base):
+    __tablename__ = "profile_cache"
+
+    cloud_resource_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255))
+    vendor: Mapped[str] = mapped_column(String(255))
+    type: Mapped[str] = mapped_column(String(64))
+    filament_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    is_inherited: Mapped[bool] = mapped_column(default=False)
+    deleted_from_cloud: Mapped[bool] = mapped_column(default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(default=None)
+    last_seen_at: Mapped[datetime] = mapped_column(default=_now)
+
+    spools: Mapped[list["Spool"]] = relationship(back_populates="cached_profile")

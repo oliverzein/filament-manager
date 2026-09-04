@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 import pytest
 from sqlalchemy import create_engine, select
@@ -137,3 +138,72 @@ def test_cache_sync_ignores_and_purges_non_filament_presets(session):
     assert session.get(ProfileCache, "uuid-filament") is not None
     assert session.get(ProfileCache, "uuid-printer") is None
     assert session.get(ProfileCache, "uuid-print") is None
+
+
+def test_cache_sync_reconciles_reuploaded_preset_with_new_cloud_id(session):
+    old_id = "uuid-esun-old"
+    new_id = "uuid-esun-new"
+
+    from fm.models import SyncTarget, Spool, Profile
+
+    prof = Profile(
+        id=2,
+        name="eSUN PETG Basic Optimized",
+        brand="eSUN",
+        type="PETG",
+        min_temp=230,
+        max_temp=250,
+        printer_db_id="99002",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    session.add(prof)
+
+    target = SyncTarget(
+        profile_id=2,
+        kind="printer_db",
+        cloud_id=old_id,
+        printer_db_id="99002",
+        status="in_sync",
+        expected_hash="hash123",
+    )
+    session.add(target)
+
+    spool = Spool(
+        profile_id=2,
+        cloud_resource_id=old_id,
+        remaining_pct=65,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    session.add(spool)
+    session.commit()
+
+    client = MagicMock()
+    client.sync_pull.return_value = {
+        "next_cursor": 789,
+        "upserts": [
+            {
+                "id": new_id,
+                "name": "eSUN PETG Basic Optimized",
+                "content": {
+                    "type": "filament",
+                    "filament_vendor": ["eSUN"],
+                    "filament_type": ["PETG"],
+                    "filament_id": "Pcc54342b78005b",
+                },
+            }
+        ],
+        "deletes": [old_id],
+    }
+
+    result = sync_profile_cache(session, client)
+    assert result["synced"] == 1
+
+    updated_target = session.scalars(
+        select(SyncTarget).where(SyncTarget.printer_db_id == "99002")
+    ).first()
+    assert updated_target.cloud_id == new_id
+
+    updated_spool = session.get(Spool, spool.id)
+    assert updated_spool.cloud_resource_id == new_id

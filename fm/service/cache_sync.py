@@ -1,8 +1,9 @@
 """cache_sync.py — Pulls Orca Cloud presets and updates the read-only profile_cache."""
 import logging
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from fm.models import ProfileCache, _now
+from fm.models import ProfileCache, Profile, Spool, SyncTarget, _now
 from fm.orca_cloud import OrcaCloudClient, OrcaCloudError
 from fm.presets.flattener import flatten_preset, find_preset_by_name
 
@@ -95,6 +96,36 @@ def sync_profile_cache(session: Session, client: OrcaCloudClient) -> dict:
             cache_entry.deleted_from_cloud = False
             cache_entry.deleted_at = None
             cache_entry.last_seen_at = now
+
+        # Reconcile SyncTarget and Spool if preset was re-uploaded with a new cloud_resource_id:
+        target = session.scalars(
+            select(SyncTarget).where(
+                SyncTarget.cloud_id == res_id,
+                SyncTarget.kind == "printer_db",
+            )
+        ).first()
+        if target is None:
+            reconciled = None
+            if deletes:
+                reconciled = session.scalars(
+                    select(SyncTarget).where(
+                        SyncTarget.kind == "printer_db",
+                        SyncTarget.cloud_id.in_(deletes),
+                    )
+                ).first()
+            if reconciled is None:
+                for st in session.scalars(select(SyncTarget).where(SyncTarget.kind == "printer_db")):
+                    if st.profile_id:
+                        prof = session.get(Profile, st.profile_id)
+                        if prof and prof.name.strip().lower() == name.strip().lower():
+                            reconciled = st
+                            break
+            if reconciled is not None:
+                old_cloud_id = reconciled.cloud_id
+                reconciled.cloud_id = res_id
+                if old_cloud_id:
+                    for sp in session.scalars(select(Spool).where(Spool.cloud_resource_id == old_cloud_id)):
+                        sp.cloud_resource_id = res_id
         synced_count += 1
 
     # Process soft deletes

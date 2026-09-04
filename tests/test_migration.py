@@ -196,3 +196,75 @@ def test_migrate_makes_sync_target_profile_id_nullable(tmp_path):
         assert existing is not None
         assert existing.profile_id == 1
         assert existing.kind == "printer_db"
+
+
+def test_migration_reconciles_reuploaded_preset_cloud_id(tmp_path):
+    """When a preset was re-uploaded with a new cloud_resource_id (like eSUN PETG),
+    _migrate must update the printer_db target and spool to match profile_cache."""
+    db_path = tmp_path / "test_reconcile.db"
+    url = f"sqlite:///{db_path}"
+
+    engine = create_engine(url, future=True)
+    with engine.raw_connection() as conn:
+        conn.executescript("""
+            CREATE TABLE profiles (
+                id INTEGER PRIMARY KEY,
+                brand VARCHAR(255),
+                name VARCHAR(255),
+                type VARCHAR(64),
+                min_temp INTEGER,
+                max_temp INTEGER,
+                printer_db_id VARCHAR,
+                created_at DATETIME,
+                updated_at DATETIME
+            );
+            CREATE TABLE spools (
+                id INTEGER PRIMARY KEY,
+                profile_id INTEGER,
+                color_override VARCHAR,
+                remaining_pct INTEGER DEFAULT 100,
+                location VARCHAR DEFAULT '',
+                rfid_tag VARCHAR,
+                notes VARCHAR DEFAULT '',
+                created_at DATETIME,
+                updated_at DATETIME,
+                cloud_resource_id VARCHAR(64)
+            );
+            CREATE TABLE sync_targets (
+                id INTEGER PRIMARY KEY,
+                profile_id INTEGER,
+                kind VARCHAR(32),
+                expected_hash VARCHAR,
+                actual_state VARCHAR,
+                status VARCHAR(16) DEFAULT 'pending',
+                last_synced_at DATETIME,
+                cloud_id VARCHAR(64),
+                printer_db_id VARCHAR(16)
+            );
+            CREATE TABLE profile_cache (
+                cloud_resource_id VARCHAR(64) PRIMARY KEY,
+                name VARCHAR(255),
+                vendor VARCHAR(255),
+                type VARCHAR(64),
+                is_inherited BOOLEAN DEFAULT 0,
+                deleted_from_cloud BOOLEAN DEFAULT 0,
+                last_seen_at DATETIME
+            );
+            INSERT INTO profiles (id, brand, name, type, min_temp, max_temp, printer_db_id, created_at, updated_at)
+            VALUES (2, 'eSUN', 'eSUN PETG Basic Optimized', 'PETG', 230, 250, '99002', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+            INSERT INTO sync_targets (id, profile_id, kind, cloud_id, printer_db_id, status)
+            VALUES (2, 2, 'printer_db', 'old-uuid-65c90420', '99002', 'in_sync');
+            INSERT INTO spools (id, profile_id, cloud_resource_id, remaining_pct, created_at, updated_at)
+            VALUES (3, 2, 'old-uuid-65c90420', 65, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+            INSERT INTO profile_cache (cloud_resource_id, name, vendor, type, last_seen_at)
+            VALUES ('new-uuid-64ebeda3', 'eSUN PETG Basic Optimized', 'eSUN', 'PETG', CURRENT_TIMESTAMP);
+        """)
+
+    _migrate(engine)
+
+    with Session(engine) as session:
+        t = session.scalars(select(SyncTarget).where(SyncTarget.printer_db_id == "99002")).first()
+        assert t.cloud_id == "new-uuid-64ebeda3"
+
+        s = session.get(Spool, 3)
+        assert s.cloud_resource_id == "new-uuid-64ebeda3"

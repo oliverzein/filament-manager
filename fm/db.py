@@ -88,6 +88,38 @@ def _migrate(engine: Engine) -> None:
             WHERE cloud_resource_id IS NULL AND profile_id IS NOT NULL
         """))
         conn.commit()
+        # Reconcile printer_db sync_targets where cloud_id differs from profile_cache
+        # (e.g. preset was re-uploaded in OrcaSlicer with a new UUID, like eSUN PETG)
+        tables = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+        if "profile_cache" in tables and "profiles" in tables:
+            conn.execute(text("""
+                UPDATE sync_targets
+                SET cloud_id = (
+                    SELECT p.cloud_resource_id FROM profile_cache p
+                    JOIN profiles pr ON pr.name = p.name
+                    WHERE pr.id = sync_targets.profile_id
+                )
+                WHERE kind = 'printer_db'
+                  AND profile_id IN (
+                      SELECT pr.id FROM profiles pr
+                      JOIN profile_cache p ON pr.name = p.name
+                  )
+                  AND (cloud_id NOT IN (SELECT cloud_resource_id FROM profile_cache) OR cloud_id IS NULL)
+            """))
+            conn.commit()
+
+            # Re-link spools pointing to stale cloud_resource_id
+            conn.execute(text("""
+                UPDATE spools
+                SET cloud_resource_id = (
+                    SELECT st.cloud_id FROM sync_targets st
+                    WHERE st.profile_id = spools.profile_id AND st.cloud_id IS NOT NULL
+                )
+                WHERE (cloud_resource_id NOT IN (SELECT cloud_resource_id FROM profile_cache) OR cloud_resource_id IS NULL)
+                  AND profile_id IS NOT NULL
+            """))
+            conn.commit()
+
 
         # profiles.template_override — added for preset template selection
         profile_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(profiles)"))}

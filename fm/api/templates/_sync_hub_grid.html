@@ -17,7 +17,7 @@
           {% for p in presets %}
             <tr>
               <td>
-                <span class="cell-main">{{ p.vendor }} {{ p.name }}</span>
+                <span class="cell-main">{{ p.name if p.name.lower().startswith(p.vendor.lower()) else p.vendor ~ ' ' ~ p.name }}</span>
                 <span class="cell-sub">{{ p.type }}{% if p.is_inherited %} · inherited{% endif %}</span>
               </td>
               <td>

@@ -94,26 +94,33 @@ Lokaler Read-Only-Cache der Cloud-Presets. Nie manuell editierbar.
 | `type` | TEXT | aus Cloud `filament_type` (8/10; vererbte via §5) |
 | `filament_id` | TEXT, nullable | vererbte Presets haben keins (Audit: 6/10) |
 | `is_inherited` | BOOL | `inherits` ≠ `""` |
+| `deleted_from_cloud` | BOOL | Soft-Delete: True wenn im Tombstone-Feed gelöscht |
+| `deleted_at` | DATETIME, nullable | Zeitstempel des Soft-Deletes |
 | `last_seen_at` | DATETIME | letzter erfolgreicher Cache-Sync |
+
+**Soft-Delete-Regel:** Wird ein Cloud-Preset gelöscht, wird der Eintrag in `profile_cache` **nicht physisch gelöscht**, sondern auf `deleted_from_cloud = True` gesetzt. Dadurch bleiben Spool-Verknüpfungen intakt (Spools zeigen weiterhin Name und Vendor, erhalten aber ein Orphan-Badge), und Orphan-Einträge in der Printer-DB behalten ihre Klartext-Metadaten.
 
 ### `spools`
 
 - `profile_id` (FK → profiles) **wird ersetzt** durch `cloud_resource_id`
   (Referenz auf `profile_cache`). Neue Spools referenzieren direkt den
   Cloud-Eintrag.
+- Spools behalten auch bei Löschung des Presets in Orca Cloud ihren Verweis auf
+  den `profile_cache`-Eintrag (`deleted_from_cloud = True`), was die Anzeige
+  sichert und ein sauberes Orphan-Badge im Spool-Inventar ermöglicht.
 - Unverändert bleiben: `color_override`, `remaining_pct`, `location`,
   `rfid_tag`, `notes`.
 
-### `sync_targets`
+### `sync_targets` (Persistentes Printer-DB-Mapping)
 
 - **Neue Spalte `printer_db_id`** (Entscheidung F2/D). Lookup-Schlüssel für den
   Push ist `cloud_resource_id` (über `cloud_id`), nicht mehr `profile_id`.
-- `kind` bleibt für die Migration relevant (`printer_db` vs. `orca_preset`).
-- `expected_hash` / `actual_state` / `status`-Semantik entfällt großenteils —
-  es gibt keine Drift mehr. Restverwendung nur noch für den Push-Verify-Zyklus
+- Dient als persistentes Mapping: `cloud_id` → `printer_db_id` + `expected_hash` + `status` + `last_synced_at`.
+- `kind` bleibt während der Migration (`printer_db` vs. `orca_preset`) und wird
+  nach Migration auf `printer_db` fokussiert.
+- `expected_hash` / `status`-Semantik verbleibt für den Push-Verify-Zyklus
   (siehe §6: Verify vergleicht Hash aus Cloud-Werten).
 - `profile_id`-FK wird obsolet (keine `profiles`-Tabelle mehr).
-
 ### Unverändert
 
 - `jobs`, `activity_log`.
@@ -145,9 +152,7 @@ dieses Subset reicht für Cache-Anzeige + Vererbungs-Auflösung + Push-Build.)
 ### Cache-Update
 
 - Upsert nach `cloud_resource_id`.
-- Presets im `deletes`-Tombstone-Feed des `sync_pull` → Cache-Eintrag löschen.
-  Die referenzierenden Spools behalten ihren Snapshot und bekommen einen
-  Orphan-Badge (§7).
+- Presets im `deletes`-Tombstone-Feed des `sync_pull` → **Soft-Delete**: `deleted_from_cloud = True` und `deleted_at = _now()` setzen. Kein physischer DELETE! Die referenzierenden Spools und Printer-DB-Mappings behalten ihren Cache-Eintrag und bekommen im UI ein Orphan-Badge (§7).
 - Cloud nicht erreichbar → Cache **gefroren anzeigen** + Hinweis-Badge. **Kein
   Fehler-Nunzius im Dashboard.**
 
@@ -161,21 +166,33 @@ der zehn Live-Presets sind vererbt (`Hyper Stardust @K2-all`,
 (nozzle_temperature, filament_density, filament_vendor, filament_type,
 filament_id) fehlen und kommen vom vererbten System-Preset.
 
+**Vererbung in OrcaSlicer ist inhärent rekursiv (Multi-Level):**
+`Cloud-Preset -> K2-System-Preset (@K2-all) -> fdm_filament_<type> -> fdm_filament_common`.
+Beide Live-Presets sind bereits 3 Ebenen tief; Kernfelder (`nozzle_temperature`,
+`filament_density`) stammen erst aus den tieferen Basisschichten. Ein
+1-Ebenen-Limit würde beide Presets brechen.
+
 **Auflösung vor JEDER Verwendung** (Push UND Cache-Anzeige von Kernfeldern):
 
-1. `inherits`-Name lesen.
-2. Lookup in `fm/presets/template_index.py` (Runtime-Loader für den
-   vorgebauten Template-Index).
-3. Merge: Base (System-Preset) + Overrides (Cloud-Preset). **Overrides
-   gewinnen.**
+1. Rekursives Flattening via `fm/presets/flattener.py:flatten_preset` (bereits im
+   Projekt vorhanden, löst Ketten über beliebig viele Ebenen auf).
+2. Base-Templates aus der Kette liefern Standardwerte, Overrides des Cloud-Presets
+   gewinnen.
 
-**Phase 1 beginnt zwingend mit einem Verifikationstest:** "Hyper Stardust
-@K2-all" und "EN-PLA+ @K2-all" müssen im Index auflösen. Fehlt ein
-K2-System-Template, ist es aus dem Skill-Repo
-(`~/Dokumente/Daten/Development/skills/Creality-custom-filament`) zu bundlen —
-**nur lesen/übernehmen, nie modifizieren** (AGENTS.md Working Rule 3).
+**Bundling-Pflicht in Phase 1:**
+Im Docker-Container (`python:3.12-slim`) existiert `/opt/orca-slicer` nicht. Die
+benötigten K2-System-Presets (`*@K2-all.json` und deren Eltern-Hierarchie) müssen
+in Phase 1 fest nach `fm/presets/templates/` gebündelt werden (aus
+`/opt/orca-slicer/resources/profiles/Creality/filament/` bzw. dem Skill-Repo
+`~/Dokumente/Daten/Development/skills/Creality-custom-filament` — nur lesen/übernehmen,
+nie modifizieren per AGENTS.md Working Rule 3).
 
-**Auflösung schlägt fehl** (Name nicht im Index) → Preset ist **nicht pushbar**,
+**Phase 1 beginnt zwingend mit einem Verifikationstest:**
+"Hyper Stardust @K2-all" und "EN-PLA+ @K2-all" müssen über `flatten_preset`
+vollständig auflösen und alle Pflichtwerte (`nozzle_temperature`, `density`,
+`vendor`, `type`) liefern.
+
+**Auflösung schlägt fehl** (Name in Kette nicht auflösbar) → Preset ist **nicht pushbar**,
 UI-Hinweis. Keine geratenen Defaults — F1/C (Fallback-Werte, Raterei) wurde
 explizit verworfen.
 
@@ -206,6 +223,20 @@ Iron Rules (AGENTS.md) unverändert.
   (`_is_stock_rfid`): Creality-Presets werden vom Push ausgeschlossen, ihre
   RFID-Tags matchen bereits Stock-01xxx-Einträge.
 
+### Type-Unboxing & Adapter (`_cloud_preset_to_entry_values`)
+
+Orca-Cloud-Presets und geflattete Templates liefern Werte häufig als 1-elementige Listen von Strings (z. B. `"filament_density": ["1.24"]`, `"nozzle_temperature": ["220"]`). `fm/printer/dbcodec.py:validate_entry()` und `build_entry()` verlangen jedoch strikte Typen (`int`, `float`, `str`).
+
+Vor dem Aufruf von `build_entry` übersetzt eine Adapter-Funktion `_cloud_preset_to_entry_values(preset: dict, entry_id: str) -> dict`:
+- **Unboxing:** Listen mit 1 Element werden zum Skalar entpackt (`val[0] if isinstance(val, list) else val`).
+- **Sanitizing:** Anführungszeichen/Whitespace werden bereinigt.
+- **Casting:** `minTemp`, `maxTemp`, `nozzle_temperature` → `int`; `density`, `flowRatio`, `pa`, `maxVolumetric` → `float`.
+- **Defaults:** `dryingTemp = 0`, `dryingTime = 0`, `color = None` (wird zu `colors = [""]`).
+- **Naming / Iron Rule 2:** Preset-Name wird wie in OrcaSlicer gepflegt übernommen. Fehlt der Vendor im Namen, erzeugt `validate_entry` wie heute ein Warning, blockiert den Push aber nicht.
+
+### Payload & API Contract
+
+`POST /api/sync/push` und `/sync/push-modal` akzeptieren `cloud_resource_ids: list[str]` (Orca Cloud UUIDs) anstelle der obsoleten Integer-`profile_ids`. Wird keine Liste übergeben, werden alle pushbaren Presets gepusht.
 ### Gaps (entschieden)
 
 - `dryingTemp` / `dryingTime` = 0 (Audit: harter Gap, Default 0 akzeptiert).
@@ -239,9 +270,13 @@ UI-Arbeit verwendet die **designer role** (omp designer agent) gemäß AGENTS.md
   Cloud-Offline-Badge.
 - **Spools:** unverändert + Orphan-Badge (referenziertes Cloud-Preset gelöscht).
 - **Printer/Sync-Seite (umbenannt/reshaped):**
-  - Push-Buttons — Action-Modal-Infrastruktur dieser Session wird wiederverwendet
-    (Polling, Busy-Choices im Modal, Hub-Refresh).
-  - Orphan-Liste mit expliziter Entfernen-Aktion (Double-Confirm, typed token).
+  - **Preset- & Status-Tabelle (ersetzt Drift-Tabelle):**
+    - Listet alle Presets aus `profile_cache` (Vendor, Name, Type, Vererbungs-Status).
+    - Zeigt zugeordnete `printer_db_id` (z. B. `99001`, `Stock` oder `Not pushed`).
+    - Status-Badges: `In Sync`, `Pending Verify`, `Orphan` (in Cloud gelöscht).
+    - Aktionen pro Zeile: `Push to Printer` (Einzel-Push via `cloud_resource_id`), bei Orphans `Remove from Printer` (Double-Confirm mit typed token).
+  - Target-Cards (rechts): Printer DB ("X in sync, Y pending/unlinked"), Orca Cloud Status ("X cached, Y orphans"), Backup to GitHub.
+  - Push-Buttons — Action-Modal-Infrastruktur dieser Session wird wiederverwendet (Polling, Busy-Choices im Modal, Hub-Refresh).
   - Cache-Sync-Button + zuletzt-synchronisiert-Anzeige.
 - **Gelöscht:**
   - Profiles-Seite (CRUD).
@@ -258,8 +293,23 @@ still sterben).
 
 ## 8. Migration (One-time, im Rework als Task-Serie)
 
-1. **`sync_targets.printer_db_id` befüllen** — JOIN über bestehende Profile.
-   Die 6 existierenden Einträge (Audit-Tabelle):
+Zur Vermeidung von Datenverlust muss die Migration in einer strikten SQL-Reihenfolge ablaufen, damit die Zuordnung von `cloud_id` (aus `kind='orca_preset'`) und `printer_db_id` (aus `profiles`) nicht durch vorzeitiges Löschen verloren geht:
+
+1. **`sync_targets.printer_db_id` befüllen und `cloud_id` auf `printer_db` übertragen:**
+   ```sql
+   ALTER TABLE sync_targets ADD COLUMN printer_db_id VARCHAR(16);
+   UPDATE sync_targets
+   SET cloud_id = (
+       SELECT o.cloud_id FROM sync_targets o
+       WHERE o.profile_id = sync_targets.profile_id AND o.kind = 'orca_preset'
+   ),
+   printer_db_id = (
+       SELECT p.printer_db_id FROM profiles p
+       WHERE p.id = sync_targets.profile_id
+   )
+   WHERE kind = 'printer_db';
+   ```
+   Die 6 existierenden Einträge erhalten stabil ihre ID:
 
    | Name | printer_db_id | cloud_resource_id |
    |---|---|---|
@@ -270,16 +320,21 @@ still sterben).
    | Overture TPU Optimized | 99005 | `08c63940…` |
    | Geetech PLA | 99006 | `2e4254f1…` |
 
-2. **`spools.profile_id` → `cloud_resource_id`** — via Profile →
-   `SyncTarget.cloud_id`. 15 Spool-Rows referenzieren `profile_id` (1–10).
-   Keine RFID-Tags aktuell gesetzt (alle `rfid_tag` NULL) — dennoch bleibt
-   `printer_db_id`-Stabilität für zukünftige Tags erhalten.
+2. **`spools.profile_id` → `cloud_resource_id` migrieren:**
+   ```sql
+   ALTER TABLE spools ADD COLUMN cloud_resource_id VARCHAR(64);
+   UPDATE spools
+   SET cloud_resource_id = (
+       SELECT st.cloud_id FROM sync_targets st
+       WHERE st.profile_id = spools.profile_id AND st.cloud_id IS NOT NULL
+   );
+   ```
+   15 Spool-Rows referenzieren aktuell Profile (1–10). Keine RFID-Tags aktuell gesetzt (alle `rfid_tag` NULL) — dennoch bleibt `printer_db_id`-Stabilität für zukünftige Tags erhalten.
 
-3. **`profile_cache` initial befüllen** — aus `sync_pull`.
+3. **`profile_cache` initial befüllen** — aus `sync_pull` (inkl. `deleted_from_cloud = False`).
 
-4. **Alte Tabellen/Spalten erst droppen, NACHDEM die neue Pipeline live
-   verifiziert ist** — Doppelhaltung für eine Release-Periode.
-
+4. **Bereinigung erst NACH Live-Verifikation:**
+   Erst nachdem die neue Pipeline verifiziert ist, werden `kind='orca_preset'`-Zeilen gelöscht (`DELETE FROM sync_targets WHERE kind = 'orca_preset'`) und alte Spalten/Tabellen gedroppt.
 **Rule 5 (Double-Confirm, typed token) gilt für jeden destruktiven
 Migrationsschritt.**
 
@@ -333,13 +388,15 @@ TDD (writing-plans-Konvention). SSH-Boundary gemockt wie heute.
 Neue Testkerne:
 
 - **Merge-Kette** inkl. Verifikationstest §5 ("Hyper Stardust @K2-all",
-  "EN-PLA+ @K2-all" lösen im Index auf).
+  "EN-PLA+ @K2-all" lösen über `flatten_preset` vollständig auf).
+- **Type-Unboxing & Adapter** (`_cloud_preset_to_entry_values` unboxed Listen, castet Typen, setzt Defaults).
 - **ID-Mapping-Konsistenz** (`cloud_resource_id` → `printer_db_id`).
 - **Rebuild-ohne-Remove** (Orphan-Regel F3/B).
-- **Migration-Scripts** (Schritte 1–3 aus §8).
-- **Cache-Sync** (Upsert, Tombstone-Delete, Offline-Verhalten).
+- **Migration-Scripts** (strikte Sequenz aus §8).
+- **Cache-Sync** (Upsert, Soft-Delete bei Tombstones, Offline-Verhalten).
 
-Bestehende 486 Tests: gelöschte Features ziehen ihre Tests mit raus.
+**Phasenweise Test-Bereinigung:**
+Über 200 der bestehenden 486 Tests betreffen Features, die im Rework gelöscht werden (`test_api_catalog.py`, `test_builder.py`, `test_matching.py`, `test_ui_delete.py`, `test_ui_template_picker.py` etc.). Die Dekommissionierung dieser Tests muss phasenweise mit den entsprechenden Code-Schnitten erfolgen, damit die Test-Suite bei jedem Zwischenschritt messbar grün bleibt.
 
 ---
 
@@ -358,6 +415,6 @@ Manuals) gilt.
   vorgesehen).
 - **UI-Details Orphan-Verwaltung** — designer role (Badge-Platzierung,
   Entfernen-Flow-Details).
-- **Merge-Verhalten bei Multi-Level-Vererbung** — aktuell nur 1 Ebene
-  beobachtet (Audit). YAGNI: nur 1 Ebene unterstützen; tiefere Vererbung
-  ablehnen mit Fehler.
+- **Multi-Level-Vererbung (GEKLÄRT / ENTSCHIEDEN):** Rekursives Flattening via
+  `fm/presets/flattener.py:flatten_preset` ist verbindlich. Keine
+  YAGNI-Beschränkung auf 1 Ebene, da reale Live-Presets 3 Ebenen tief sind.

@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Logs — Filament Manager{% endblock %}
+{% block content %}
+<section id="logs-page">
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Audit</p>
+      <h1>Logs</h1>
+      <p>Unified timeline of background jobs and direct actions — push, verify, backup, cache sync, and printer DB operations.</p>
+    </div>
+  </header>
+
+  {# ── Filter & search bar ── #}
+  <section class="panel logs-filter-panel">
+    <form class="logs-filter-bar"
+          hx-get="/logs/table"
+          hx-target="#logs-table-container"
+          hx-swap="innerHTML"
+          hx-trigger="change, submit"
+          hx-include="this">
+      {# Status filter #}
+      <label class="filter-select">
+        <span>Status</span>
+        <select name="status" id="log-status-filter">
+          <option value="">All statuses</option>
+          <option value="done">Success / Done</option>
+          <option value="running">Active / Running</option>
+          <option value="awaiting_input">Warning / Awaiting Input</option>
+          <option value="error">Error</option>
+          <option value="queued">Queued</option>
+        </select>
+      </label>
+
+      {# Source filter #}
+      <label class="filter-select">
+        <span>Source</span>
+        <select name="source" id="log-source-filter">
+          <option value="">All sources</option>
+          <option value="job">Background jobs</option>
+          <option value="action">Direct actions</option>
+        </select>
+      </label>
+
+      {# Search input with debounce #}
+      <label class="filter-search">
+        <span>Search</span>
+        <input type="search"
+               name="q"
+               id="log-search"
+               placeholder="Search by ID, action, or error…"
+               hx-get="/logs/table"
+               hx-target="#logs-table-container"
+               hx-swap="innerHTML"
+               hx-trigger="input changed delay:300ms"
+               hx-include="closest form">
+      </label>
+
+      {# Sort direction #}
+      <label class="filter-select">
+        <span>Sort</span>
+        <select name="sort" id="log-sort">
+          <option value="desc">Newest first</option>
+          <option value="asc">Oldest first</option>
+        </select>
+      </label>
+
+      {# Auto-refresh toggle + manual refresh #}
+      <div class="filter-actions">
+        <label class="filter-toggle">
+          <input type="checkbox" name="auto_refresh" id="log-auto-refresh"
+                 onchange="toggleLogAutoRefresh(this.checked)">
+          Auto-refresh
+        </label>
+        <button type="button"
+                class="icon-button"
+                title="Refresh now"
+                aria-label="Refresh logs"
+                hx-get="/logs/table"
+                hx-target="#logs-table-container"
+                hx-swap="innerHTML"
+                hx-include="closest form"
+                hx-vals='{"_manual": "1"}'>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.7 6.3A8 8 0 0 0 4.3 10H1l4 4 4-4H6.3a6 6 0 0 1 10-2.3L18 9.4l1.4-1.4-1.7-1.7ZM19 10l-4 4h2.7a6 6 0 0 1-10 2.3L6 14.6 4.6 16l1.7 1.7A8 8 0 0 0 19.7 14H23l-4-4Z"/></svg>
+        </button>
+      </div>
+    </form>
+  </section>
+
+  {# ── Log table (HTMX partial target) ── #}
+  <section class="panel logs-table-panel">
+    <div class="panel-heading">
+      <div><p class="eyebrow">Timeline</p><h2>Activity log</h2></div>
+      <span class="result-count" id="log-result-count">{{ entries | length }} entries</span>
+    </div>
+    <div id="logs-table-container">
+      {% include "_logs_table.html" %}
+    </div>
+  </section>
+</section>
+
+<script>
+// Auto-refresh: when toggled on, poll the table partial every 5s.
+// Reuses the existing filter form values via hx-include.
+var _logRefreshTimer = null;
+function toggleLogAutoRefresh(on) {
+  if (_logRefreshTimer) { clearInterval(_logRefreshTimer); _logRefreshTimer = null; }
+  if (on) {
+    _logRefreshTimer = setInterval(function() {
+      var btn = document.querySelector('.filter-actions .icon-button');
+      if (btn) btn.click();  // triggers the HTMX refresh
+    }, 5000);
+  }
+}
+// Clean up on page unload
+window.addEventListener('beforeunload', function() {
+  if (_logRefreshTimer) clearInterval(_logRefreshTimer);
+});
+
+// Event delegation for row expand/collapse — survives HTMX partial swaps.
+document.getElementById('logs-table-container').addEventListener('click', function(e) {
+  var row = e.target.closest('.log-row');
+  if (!row) return;
+  var id = row.id.replace('log-row-', '');
+  var detail = document.getElementById('log-detail-' + id);
+  if (!detail) return;
+  var isHidden = detail.classList.toggle('hidden');
+  row.setAttribute('aria-expanded', !isHidden);
+  var chevron = row.querySelector('.detail-chevron');
+  if (chevron) chevron.textContent = isHidden ? '▸' : '▾';
+});
+document.getElementById('logs-table-container').addEventListener('keydown', function(e) {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('log-row')) {
+    e.preventDefault();
+    e.target.click();
+  }
+});
+</script>
+{% endblock %}

@@ -7,6 +7,7 @@ round-trip through the page routes (not the JSON API).
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -127,11 +128,11 @@ def test_no_old_labels_in_sync_page(client):
 # Navigation structure
 # ---------------------------------------------------------------------------
 
-def test_nav_has_four_items(client):
-    """base.html nav has exactly 4 items (Dashboard, Spools, Sync, Settings)."""
+def test_nav_has_five_items(client):
+    """base.html nav has exactly 5 items (Dashboard, Spools, Sync, Logs, Settings)."""
     r = client.get("/")
     content = r.text
-    assert content.count('class="nav-item') == 4 or content.count('class="nav-item active') + content.count('class="nav-item"') == 4
+    assert content.count('class="nav-item') == 5 or content.count('class="nav-item active') + content.count('class="nav-item"') == 5
 
 
 def test_nav_no_profiles(client):
@@ -265,3 +266,155 @@ def test_dashboard_empty_presets_state(client):
     r = client.get("/")
     assert r.status_code == 200
     assert b"No cached presets." in r.content
+
+
+# ---------------------------------------------------------------------------
+# Logs page — unified timeline, filtering, search, sort, dedup
+# ---------------------------------------------------------------------------
+
+from fm.models import ActivityLog, Job
+
+
+def _seed_job(db, kind="push", status="done", result=None, payload=None):
+    """Insert a Job row and return it."""
+    now = datetime.now(timezone.utc)
+    job = Job(
+        kind=kind,
+        payload=json.dumps(payload or {}),
+        status=status,
+        result=json.dumps(result) if result else None,
+        created_at=now,
+        finished_at=now if status in ("done", "error") else None,
+    )
+    db.add(job)
+    db.flush()
+    return job
+
+
+def _seed_activity(db, action="cache_sync", outcome="ok", detail=None):
+    """Insert an ActivityLog row and return it."""
+    act = ActivityLog(
+        ts=datetime.now(timezone.utc),
+        action=action,
+        outcome=outcome,
+        detail=json.dumps(detail or {}),
+    )
+    db.add(act)
+    db.flush()
+    return act
+
+
+def test_logs_page_loads(client):
+    """GET /logs returns 200, has page structure, nav item active."""
+    r = client.get("/logs")
+    assert r.status_code == 200
+    assert b"Logs" in r.content
+    assert b"logs-page" in r.content
+    assert b"logs-table-container" in r.content
+    # Nav item is active on /logs
+    assert b'href="/logs"' in r.content
+    assert b'nav-item active' in r.content
+
+
+def test_logs_table_partial(client):
+    """GET /logs/table returns 200 with table or empty-state."""
+    r = client.get("/logs/table")
+    assert r.status_code == 200
+    # With no data, should show empty state
+    assert b"No log entries yet" in r.content
+
+
+def test_logs_filter_status(client):
+    """Filter by status works — only matching entries returned."""
+    with SessionLocal() as s:
+        _seed_job(s, kind="push", status="running")
+        _seed_job(s, kind="verify", status="done")
+        s.commit()
+
+    r = client.get("/logs/table?status=running")
+    assert r.status_code == 200
+    assert b"running" in r.content
+    # The done job should not appear when filtering for running
+    html = r.text
+    # Count log rows — should be 1 (only the running job)
+    assert html.count('class="log-row ') == 1
+
+
+def test_logs_filter_source(client):
+    """Filter by source=job vs source=action works."""
+    with SessionLocal() as s:
+        _seed_job(s, kind="push", status="queued")
+        _seed_activity(s, action="cache_sync", outcome="ok")
+        s.commit()
+
+    r_job = client.get("/logs/table?source=job")
+    assert r_job.status_code == 200
+    assert b"badge-purple" in r_job.content  # Job badge
+    assert b"badge-muted" not in r_job.content  # No Action badge
+
+    r_act = client.get("/logs/table?source=action")
+    assert r_act.status_code == 200
+    assert b"badge-muted" in r_act.content  # Action badge
+    assert b"badge-purple" not in r_act.content  # No Job badge
+
+
+def test_logs_search(client):
+    """Search q filters by action/payload/error."""
+    with SessionLocal() as s:
+        _seed_job(s, kind="push", status="done", payload={"target": "192.168.1.50"})
+        _seed_job(s, kind="verify", status="done")
+        s.commit()
+
+    # Search for "push" — should match the push job
+    r = client.get("/logs/table?q=push")
+    assert r.status_code == 200
+    assert b"Push to printer" in r.content
+    # Verify job should not appear
+    assert b"Verify printer DB" not in r.content
+
+
+def test_logs_sort(client):
+    """sort=asc vs desc orders by timestamp."""
+    from datetime import timedelta
+    base = datetime.now(timezone.utc)
+    with SessionLocal() as s:
+        old = Job(kind="push", payload="{}", status="done",
+                  created_at=base - timedelta(hours=2),
+                  finished_at=base - timedelta(hours=2))
+        new = Job(kind="verify", payload="{}", status="done",
+                  created_at=base,
+                  finished_at=base)
+        s.add_all([old, new])
+        s.commit()
+
+    r_desc = client.get("/logs/table?sort=desc")
+    html_desc = r_desc.text
+    pos_verify = html_desc.find("Verify printer DB")
+    pos_push = html_desc.find("Push to printer")
+    assert pos_verify < pos_push  # newer first
+
+    r_asc = client.get("/logs/table?sort=asc")
+    html_asc = r_asc.text
+    pos_verify = html_asc.find("Verify printer DB")
+    pos_push = html_asc.find("Push to printer")
+    assert pos_push < pos_verify  # older first
+
+
+def test_logs_deduplication(client):
+    """A completed Job with a matching ActivityLog entry produces only ONE
+    unified entry, not two."""
+    with SessionLocal() as s:
+        job = _seed_job(s, kind="push", status="done",
+                        result={"pushed": 3})
+        _seed_activity(s, action="push", outcome="ok",
+                       detail={"job_id": job.id, "result": {"pushed": 3}})
+        s.commit()
+
+    r = client.get("/logs/table")
+    assert r.status_code == 200
+    html = r.text
+    # Should have exactly 1 log row (the activity_log entry, not the job)
+    assert html.count('class="log-row ') == 1
+    # The entry should be the action (ActivityLog), not the job
+    assert b"badge-muted" in r.content
+    assert b"badge-purple" not in r.content

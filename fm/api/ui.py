@@ -15,7 +15,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal
@@ -33,6 +33,13 @@ from ..settings_store import (
 )
 from ..orca_cloud import OrcaCloudClient, OrcaCloudError
 from ..github_backup import GitHubBackupClient, GitHubBackupError
+
+
+# status_class is defined in app.py but importing it there creates a circular
+# import (app.py imports ui).  The mapping is trivial so we mirror it locally.
+def _status_class(value: str) -> str:
+    """Map status values to CSS badge class names (mirrors app.status_class)."""
+    return {"drift": "drifted", "done": "completed"}.get(value, value)
 
 router = APIRouter(tags=["ui"])
 
@@ -796,9 +803,16 @@ def sync_cache_sync(request: Request, db: DbSession) -> HTMLResponse:
     """HTMX endpoint: sync Orca Cloud presets into profile_cache,
     then return the refreshed hub fragment."""
     client = sync_handlers._orca_client_factory()
+    res = {"synced": 0, "deleted": 0, "offline": True}
     if client is not None:
-        sync_profile_cache(db, client)
+        res = sync_profile_cache(db, client)
         db.commit()
+    jobs.log_activity(
+        db, "cache_sync",
+        "ok" if not res.get("offline") else "warn",
+        res,
+    )
+    db.commit()
     return sync_hub_fragment(request, db)
 
 # ---------------------------------------------------------------------------
@@ -1090,3 +1104,249 @@ def github_test_connection(
     except GitHubBackupError as exc:
         return {"ok": False, "error": exc.message}
     return {"ok": True, "repo": info["repo"], "default_branch": info["default_branch"]}
+
+
+# ---------------------------------------------------------------------------
+# Logs page — unified timeline of background jobs and direct actions
+# ---------------------------------------------------------------------------
+
+# Action label mapping (raw kind/action → human-readable label)
+_LOG_ACTION_LABELS: dict[str, str] = {
+    "push": "Push to printer",
+    "verify": "Verify printer DB",
+    "github_backup": "GitHub backup",
+    "printer_db_remove": "Remove printer DB entry",
+    "cache_sync": "Orca Cloud cache sync",
+}
+
+# ActivityLog outcome → (display status, status_class, status_label)
+_ACT_OUTCOME_MAP: dict[str, tuple[str, str, str]] = {
+    "ok": ("done", "done", "done"),
+    "warn": ("awaiting_input", "awaiting_input", "awaiting input"),
+    "error": ("error", "error", "error"),
+}
+
+
+def _relative_time(dt: datetime | None) -> str:
+    """Human-readable relative time: '3m ago', '2h ago', 'just now'."""
+    if not dt:
+        return ""
+    # SQLite may return offset-naive datetimes; assume UTC if so.
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    delta = _now() - dt
+    secs = int(delta.total_seconds())
+    if secs < 60:
+        return "just now"
+    if secs < 3600:
+        return f"{secs // 60}m ago"
+    if secs < 86400:
+        return f"{secs // 3600}h ago"
+    return f"{secs // 86400}d ago"
+
+
+def _compute_duration(job: Job) -> str:
+    """Format a job's duration string for the logs table."""
+    if job.status in ("queued", "running", "awaiting_input"):
+        return job.status
+    if not job.finished_at:
+        return "—"
+    delta = (job.finished_at - job.created_at).total_seconds()
+    if delta < 1:
+        return "instant"
+    if delta < 60:
+        return f"{delta:.1f}s"
+    mins = int(delta // 60)
+    secs = int(delta % 60)
+    return f"{mins}m {secs}s"
+
+
+def _normalize_job_entry(job: Job) -> dict:
+    """Normalize a Job row into a unified LogEntry dict."""
+    detail = json.loads(job.payload) if job.payload else {}
+    result = json.loads(job.result) if job.result else None
+    error_msg = None
+    busy_detail = None
+    if result:
+        error_msg = result.get("error")
+        busy_detail = result.get("busy")
+    has_detail = bool(detail or result or error_msg or busy_detail)
+    return {
+        "id": f"job-{job.id}",
+        "source": "job",
+        "source_id": job.id,
+        "timestamp": job.created_at,
+        "timestamp_fmt": _fmt_local(job.created_at),
+        "timestamp_rel": _relative_time(job.created_at),
+        "action": _LOG_ACTION_LABELS.get(
+            job.kind, job.kind.replace("_", " ").title(),
+        ),
+        "action_raw": job.kind,
+        "status": job.status,
+        "status_label": job.status.replace("_", " "),
+        "status_class": _status_class(job.status),
+        "detail": {**(detail or {}), **({"result": result} if result else {})},
+        "detail_json": json.dumps(
+            {"payload": detail, "result": result}, indent=2, default=str,
+        ) if has_detail else "",
+        "error_msg": error_msg,
+        "busy_detail": busy_detail,
+        "has_detail": has_detail,
+        "finished_at_fmt": _fmt_local(job.finished_at) if job.finished_at else None,
+    }
+
+
+def _normalize_activity_entry(act: ActivityLog) -> dict:
+    """Normalize an ActivityLog row into a unified LogEntry dict."""
+    detail = json.loads(act.detail) if act.detail else {}
+    job_id = detail.get("job_id")
+    result_obj = detail.get("result")
+    error_msg = None
+    if isinstance(result_obj, dict):
+        error_msg = result_obj.get("error") or detail.get("error")
+    else:
+        error_msg = detail.get("error")
+    busy_detail = detail.get("busy")
+    outcome_status, outcome_class, outcome_label = _ACT_OUTCOME_MAP.get(
+        act.outcome, (act.outcome, act.outcome, act.outcome),
+    )
+    has_detail = bool(detail)
+    return {
+        "id": f"act-{act.id}",
+        "source": "action",
+        "source_id": act.id,
+        "source_job_id": job_id,  # for dedup linking
+        "timestamp": act.ts,
+        "timestamp_fmt": _fmt_local(act.ts),
+        "timestamp_rel": _relative_time(act.ts),
+        "action": _LOG_ACTION_LABELS.get(
+            act.action, act.action.replace("_", " ").title(),
+        ),
+        "action_raw": act.action,
+        "status": outcome_status,
+        "status_class": outcome_class,
+        "status_label": outcome_label,
+        "duration": "instant",
+        "detail": detail,
+        "detail_json": json.dumps(detail, indent=2, default=str) if has_detail else "",
+        "error_msg": error_msg,
+        "busy_detail": busy_detail,
+        "has_detail": has_detail,
+        "finished_at_fmt": None,
+    }
+
+
+def _unified_log_entries(
+    db: Session, *, status: str = "", source: str = "",
+    q: str = "", sort: str = "desc",
+) -> tuple[list[dict], int, bool]:
+    """Build the unified log entry list from jobs + activity_log.
+
+    Returns ``(entries, total_count, truncated)``.
+    """
+    LIMIT = 100
+
+    # Collect job_ids that have a matching activity_log entry (for dedup).
+    job_ids_with_activity: set[int] = set()
+    for row in db.scalars(
+        select(ActivityLog.detail).where(
+            ActivityLog.action.in_(("push", "verify", "github_backup"))
+        )
+    ):
+        try:
+            d = json.loads(row) if isinstance(row, str) else row
+            jid = d.get("job_id")
+            if jid is not None:
+                job_ids_with_activity.add(jid)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    job_query = select(Job).where(
+        or_(
+            Job.status.in_(("queued", "running", "awaiting_input")),
+            and_(
+                Job.status.in_(("done", "error")),
+                ~Job.id.in_(job_ids_with_activity) if job_ids_with_activity else true(),
+            ),
+        )
+    )
+    jobs = list(db.scalars(job_query))
+
+    # Query activity_log
+    act_query = select(ActivityLog)
+    activities = list(db.scalars(act_query))
+
+    # Normalize both into unified entries
+    entries: list[dict] = []
+    for job in jobs:
+        entries.append(_normalize_job_entry(job))
+    for act in activities:
+        entries.append(_normalize_activity_entry(act))
+
+    # Deduplicate: if a job and an activity share the same job_id,
+    # keep only the activity (it has the richer result).
+    seen_job_ids: set[int] = set()
+    deduped: list[dict] = []
+    for e in entries:
+        if e["source"] == "job" and e.get("linked_activity"):
+            continue
+        if e["source"] == "action" and e.get("source_job_id") is not None:
+            seen_job_ids.add(e["source_job_id"])
+        deduped.append(e)
+    entries = [
+        e for e in deduped
+        if not (e["source"] == "job" and e.get("source_id") in seen_job_ids)
+    ]
+
+    # Filter
+    if status:
+        entries = [e for e in entries if e["status"] == status]
+    if source:
+        entries = [e for e in entries if e["source"] == source]
+    if q:
+        ql = q.lower()
+        entries = [
+            e for e in entries
+            if ql in str(e.get("id", "")).lower()
+            or ql in e.get("action_raw", "").lower()
+            or ql in e.get("action", "").lower()
+            or ql in str(e.get("error_msg", "")).lower()
+            or ql in str(e.get("detail_json", "")).lower()
+        ]
+
+    # Sort
+    entries.sort(key=lambda e: e["timestamp"], reverse=(sort != "asc"))
+
+    total_count = len(entries)
+    truncated = total_count > LIMIT
+    entries = entries[:LIMIT]
+
+    return entries, total_count, truncated
+
+
+@router.get("/logs", response_class=HTMLResponse)
+def logs_page(request: Request, db: DbSession) -> HTMLResponse:
+    """Render the unified logs page with default filters (all, newest first)."""
+    entries, total_count, truncated = _unified_log_entries(db)
+    return _templates(request).TemplateResponse(
+        request, "logs.html",
+        {"entries": entries, "total_count": total_count, "truncated": truncated,
+         "has_filters": False},
+    )
+
+
+@router.get("/logs/table", response_class=HTMLResponse)
+def logs_table_fragment(
+    request: Request, db: DbSession,
+    status: str = "", source: str = "", q: str = "", sort: str = "desc",
+) -> HTMLResponse:
+    """HTMX partial: filtered/searched/sorted log table."""
+    entries, total_count, truncated = _unified_log_entries(
+        db, status=status, source=source, q=q, sort=sort,
+    )
+    has_filters = bool(status or source or q)
+    return _templates(request).TemplateResponse(
+        request, "_logs_table.html",
+        {"entries": entries, "total_count": total_count, "truncated": truncated,
+         "has_filters": has_filters},
+    )

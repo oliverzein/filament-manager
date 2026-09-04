@@ -1,0 +1,120 @@
+{# Partial: unified log table. Included by logs.html and rendered by
+   GET /logs/table for HTMX filter/search/sort/refresh requests. #}
+{% if entries %}
+<div class="table-wrap">
+  <table class="logs-table">
+    <thead>
+      <tr>
+        <th class="col-time">Time</th>
+        <th class="col-source">Source</th>
+        <th class="col-action">Action</th>
+        <th class="col-duration">Duration</th>
+        <th class="col-status">Status</th>
+        <th class="col-toggle" aria-label="Expand"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr class="log-row log-row-{{ e.source }} status-{{ e.status_class }}"
+          id="log-row-{{ e.id }}"
+          role="button"
+          tabindex="0"
+          aria-expanded="false"
+          aria-label="Toggle details for {{ e.action }}">
+        <td class="col-time">
+          <span class="cell-main">{{ e.timestamp_fmt }}</span>
+          <span class="cell-sub">{{ e.timestamp_rel }}</span>
+        </td>
+        <td class="col-source">
+          {% if e.source == 'job' %}
+            <span class="badge badge-purple">Job #{{ e.source_id }}</span>
+          {% else %}
+            <span class="badge badge-muted">Action</span>
+          {% endif %}
+        </td>
+        <td class="col-action">
+          <span class="cell-main">{{ e.action }}</span>
+        </td>
+        <td class="col-duration">
+          {% if e.duration == 'running' %}
+            <span class="duration-running">
+              <span class="spinner spinner-sm"></span> running…
+            </span>
+          {% elif e.duration == 'queued' %}
+            <span class="muted">queued</span>
+          {% else %}
+            <span class="cell-sub">{{ e.duration }}</span>
+          {% endif %}
+        </td>
+        <td class="col-status">
+          <span class="status-badge status-{{ e.status_class }}">{{ e.status_label }}</span>
+        </td>
+        <td class="col-toggle">
+          {% if e.has_detail %}
+          <span class="detail-chevron" aria-hidden="true">▸</span>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% if e.has_detail %}
+      <tr class="log-detail-row hidden" id="log-detail-{{ e.id }}">
+        <td colspan="6">
+          <div class="log-detail-content">
+            <div class="log-detail-meta">
+              {% if e.source == 'job' %}
+              <span class="log-meta-item"><strong>Job ID:</strong> #{{ e.source_id }}</span>
+              <span class="log-meta-item"><strong>Kind:</strong> {{ e.action_raw }}</span>
+              <span class="log-meta-item"><strong>Created:</strong> {{ e.timestamp_fmt }}</span>
+              {% if e.finished_at_fmt %}
+              <span class="log-meta-item"><strong>Finished:</strong> {{ e.finished_at_fmt }}</span>
+              {% endif %}
+              {% else %}
+              <span class="log-meta-item"><strong>Log ID:</strong> #{{ e.source_id }}</span>
+              <span class="log-meta-item"><strong>Action:</strong> {{ e.action_raw }}</span>
+              <span class="log-meta-item"><strong>Recorded:</strong> {{ e.timestamp_fmt }}</span>
+              {% endif %}
+            </div>
+            {% if e.error_msg %}
+            <div class="log-detail-error">
+              <strong>Error:</strong>
+              <code>{{ e.error_msg }}</code>
+            </div>
+            {% endif %}
+            {% if e.busy_detail %}
+            <div class="log-detail-busy">
+              <strong>Printer busy:</strong>
+              <code>{{ e.busy_detail }}</code>
+            </div>
+            {% endif %}
+            <div class="log-detail-json">
+              <strong>Raw payload / result:</strong>
+              <pre><code>{{ e.detail_json }}</code></pre>
+            </div>
+          </div>
+        </td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="table-footer">
+  <span>Showing <b>{{ entries | length }}</b> of <b>{{ total_count }}</b> entries</span>
+  {% if truncated %}
+  <span class="muted">· results truncated to last 100</span>
+  {% endif %}
+</div>
+{% else %}
+<div class="empty-state">
+  <span>◇</span>
+  <h3>{% if has_filters %}No matching log entries{% else %}No log entries yet{% endif %}</h3>
+  <p>{% if has_filters %}Try adjusting your filters or search query.{% else %}Background jobs and direct actions will appear here as they occur.{% endif %}</p>
+  {% if has_filters %}
+  <button class="button button-secondary"
+          onclick="document.getElementById('logs-page').querySelector('form').reset(); htmx.trigger(document.getElementById('logs-page').querySelector('form'), 'submit')">
+    Clear filters
+  </button>
+  {% endif %}
+</div>
+{% endif %}

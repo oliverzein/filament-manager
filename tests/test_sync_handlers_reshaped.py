@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -137,3 +138,89 @@ def test_rebuild_from_cloud_creates_synctarget_and_verifies(
         )
     ).first()
     assert target.status == "in_sync"
+
+
+def test_inheritance_unresolvable_skips_preset(
+    inmemory_session, cfg, tmp_path, sample_db, monkeypatch
+):
+    """A preset whose inherits chain cannot be resolved is skipped, not pushed."""
+    s = inmemory_session
+    cache = tmp_path / "cache.json"
+    cache.write_text(json.dumps(sample_db))
+    monkeypatch.setattr(sh, "_cache_db_path", cache)
+    monkeypatch.setattr(sh, "_transport_factory", lambda c: FakeTransport())
+    monkeypatch.setattr(sh, "_sleep", lambda sec: None)
+
+    fake_client = MagicMock()
+    fake_client.sync_pull.return_value = {
+        "next_cursor": 0,
+        "upserts": [{
+            "id": "cloud-uuid-broken",
+            "content": {
+                "type": "filament",
+                "name": "Broken Inherit",
+                "inherits": "Nonexistent Template",
+                "filament_type": "PLA",
+                "filament_vendor": "Sunlu",
+            },
+        }],
+        "deletes": [],
+    }
+    monkeypatch.setattr(sh, "_orca_client_factory", lambda: fake_client)
+
+    result = sh.handle_push(s, cfg, {})
+    assert result["status"] == "ok"
+    assert result["pushed"] == 0
+
+    # No SyncTarget should have been created for the broken preset
+    target = s.scalars(
+        select(SyncTarget).where(
+            SyncTarget.cloud_id == "cloud-uuid-broken",
+        )
+    ).first()
+    assert target is None
+
+
+def test_cloud_resource_ids_no_match_no_catalog_fallback(
+    inmemory_session, cfg, tmp_path, sample_db, monkeypatch
+):
+    """When cloud_resource_ids are requested but none match cloud presets,
+    the rebuild must NOT fall back to catalog (dumping all profiles)."""
+    s = inmemory_session
+    from fm.models import Profile
+    now = datetime.now(timezone.utc)
+    prof = Profile(
+        brand="Sunlu", name="Sunlu PLA+", type="PLA",
+        min_temp=200, max_temp=230, colors="[]",
+        created_at=now, updated_at=now,
+    )
+    s.add(prof)
+    s.flush()
+
+    cache = tmp_path / "cache.json"
+    cache.write_text(json.dumps(sample_db))
+    monkeypatch.setattr(sh, "_cache_db_path", cache)
+    monkeypatch.setattr(sh, "_transport_factory", lambda c: FakeTransport())
+    monkeypatch.setattr(sh, "_sleep", lambda sec: None)
+
+    fake_client = MagicMock()
+    fake_client.sync_pull.return_value = {
+        "next_cursor": 0,
+        "upserts": [{
+            "id": "some-other-uuid",
+            "content": {
+                "type": "filament",
+                "name": "Other Preset",
+                "filament_type": "PLA",
+                "filament_vendor": "Generic",
+            },
+        }],
+        "deletes": [],
+    }
+    monkeypatch.setattr(sh, "_orca_client_factory", lambda: fake_client)
+
+    result = sh.handle_push(s, cfg, {"cloud_resource_ids": ["nonexistent-uuid"]})
+    assert result["status"] == "ok"
+    assert result["pushed"] == 0
+    # Catalog profile must NOT have been pushed
+    assert prof.printer_db_id is None

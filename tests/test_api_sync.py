@@ -154,6 +154,55 @@ class TestPushEndpoint:
             assert prof1.printer_db_id is not None
             assert prof2.printer_db_id is None
 
+    def test_push_with_cloud_resource_ids_no_fallback(self, client):
+        """POST /api/sync/push with cloud_resource_ids that match no cloud
+        presets must NOT fall back to catalog (fallback guard)."""
+        p = _make_profile(client)
+        r = client.post("/api/sync/push",
+                        json={"cloud_resource_ids": ["nonexistent-uuid"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "done"
+        result = data.get("result", {})
+        # No presets pushed — cloud IDs requested but none matched
+        assert result.get("pushed", 0) == 0
+        # Catalog profile must NOT have been pushed (no fallback)
+        with SessionLocal() as s:
+            prof = s.get(Profile, p["id"])
+            assert prof.printer_db_id is None
+
+    def test_push_with_cloud_resource_ids_matches(self, client, monkeypatch):
+        """POST /api/sync/push with cloud_resource_ids that match a cloud
+        preset pushes that preset."""
+        fake = MagicMock()
+        fake.sync_pull.return_value = {
+            "next_cursor": 0,
+            "upserts": [{
+                "id": "cloud-match-uuid",
+                "content": {
+                    "type": "filament",
+                    "name": "Cloud Match",
+                    "filament_type": "PLA",
+                    "filament_vendor": "Sunlu",
+                    "nozzle_temperature": "210",
+                    "nozzle_temperature_range_low": "200",
+                    "nozzle_temperature_range_high": "230",
+                    "filament_density": "1.24",
+                    "filament_flow_ratio": "0.98",
+                    "pressure_advance": "0.035",
+                    "filament_max_volumetric_speed": "18",
+                },
+            }],
+            "deletes": [],
+        }
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: fake)
+        r = client.post("/api/sync/push",
+                        json={"cloud_resource_ids": ["cloud-match-uuid"]})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "done"
+        result = data.get("result", {})
+        assert result.get("pushed", 0) == 1
 
 # ---------------------------------------------------------------------------
 # Busy flow — pins the spec behavior

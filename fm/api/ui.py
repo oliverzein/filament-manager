@@ -23,6 +23,7 @@ from ..config import Config
 from ..models import ActivityLog, Job, Profile, ProfileCache, Spool, SyncTarget
 from ..service import jobs
 from ..service import sync_handlers
+from ..service.cache_sync import sync_profile_cache
 from ..printer.dbcodec import find_entry, load_db, save_db, remove_entry
 from .sync import drift_status, _get_config
 from ..settings_store import (
@@ -73,7 +74,8 @@ def _fmt_local(dt: datetime | None) -> str | None:
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: DbSession) -> HTMLResponse:
-    """Spool count by profile (top 10), drift matrix, last 20 activity rows."""
+    """Spool count by profile (top 10), drift matrix, last 20 activity rows,
+    cached preset count, total spool inventory, and printer DB target stats."""
     spool_counts = db.execute(
         select(
             Profile.id, Profile.brand, Profile.name,
@@ -85,6 +87,21 @@ def dashboard(request: Request, db: DbSession) -> HTMLResponse:
         .limit(10)
     ).all()
 
+    total_spools = db.scalar(select(func.count(Spool.id))) or 0
+    cached_presets = db.scalar(
+        select(func.count(ProfileCache.cloud_resource_id))
+        .where(ProfileCache.deleted_from_cloud == False)  # noqa: E712
+    ) or 0
+    pdb_in_sync = db.scalar(
+        select(func.count(SyncTarget.id))
+        .where(SyncTarget.kind == "printer_db",
+               SyncTarget.status == "in_sync")
+    ) or 0
+    pdb_total = db.scalar(
+        select(func.count(SyncTarget.id))
+        .where(SyncTarget.kind == "printer_db")
+    ) or 0
+
     drift = drift_status(request, db)
 
     activity = list(
@@ -95,7 +112,11 @@ def dashboard(request: Request, db: DbSession) -> HTMLResponse:
 
     return _templates(request).TemplateResponse(
         request, "dashboard.html",
-        {"spool_counts": spool_counts, "drift": drift, "activity": activity},
+        {
+            "spool_counts": spool_counts, "drift": drift, "activity": activity,
+            "total_spools": total_spools, "cached_presets": cached_presets,
+            "pdb_in_sync": pdb_in_sync, "pdb_total": pdb_total,
+        },
     )
 
 # ---------------------------------------------------------------------------
@@ -272,6 +293,11 @@ def _preset_status_rows(db: Session) -> list[dict]:
     return rows
 
 
+def _last_cache_synced(db: Session) -> str | None:
+    """Return the most recent ProfileCache.last_seen_at as a local time string."""
+    latest = db.scalar(select(func.max(ProfileCache.last_seen_at)))
+    return _fmt_local(latest) if latest else None
+
 @router.get("/sync", response_class=HTMLResponse)
 def sync_page(request: Request, db: DbSession) -> HTMLResponse:
     """Preset & Status Table from ProfileCache, HTMX action buttons, busy
@@ -290,6 +316,7 @@ def sync_page(request: Request, db: DbSession) -> HTMLResponse:
             "awaiting_jobs": awaiting_jobs,
             "recent_jobs": recent_jobs,
             "github_configured": load_github_config() is not None,
+            "last_synced": _last_cache_synced(db),
         },
     )
 
@@ -751,8 +778,19 @@ def sync_hub_fragment(request: Request, db: DbSession) -> HTMLResponse:
             "presets": presets,
             "awaiting_jobs": awaiting_jobs,
             "github_configured": load_github_config() is not None,
+            "last_synced": _last_cache_synced(db),
         },
     )
+
+@router.post("/sync/cache-sync", response_class=HTMLResponse)
+def sync_cache_sync(request: Request, db: DbSession) -> HTMLResponse:
+    """HTMX endpoint: sync Orca Cloud presets into profile_cache,
+    then return the refreshed hub fragment."""
+    client = sync_handlers._orca_client_factory()
+    if client is not None:
+        sync_profile_cache(db, client)
+        db.commit()
+    return sync_hub_fragment(request, db)
 
 # ---------------------------------------------------------------------------
 # Orphan printer DB entry removal — Double-Confirm typed token

@@ -1,10 +1,8 @@
-import sqlite3
 from datetime import datetime, timezone
-import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
-from fm.db import init_engine, _migrate
-from fm.models import Base, Profile, Spool, SyncTarget, ProfileCache
+from fm.db import _migrate
+from fm.models import Spool, SyncTarget, ProfileCache
 
 
 def test_schema_migration_creates_profile_cache_and_migrates_targets_and_spools(tmp_path):

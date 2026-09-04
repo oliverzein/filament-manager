@@ -97,6 +97,8 @@
       </div>
       <span class="target-summary">{{ ns.orca_cached }} cached presets, {{ ns.orca_orphans }} orphans</span>
       <p>Orca Cloud is the sole source of filament presets. New presets are created in OrcaSlicer and sync via Orca Cloud.</p>
+      {% if last_synced %}<span class="target-note">Last synced: {{ last_synced }}</span>{% endif %}
+      <button class="button button-secondary" hx-post="/sync/cache-sync" hx-target="#sync-hub-content" hx-swap="innerHTML">Sync Cache</button>
     </section>
 
     <section class="panel target-card" aria-labelledby="backup-target-heading">

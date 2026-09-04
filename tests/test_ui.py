@@ -156,3 +156,47 @@ def test_nav_no_orca_cloud_import(client):
     """Nav does not contain 'Orca Cloud Import'."""
     r = client.get("/")
     assert b"Orca Cloud Import" not in r.content
+
+
+# ---------------------------------------------------------------------------
+# Fix-wave: dashboard queries ProfileCache, total spools, printer DB targets
+# ---------------------------------------------------------------------------
+
+def test_dashboard_shows_cached_presets_count(client, seeded_cache_profile):
+    """Dashboard displays 'Cached presets' label and count from ProfileCache."""
+    r = client.get("/")
+    assert r.status_code == 200
+    assert b"Cached presets" in r.content
+    assert b"Spools in stock" in r.content
+    assert b"Printer DB synced" in r.content
+
+
+def test_dashboard_cached_presets_excludes_deleted(client):
+    """Deleted-from-cloud presets are not counted in the cached presets stat."""
+    now = datetime.now(timezone.utc)
+    with SessionLocal() as s:
+        s.add(ProfileCache(
+            cloud_resource_id="uuid-active",
+            name="Active Preset",
+            vendor="Sunlu",
+            type="PLA",
+            deleted_from_cloud=False,
+            last_seen_at=now,
+        ))
+        s.add(ProfileCache(
+            cloud_resource_id="uuid-deleted",
+            name="Deleted Preset",
+            vendor="Sunlu",
+            type="PLA",
+            deleted_from_cloud=True,
+            deleted_at=now,
+            last_seen_at=now,
+        ))
+        s.commit()
+    r = client.get("/")
+    assert r.status_code == 200
+    html = r.text
+    assert "Cached presets" in html
+    # Only 1 active preset should be counted
+    assert ">1<" in html
+    assert ">2<" not in html

@@ -1,7 +1,5 @@
 """cache_sync.py — Pulls Orca Cloud presets and updates the read-only profile_cache."""
-from datetime import datetime, timezone
 import logging
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from fm.models import ProfileCache, _now

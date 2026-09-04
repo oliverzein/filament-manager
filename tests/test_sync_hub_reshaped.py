@@ -117,3 +117,36 @@ def test_orphan_remove_updates_cached_printer_db(client, monkeypatch, tmp_path, 
         ).first() is None
     # 99001 entry removed from the cache file
     assert _find_entry(json.loads(cache.read_text()), "99001") is None
+
+
+def test_cache_sync_endpoint_returns_hub_fragment(client, monkeypatch):
+    """POST /sync/cache-sync syncs Orca Cloud presets and returns the hub fragment."""
+    from unittest.mock import MagicMock
+    fake_client = MagicMock()
+    fake_client.sync_pull.return_value = {
+        "next_cursor": 0,
+        "upserts": [{
+            "id": "uuid-new",
+            "content": {
+                "type": "filament",
+                "name": "New Cloud Preset",
+                "filament_type": "PLA",
+                "filament_vendor": "Generic",
+            },
+        }],
+        "deletes": [],
+    }
+    monkeypatch.setattr(sh, "_orca_client_factory", lambda: fake_client)
+    resp = client.post("/sync/cache-sync")
+    assert resp.status_code == 200
+    assert "preset-table" in resp.text
+    assert "New Cloud Preset" in resp.text
+    assert "Sync Cache" in resp.text
+
+
+def test_cache_sync_endpoint_without_client_returns_fragment(client, monkeypatch):
+    """POST /sync/cache-sync with no Orca Cloud client still returns the fragment."""
+    monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
+    resp = client.post("/sync/cache-sync")
+    assert resp.status_code == 200
+    assert "preset-table" in resp.text

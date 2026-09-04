@@ -48,8 +48,8 @@ from ..printer.dbcodec import (
 )
 from ..printer.pipeline import canonical_hash, run_push
 from ..printer.transport import PrinterTransport, SshTransport
-from ..presets.flattener import flatten_preset
-from ..orca_cloud import OrcaCloudClient
+from ..presets.flattener import flatten_preset, find_preset_by_name
+from ..orca_cloud import OrcaCloudClient, OrcaCloudError
 from ..github_backup import GitHubBackupClient
 from ..settings_store import load_github_config, load_orca_token, save_orca_token
 from ..errors import FmError
@@ -529,14 +529,48 @@ def _rebuild_printer_db(
     client = _orca_client_factory()
 
     if client is not None:
-        db, pushed, skipped = _rebuild_from_cloud(
-            session, config, db, client, cloud_resource_ids,
-        )
+        try:
+            db, pushed, skipped = _rebuild_from_cloud(
+                session, config, db, client, cloud_resource_ids,
+            )
+        except OrcaCloudError:
+            # sync_pull raised offline error — fall back to catalog only
+            # when no specific cloud_resource_ids were requested.
+            if cloud_resource_ids:
+                return db, [], []
+            return _rebuild_from_catalog(session, config, db, profile_ids)
         if pushed:
             return db, pushed, skipped
-        # Cloud returned no presets → fall back to cache + catalog targets.
+        # Cloud returned no presets.
+        if cloud_resource_ids:
+            # Specific cloud IDs were requested but none matched —
+            # do NOT dump all catalog profiles.
+            return db, [], skipped
+        # No cloud_resource_ids → fall back to cache + catalog targets.
+        return _rebuild_from_catalog(session, config, db, profile_ids)
+
+    # No Orca Cloud client configured → catalog fallback.
     return _rebuild_from_catalog(session, config, db, profile_ids)
 
+
+def _inherits_chain_resolvable(preset: dict) -> bool:
+    """Check that every parent in the inherits chain can be resolved.
+
+    Returns True if the preset has no ``inherits``, or if every parent
+    in the chain is found via ``find_preset_by_name``.
+    """
+    inherits = str(preset.get("inherits", "")).strip()
+    if not inherits:
+        return True
+    seen: set[str] = set()
+    while inherits and inherits not in seen:
+        seen.add(inherits)
+        parent_path = find_preset_by_name(inherits)
+        if parent_path is None:
+            return False
+        parent_data = json.loads(Path(parent_path).read_text())
+        inherits = str(parent_data.get("inherits", "")).strip()
+    return True
 
 def _rebuild_from_cloud(
     session: Session, config: Config, db: dict,
@@ -556,6 +590,18 @@ def _rebuild_from_cloud(
 
     for preset in presets:
         if _is_stock_rfid_preset(preset):
+            continue
+
+        # Inheritance resolution check (spec §5): skip presets whose
+        # inherits chain cannot be fully resolved against bundled templates.
+        inherits = str(preset.get("inherits", "")).strip()
+        if inherits and not _inherits_chain_resolvable(preset):
+            name = str(preset.get("name", "")).strip() or preset.get("_path", "")
+            log.warning(
+                "Preset '%s' inherits '%s' which cannot be resolved — "
+                "skipping push per spec §5",
+                name, inherits,
+            )
             continue
 
         res_id = preset.get("_path", "")

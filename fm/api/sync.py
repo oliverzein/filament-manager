@@ -19,7 +19,8 @@ from ..config import Config
 from ..db import SessionLocal
 from ..models import Job, Profile, SyncTarget
 from ..service import jobs
-from ..service.sync_handlers import compute_printer_db_drift, register_handlers, _is_stock_rfid  # noqa: F401 — register_handlers side-effect import stays
+from ..service.sync_handlers import compute_printer_db_drift, register_handlers, _is_stock_rfid, _orca_client_factory  # noqa: F401 — register_handlers side-effect import stays
+from ..service.cache_sync import sync_profile_cache
 
 router = APIRouter(prefix="/api", tags=["sync"])
 
@@ -60,6 +61,7 @@ def _get_config(request: Request) -> Config:
 
 class PushRequest(BaseModel):
     profile_ids: list[int] | None = None
+    cloud_resource_ids: list[str] | None = None
     force_reboot: bool = False
     no_reboot: bool = False
 
@@ -101,6 +103,7 @@ async def sync_push(request: Request, db: DbSession) -> dict:
         data = {}
     payload = {
         "profile_ids": data.get("profile_ids"),
+        "cloud_resource_ids": data.get("cloud_resource_ids"),
         "force_reboot": data.get("force_reboot", False),
         "no_reboot": data.get("no_reboot", False),
     }
@@ -110,6 +113,15 @@ async def sync_push(request: Request, db: DbSession) -> dict:
     db.flush()
     return _job_response(job)
 
+
+@router.post("/cache/sync")
+def cache_sync(db: DbSession) -> dict:
+    """Sync Orca Cloud presets into the read-only profile_cache."""
+    client = _orca_client_factory()
+    if client is None:
+        return {"synced": 0, "deleted": 0, "offline": True,
+                "error": "Orca Cloud not configured"}
+    return sync_profile_cache(db, client)
 
 
 @router.post("/sync/backup-github")

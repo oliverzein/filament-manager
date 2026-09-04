@@ -10,9 +10,9 @@
   {% for row in spool_counts %}{% set totals.spools = totals.spools + row.spool_count %}{% endfor %}
   {% for d in drift %}{% if d.printer_db.status == 'in_sync' and d.orca_preset.status == 'in_sync' %}{% set totals.synced = totals.synced + 1 %}{% endif %}{% endfor %}
   <div class="stat-grid">
-    <article class="stat-card"><span class="stat-icon purple"><svg viewBox="0 0 24 24"><path d="M7 3h10v3h3v15H4V6h3V3Zm2 3h6V5H9v1Z"/></svg></span><div><span class="stat-label">Profiles</span><strong>{{ drift | length }}</strong><small>catalog entries</small></div></article>
-    <article class="stat-card"><span class="stat-icon blue"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 3a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm0 14a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z"/></svg></span><div><span class="stat-label">Spools in stock</span><strong>{{ totals.spools }}</strong><small>across top profiles</small></div></article>
-    <article class="stat-card"><span class="stat-icon green"><svg viewBox="0 0 24 24"><path d="m9.5 16.2-4-4L4 13.7l5.5 5.5L21 7.7 19.5 6.2l-10 10Z"/></svg></span><div><span class="stat-label">Fully synced</span><strong>{{ totals.synced }}<em>/{{ drift | length }}</em></strong><small>printer and Orca</small></div></article>
+    <article class="stat-card"><span class="stat-icon purple"><svg viewBox="0 0 24 24"><path d="M7 3h10v3h3v15H4V6h3V3Zm2 3h6V5H9v1Z"/></svg></span><div><span class="stat-label">Cached presets</span><strong>{{ cached_presets }}</strong><small>from Orca Cloud</small></div></article>
+    <article class="stat-card"><span class="stat-icon blue"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 3a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm0 14a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z"/></svg></span><div><span class="stat-label">Spools in stock</span><strong>{{ total_spools }}</strong><small>total inventory</small></div></article>
+    <article class="stat-card"><span class="stat-icon green"><svg viewBox="0 0 24 24"><path d="m9.5 16.2-4-4L4 13.7l5.5 5.5L21 7.7 19.5 6.2l-10 10Z"/></svg></span><div><span class="stat-label">Printer DB synced</span><strong>{{ pdb_in_sync }}<em>/{{ pdb_total }}</em></strong><small>targets in sync</small></div></article>
   </div>
 
   <div class="dashboard-grid">

@@ -94,3 +94,37 @@ def _migrate(engine: Engine) -> None:
         if "template_override" not in profile_cols:
             conn.execute(text("ALTER TABLE profiles ADD COLUMN template_override VARCHAR(255)"))
             conn.commit()
+
+        # sync_targets.profile_id — make nullable for cloud-first SyncTargets
+        # that have no Profile to link to.  SQLite cannot ALTER column
+        # constraints in-place, so we recreate the table when needed.
+        st_cols = list(conn.execute(text("PRAGMA table_info(sync_targets)")))
+        profile_id_col = next(
+            (r for r in st_cols if r[1] == "profile_id"), None
+        )
+        if profile_id_col is not None and profile_id_col[3] == 1:
+            # notnull == 1 → recreate table with profile_id nullable
+            conn.execute(text("PRAGMA foreign_keys = OFF"))
+            conn.execute(text("""
+                CREATE TABLE sync_targets_temp (
+                    id INTEGER PRIMARY KEY,
+                    profile_id INTEGER,
+                    kind VARCHAR(32),
+                    cloud_id VARCHAR(64),
+                    expected_hash VARCHAR,
+                    actual_state VARCHAR,
+                    status VARCHAR(16) DEFAULT 'pending',
+                    last_synced_at DATETIME,
+                    printer_db_id VARCHAR(16)
+                )
+            """))
+            conn.execute(text("""
+                INSERT INTO sync_targets_temp
+                (id, profile_id, kind, cloud_id, expected_hash, actual_state, status, last_synced_at, printer_db_id)
+                SELECT id, profile_id, kind, cloud_id, expected_hash, actual_state, status, last_synced_at, printer_db_id
+                FROM sync_targets
+            """))
+            conn.execute(text("DROP TABLE sync_targets"))
+            conn.execute(text("ALTER TABLE sync_targets_temp RENAME TO sync_targets"))
+            conn.execute(text("PRAGMA foreign_keys = ON"))
+            conn.commit()

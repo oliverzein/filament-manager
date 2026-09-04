@@ -224,3 +224,52 @@ def test_cloud_resource_ids_no_match_no_catalog_fallback(
     assert result["pushed"] == 0
     # Catalog profile must NOT have been pushed
     assert prof.printer_db_id is None
+
+
+def test_rebuild_from_cloud_skips_inherited_creality_presets(
+    inmemory_session, cfg, tmp_path, sample_db, monkeypatch
+):
+    """Inherited presets with Creality vendor (e.g. Hyper Stardust @K2-all) must be
+    skipped from push per Iron Rule 2 (Stock RFID protection), even if the raw
+    cloud preset does not have filament_vendor explicitly set."""
+    cache_file = tmp_path / "printer-db-cache.json"
+    cache_file.write_text(json.dumps(sample_db))
+    monkeypatch.setattr(sh, "_resolve_cache_path", lambda: cache_file)
+
+    fake_client = MagicMock()
+    fake_client.sync_pull.return_value = {
+        "next_cursor": 0,
+        "upserts": [
+            {
+                "id": "cloud-uuid-hyper-stardust",
+                "name": "Hyper Stardust Optimized",
+                "content": {
+                    "type": "filament",
+                    "inherits": "Hyper Stardust @K2-all",
+                },
+            },
+            {
+                "id": "cloud-uuid-creality-hyper",
+                "name": "Creality Hyper PLA Optimized",
+                "content": {
+                    "type": "filament",
+                    "filament_vendor": ["Creality"],
+                    "filament_type": ["PLA"],
+                },
+            },
+        ],
+        "deletes": [],
+    }
+    monkeypatch.setattr(sh, "_orca_client_factory", lambda: fake_client)
+    transport = _VerifyTransport(sample_db)
+    monkeypatch.setattr(sh, "_get_transport", lambda c: transport)
+
+    payload = {}
+    result = sh.handle_push(inmemory_session, cfg, payload)
+    assert result["pushed"] == 0
+
+    # Ensure no 99xxx entries were added for Creality presets
+    for entry in sample_db["result"]["list"]:
+        eid = entry.get("base", {}).get("id", "")
+        if eid.startswith("99"):
+            assert "Hyper Stardust" not in entry["base"].get("name", "")

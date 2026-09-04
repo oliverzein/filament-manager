@@ -274,8 +274,11 @@ def _preset_status_rows(db: Session) -> list[dict]:
                 SyncTarget.kind == "printer_db",
             )
         ).first()
+        is_stock = (p.vendor or "").strip().lower() in sync_handlers.STOCK_RFID_BRANDS
         if p.deleted_from_cloud:
             status = "orphan"
+        elif is_stock:
+            status = "stock"
         elif target is not None and target.status == "in_sync":
             status = "in_sync"
         else:
@@ -287,6 +290,7 @@ def _preset_status_rows(db: Session) -> list[dict]:
             "cloud_resource_id": p.cloud_resource_id,
             "printer_db_id": target.printer_db_id if target else None,
             "status": status,
+            "is_stock": is_stock,
             "deleted_from_cloud": p.deleted_from_cloud,
             "is_inherited": p.is_inherited,
         })

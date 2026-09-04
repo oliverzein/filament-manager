@@ -604,6 +604,13 @@ def _rebuild_from_cloud(
             )
             continue
 
+        flat = _flatten_cloud_preset(preset)
+
+        # Stock Creality presets are protected from push (their spool RFID tags
+        # match 01xxx stock IDs; 99xxx duplicates would never match a tag).
+        # Check on flattened preset to catch inherited variants (e.g. Hyper Stardust @K2-all).
+        if _is_stock_rfid_preset(flat):
+            continue
         res_id = preset.get("_path", "")
 
         # Map printer_db_id via SyncTarget where cloud_id == res_id
@@ -635,7 +642,7 @@ def _rebuild_from_cloud(
                 session.add(target)
                 session.flush()
 
-        flat = _flatten_cloud_preset(preset)
+        # flat already computed and checked above
         values = _cloud_preset_to_entry_values(flat, entry_id)
         entry = build_entry(db, values)
         insert_entry(db, entry)

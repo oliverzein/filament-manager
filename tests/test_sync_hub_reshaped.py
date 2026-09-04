@@ -149,4 +149,50 @@ def test_cache_sync_endpoint_without_client_returns_fragment(client, monkeypatch
     monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
     resp = client.post("/sync/cache-sync")
     assert resp.status_code == 200
+
+
+def test_sync_hub_renders_stock_rfid_for_creality_presets(tmp_path):
+    """Creality presets must be displayed with Creality Stock, status 'stock',
+    no 'Push to Printer' button, and excluded from the 'not pushed' summary count."""
+    db_url = f"sqlite:///{tmp_path}/test_sync_stock.db"
+    engine = init_engine(db_url)
+    with Session(engine) as s:
+        p_custom = ProfileCache(
+            cloud_resource_id="uuid-custom",
+            name="Sunlu PLA+ Optimized",
+            vendor="Sunlu",
+            type="PLA",
+            last_seen_at=datetime.now(timezone.utc),
+        )
+        p_creality = ProfileCache(
+            cloud_resource_id="uuid-creality",
+            name="Hyper Stardust Optimized",
+            vendor="Creality",
+            type="PLA",
+            is_inherited=True,
+            last_seen_at=datetime.now(timezone.utc),
+        )
+        s.add_all([p_custom, p_creality])
+        st = SyncTarget(
+            cloud_id="uuid-custom",
+            printer_db_id="99001",
+            kind="printer_db",
+            status="in_sync",
+        )
+        s.add(st)
+        s.commit()
+
+    app = create_app(Settings(database_url=db_url))
+    client = TestClient(app)
+    resp = client.get("/sync")
+    assert resp.status_code == 200
+    html = resp.text
+
+    # Creality row should show 'Creality Stock', status 'stock', and 'Stock RFID'
+    assert "Creality Stock" in html
+    assert "status-stock" in html
+    assert "Stock RFID" in html
+
+    # Summary card must show "1 in sync, 0 not pushed" (Creality is stock, not counted as not pushed)
+    assert "1 in sync, 0 not pushed" in html
     assert "preset-table" in resp.text

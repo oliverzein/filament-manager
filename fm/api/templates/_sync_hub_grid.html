@@ -21,7 +21,9 @@
                 <span class="cell-sub">{{ p.type }}{% if p.is_inherited %} · inherited{% endif %}</span>
               </td>
               <td>
-                {% if p.printer_db_id %}
+                {% if p.is_stock %}
+                  <span class="muted">Creality Stock</span>
+                {% elif p.printer_db_id %}
                   <span class="cell-main">{{ p.printer_db_id }}</span>
                 {% elif p.status == 'orphan' %}
                   <span class="cell-main">{{ p.printer_db_id or '—' }}</span>
@@ -34,7 +36,9 @@
               </td>
               <td class="actions-cell">
                 <div class="row-actions">
-                  {% if p.status == 'orphan' and p.printer_db_id %}
+                  {% if p.is_stock %}
+                  <span class="muted">Stock RFID</span>
+                  {% elif p.status == 'orphan' and p.printer_db_id %}
                   <button class="button button-danger" hx-post="/sync/printer-db/{{ p.printer_db_id }}/remove" hx-vals='{"confirm": "{{ p.printer_db_id }}"}' hx-target="#sync-hub-content" hx-swap="innerHTML" hx-confirm="This removes orphan printer DB entry {{ p.printer_db_id }} and its SyncTarget. Continue?">Remove</button>
                   {% else %}
                   <button class="button button-ghost" hx-post="/sync/push-modal" hx-vals='{"cloud_resource_ids": "{{ p.cloud_resource_id }}"}' hx-target="#action-modal-body" hx-swap="innerHTML" hx-on::before-request="openActionModal()">Push to Printer</button>
@@ -74,7 +78,7 @@
       {% set ns.orca_cached = ns.orca_cached + 1 %}
       {% if p.status == 'in_sync' %}
         {% set ns.pdb_sync = ns.pdb_sync + 1 %}
-      {% else %}
+      {% elif p.status not in ('stock', 'orphan') %}
         {% set ns.pdb_not_pushed = ns.pdb_not_pushed + 1 %}
       {% endif %}
       {% if p.status == 'orphan' %}{% set ns.orca_orphans = ns.orca_orphans + 1 %}{% endif %}

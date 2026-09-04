@@ -1,10 +1,13 @@
+import json
 from datetime import datetime, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 from fm.api.app import create_app, Settings
 from fm.db import init_engine
-from fm.models import Base, ProfileCache, SyncTarget
 from sqlalchemy.orm import Session
+from fm.models import Base, ProfileCache, SyncTarget
+from fm.service import sync_handlers as sh
 
 
 @pytest.fixture
@@ -81,3 +84,36 @@ def test_orphan_remove_success_returns_fragment_and_deletes_target(client):
             _sel(SyncTarget).where(SyncTarget.printer_db_id == "99001")
         ).first()
         assert target is None
+
+
+def test_orphan_remove_updates_cached_printer_db(client, monkeypatch, tmp_path, sample_db):
+    """With a live cache file present, removal also drops the 99xxx entry
+    from the cached printer DB — exercises load_db/find_entry/remove_entry/
+    save_db (regression: missing dbcodec import silently skipped this path).
+    """
+    from sqlalchemy import select as _sel
+    from fm.db import SessionLocal
+    from fm.printer.dbcodec import find_entry as _find_entry
+
+    cache = tmp_path / "printer-db-cache.json"
+    cache.write_text(json.dumps(sample_db))
+    monkeypatch.setattr(sh, "_cache_db_path", cache)
+    # The fixture seeded a SyncTarget with printer_db_id=99001; sample_db
+    # carries the matching 99001 custom entry.
+    with SessionLocal() as s:
+        assert s.scalars(
+            _sel(SyncTarget).where(SyncTarget.printer_db_id == "99001")
+        ).first() is not None
+    assert _find_entry(json.loads(cache.read_text()), "99001") is not None
+
+    resp = client.post("/sync/printer-db/99001/remove", data={"confirm": "99001"})
+    assert resp.status_code == 200
+    assert "preset-table" in resp.text
+
+    # SyncTarget gone
+    with SessionLocal() as s:
+        assert s.scalars(
+            _sel(SyncTarget).where(SyncTarget.printer_db_id == "99001")
+        ).first() is None
+    # 99001 entry removed from the cache file
+    assert _find_entry(json.loads(cache.read_text()), "99001") is None

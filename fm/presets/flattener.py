@@ -15,8 +15,8 @@ from pathlib import Path
 _BUNDLED_DIR = Path(__file__).parent / "templates"
 
 # Deprecated: OrcaSlicer system profiles path. No longer used for template
-# selection (bundled templates are used instead). Kept for backward compat
-# with matching.py which imports it for load_presets().
+# selection (bundled templates are used instead). Kept only as a constant —
+# no production consumer remains.
 SYS_PROFILES = Path("/opt/orca-slicer/resources/profiles")
 
 

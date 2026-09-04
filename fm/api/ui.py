@@ -23,6 +23,7 @@ from ..config import Config
 from ..models import ActivityLog, Job, Profile, ProfileCache, Spool, SyncTarget
 from ..service import jobs
 from ..service import sync_handlers
+from ..printer.dbcodec import find_entry, load_db, save_db, remove_entry
 from .sync import drift_status, _get_config
 from ..settings_store import (
     load_settings, save_settings, build_config,

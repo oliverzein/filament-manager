@@ -2,7 +2,7 @@
 
 **Datum:** 2026-09-04
 **Branch:** `feat/category-c-auto-trigger-visibility`
-**Status:** Entscheidungsvorlage — KEIN Rework-Code
+**Status:** Entscheidungen getroffen (2026-09-04) — Basis für Rework-Spec
 **Test-Stand:** 486 Tests grün (`scripts/test.sh`), keine Code-Änderungen in dieser Phase
 
 ---
@@ -246,12 +246,15 @@ alle benötigten Felder. Das ist die einzige Option, die alle 10 existierenden
 Cloud-Presets korrekt verarbeitet, ohne Datenverlust oder unzuverlässige
 Raterei.
 
+**Entschieden (2026-09-04): B** — OrcaSlicer Desktop legt neue Presets stets als vererbt an, daher ist Auflösen der Vererbungskette Pflicht. Phase 1 muss mit einem Verifikations-Test beginnen, der beide referenzierten K2-System-Presets ("Hyper Stardust @K2-all", "EN-PLA+ @K2-all") in `fm/presets/template_index.py` auflöst; fehlt ein System-Template, ist es aus dem Skill-Repo zu bundlen.
+
 **Drying-Gap:** Unabhängig von A/B/C: `dryingTemp` und `dryingTime` existieren
 **nicht in Orca Cloud** (0/10 Presets). `build_entry` defaultet heute bereits
 auf 0 (`values.get("dryingTemp", 0)`). Der Rework übernimmt diesen Default.
 Trocknungs-Parameter werden im Printer-DB-Eintrag auf 0 gesetzt — die K2-Firmware
 zeigt sie, aber sie sind nicht funktionskritisch (CFS RFID app matcht auf ID,
 nicht auf drying). **Keine Aktion nötig — Default 0 ist akzeptiert.**
+**Entschieden (2026-09-04): Default 0 akzeptiert** — keine Aktion, wie heute.
 
 **Colors-Gap:** `default_filament_colour` ist in 8/10 Presets vorhanden, aber
 **alle Werte sind `""`** (leer). Die App hat bewusst leere Farben gesetzt
@@ -259,6 +262,7 @@ nicht auf drying). **Keine Aktion nötig — Default 0 ist akzeptiert.**
 `b["colors"] = [values["color"]]` nur wenn `color` in values. Ohne echte
 Farben wird `colors` nicht gesetzt — der Template-Default bleibt. **Keine
 Aktion nötig — leere Farben sind akzeptiert, wie heute.**
+**Entschieden (2026-09-04): Colors bleibt dauerhaft leer** — die App pflegt das Feld nicht; Farbe lebt auf dem Spool via `spools.color_override`.
 
 ---
 
@@ -384,6 +388,7 @@ berechnet, sondern aus der Mapping-Tabelle gelesen. Neue Presets bekommen
 `printer_db_id` aus `profiles.printer_db_id` ergänzt. Danach kann
 `profiles.printer_db_id` verworfen werden. Die RFID-Tags auf den Spools
 bleiben gültig — die IDs ändern sich nicht.
+**Entschieden (2026-09-04): D** — `printer_db_id` als Spalte in `sync_targets`, Migration 1:1 der 99001–99006.
 
 ---
 
@@ -487,6 +492,7 @@ gelöscht (Double-Confirm mit Typed-Token). Im Rework ist OrcaSlicer
 die Quelle — ein Klick in OrcaSlicer kann ein Preset löschen, ohne
 dass der Benutzer die Auswirkung auf RFID-Tags versteht. Das ist
 ein unnötiges Risiko.
+**Entschieden (2026-09-04): B** — niemals auto-remove, Orphans im UI flaggen, Entfernen nur explizit.
 
 ---
 

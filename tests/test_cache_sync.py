@@ -87,3 +87,53 @@ def test_cache_sync_handles_offline_gracefully(session):
     result = sync_profile_cache(session, client)
     assert result["offline"] is True
     assert result["synced"] == 0
+
+
+def test_cache_sync_ignores_and_purges_non_filament_presets(session):
+    client = MagicMock()
+    client.sync_pull.return_value = {
+        "next_cursor": 456,
+        "upserts": [
+            {
+                "id": "uuid-filament",
+                "name": "Sunlu PLA+",
+                "content": {
+                    "type": "filament",
+                    "filament_vendor": ["Sunlu"],
+                    "filament_type": ["PLA"],
+                },
+            },
+            {
+                "id": "uuid-printer",
+                "name": "w00z K2",
+                "content": {
+                    "type": "printer",
+                },
+            },
+            {
+                "id": "uuid-print",
+                "name": "0.20mm Standard @Creality K2 0.4 nozzle - Copy",
+                "content": {
+                    "type": "print",
+                },
+            },
+        ],
+        "deletes": [],
+    }
+
+    # Pre-populate stale non-filament preset in cache (simulating prior sync)
+    stale_printer = ProfileCache(
+        cloud_resource_id="uuid-printer",
+        name="Generic w00z K2",
+        vendor="Generic",
+        type="PLA",
+    )
+    session.add(stale_printer)
+    session.commit()
+
+    result = sync_profile_cache(session, client)
+    assert result["synced"] == 1
+
+    assert session.get(ProfileCache, "uuid-filament") is not None
+    assert session.get(ProfileCache, "uuid-printer") is None
+    assert session.get(ProfileCache, "uuid-print") is None

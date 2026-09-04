@@ -37,10 +37,25 @@ def sync_profile_cache(session: Session, client: OrcaCloudClient) -> dict:
         if not res_id:
             continue
         content = item.get("content", {})
+
+        # Orca Cloud sync API returns filament, print, and printer presets.
+        # Filament Manager only caches and manages filament presets.
+        content_type = content.get("type") or item.get("type")
+        if content_type != "filament":
+            if content_type in ("print", "printer") or (content_type is not None and content_type != "filament"):
+                stale = session.get(ProfileCache, res_id)
+                if stale is not None:
+                    session.delete(stale)
+                continue
+            if content_type is None and not (content.get("filament_type") or content.get("filament_vendor") or content.get("inherits")):
+                stale = session.get(ProfileCache, res_id)
+                if stale is not None:
+                    session.delete(stale)
+                continue
+
         name = item.get("name") or content.get("name") or "Unnamed Preset"
         inherits = _unwrap(content.get("inherits", "")).strip()
         is_inherited = bool(inherits)
-
         vendor = _unwrap(content.get("filament_vendor", ""))
         ftype = _unwrap(content.get("filament_type", ""))
         fid = _unwrap(content.get("filament_id", "")) or None

@@ -31,7 +31,7 @@ class Profile(Base):
     max_volumetric: Mapped[float | None] = mapped_column(default=None)
     retraction_length: Mapped[float | None] = mapped_column(default=None)
     retraction_speed: Mapped[float | None] = mapped_column(default=None)
-    nozzle_temperature: Mapped[int | None] = mapped_column(default=None)  # mirrors kvParam.nozzle_temperature (written by refresh_preset_drift adopt path + handle_generate_preset)
+    nozzle_temperature: Mapped[int | None] = mapped_column(default=None)  # mirrors kvParam.nozzle_temperature
     printer_db_id: Mapped[str | None] = mapped_column(default=None)  # "99xxx" once pushed
     filament_id: Mapped[str | None] = mapped_column(default=None)  # preset filament_id once generated
     template_override: Mapped[str | None] = mapped_column(String(255), default=None)
@@ -78,7 +78,7 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    kind: Mapped[str] = mapped_column(String(32))  # push|generate_preset|import
+    kind: Mapped[str] = mapped_column(String(32))  # push|verify|github_backup
     payload: Mapped[str] = mapped_column(default="{}")
     status: Mapped[str] = mapped_column(String(24), default="queued")  # queued|running|done|error|awaiting_input
     result: Mapped[str | None] = mapped_column(default=None)

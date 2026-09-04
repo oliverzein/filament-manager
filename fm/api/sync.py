@@ -1,5 +1,5 @@
 # fm/api/sync.py
-"""Sync orchestration API router — push, preset, drift status,
+"""Sync orchestration API router — push, backup, drift status,
 job resolve.
 
 Importing this module registers the sync handlers into ``jobs.HANDLERS``
@@ -18,8 +18,8 @@ from sqlalchemy.orm import Session
 from ..config import Config
 from ..db import SessionLocal
 from ..models import Job, Profile, SyncTarget
-from ..service import jobs, sync_handlers
-from ..service.sync_handlers import compute_printer_db_drift, refresh_preset_drift, register_handlers, _is_stock_rfid  # noqa: F401 — register_handlers side-effect import stays
+from ..service import jobs
+from ..service.sync_handlers import compute_printer_db_drift, register_handlers, _is_stock_rfid  # noqa: F401 — register_handlers side-effect import stays
 
 router = APIRouter(prefix="/api", tags=["sync"])
 
@@ -111,16 +111,6 @@ async def sync_push(request: Request, db: DbSession) -> dict:
     return _job_response(job)
 
 
-@router.post("/sync/preset/{profile_id}")
-def sync_preset(profile_id: int, request: Request, db: DbSession) -> dict:
-    """Enqueue a generate_preset job for ``profile_id`` and drain the queue."""
-    config = _get_config(request)
-    job = jobs.enqueue(db, "generate_preset", {"profile_id": profile_id})
-    db.flush()
-    jobs.run_pending(db, config)
-    db.flush()
-    return _job_response(job)
-
 
 @router.post("/sync/backup-github")
 def sync_backup_github(request: Request, db: DbSession) -> dict:
@@ -133,33 +123,6 @@ def sync_backup_github(request: Request, db: DbSession) -> dict:
     return _job_response(job)
 
 
-@router.post("/sync/pull")
-def sync_pull_all(db: DbSession) -> dict:
-    """Pull all Orca Cloud presets and adopt (replaces /profiles/sync-from-orca)."""
-    if sync_handlers._orca_client_factory() is None:
-        return {"status": "error",
-                "result": "Orca Cloud not connected — set up the connection in Settings"}
-    refresh_preset_drift(db, adopt=True)
-    db.flush()
-    return {"status": "ok"}
-
-
-@router.post("/sync/pull/{profile_id}")
-def sync_pull_profile(profile_id: int, db: DbSession) -> dict:
-    """Pull a single profile's preset from Orca Cloud (adopt=True)."""
-    profile = db.get(Profile, profile_id)
-    if profile is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="profile not found",
-        )
-    if sync_handlers._orca_client_factory() is None:
-        return {"status": "error",
-                "result": "Orca Cloud not connected — set up the connection in Settings"}
-    refresh_preset_drift(db, adopt=True, profile_id=profile_id)
-    db.flush()
-    return {"status": "ok", "profile_id": profile_id}
-
 @router.get("/status/drift")
 def drift_status(request: Request, db: DbSession) -> list[dict]:
     """Per-profile drift matrix: printer_db + orca_preset SyncTarget status.
@@ -170,7 +133,6 @@ def drift_status(request: Request, db: DbSession) -> list[dict]:
     (a drift description for ``modified`` entries, ``""`` otherwise) so the
     response shape is uniform across both columns.
     """
-    refresh_preset_drift(db)
     config = getattr(request.app.state, "config", None)
     live = compute_printer_db_drift(db, config)
     profiles = list(db.scalars(select(Profile).order_by(Profile.id)))
@@ -197,7 +159,7 @@ def drift_status(request: Request, db: DbSession) -> list[dict]:
                 }
             elif target:
                 # Extract drift detail (e.g. duplicate-cloud-preset warning)
-                # stored by refresh_preset_drift inside actual_state JSON.
+                # stored inside actual_state JSON.
                 detail = ""
                 if target.actual_state:
                     try:

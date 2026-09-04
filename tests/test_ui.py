@@ -7,12 +7,13 @@ round-trip through the page routes (not the JSON API).
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from starlette.testclient import TestClient
 
 from fm.db import SessionLocal
-from fm.models import Profile, ProfileCache, SyncTarget
-from fm.service import sync_handlers as sh
+from fm.models import ProfileCache
 
 
 # ---------------------------------------------------------------------------
@@ -22,39 +23,25 @@ from fm.service import sync_handlers as sh
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("FM_DATABASE_URL", f"sqlite:///{tmp_path}/ui.db")
+    monkeypatch.setenv("FM_SETTINGS_PATH", str(tmp_path / "settings.json"))
     from fm.api.app import create_app
     with TestClient(create_app()) as c:
         yield c
 
 
-def _make_profile(client, **overrides) -> dict:
-    payload = {
-        "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
-        "min_temp": 200, "max_temp": 240, "density": 1.24,
-        "drying_temp": 60, "drying_time": 8,
-    }
-    payload.update(overrides)
-    r = client.post("/api/profiles", json=payload)
-    assert r.status_code == 201, r.text
-    return r.json()
-
-
-@pytest.fixture
-def seeded_profile(client) -> dict:
-    return _make_profile(client)
-
 @pytest.fixture
 def seeded_cache_profile(client) -> str:
     """Insert a ProfileCache row and return its cloud_resource_id."""
-    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
     with SessionLocal() as s:
         pc = ProfileCache(
-            cloud_resource_id="uuid-test-active",
-            name="Sunlu PLA+",
+            cloud_resource_id="uuid-test-1",
+            name="Sunlu PLA+ Optimized",
             vendor="Sunlu",
             type="PLA",
+            is_inherited=False,
             deleted_from_cloud=False,
-            last_seen_at=datetime.now(timezone.utc),
+            last_seen_at=now,
         )
         s.add(pc)
         s.commit()
@@ -68,7 +55,6 @@ def seeded_cache_profile(client) -> str:
 def test_dashboard_renders(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert b"Spools" in r.content
     assert b"Dashboard" in r.content
 
 
@@ -79,66 +65,10 @@ def test_dashboard_drift_and_activity_sections_present(client):
 
 
 # ---------------------------------------------------------------------------
-# Profiles list + form
-# ---------------------------------------------------------------------------
-
-def test_profiles_list_renders(client, seeded_profile):
-    r = client.get("/profiles")
-    assert r.status_code == 200
-    assert b"Sunlu PLA+" in r.content
-
-
-def test_profiles_filter_by_type(client):
-    _make_profile(client, brand="eSUN", name="eSUN PETG Basic", type="PETG")
-    r = client.get("/profiles?type=PETG")
-    assert r.status_code == 200
-    assert b"eSUN PETG Basic" in r.content
-    assert b"Sunlu PLA+" not in r.content
-
-
-def test_profile_form_groups(client):
-    """The new-profile form must render identity/temps/drying groups."""
-    r = client.get("/profiles/new")
-    assert r.status_code == 200
-    assert b"Identity" in r.content
-    assert b"Temperature" in r.content
-    assert b"Drying" in r.content
-
-
-def test_profile_edit_form_preloads(client, seeded_profile):
-    r = client.get(f"/profiles/{seeded_profile['id']}/edit")
-    assert r.status_code == 200
-    assert b"Sunlu PLA+" in r.content
-    # validation-warnings hook present on edit
-    assert b"validation-warnings" in r.content
-
-
-def test_profile_create_via_form(client):
-    r = client.post("/profiles/form", data={
-        "brand": "Polymaker", "name": "Polymaker PETG", "type": "PETG",
-        "colors": "#ff8800", "min_temp": "220", "max_temp": "260",
-        "density": "1.27", "drying_temp": "70", "drying_time": "8",
-        "notes": "via form",
-    }, follow_redirects=True)
-    assert r.status_code == 200
-    assert b"Polymaker PETG" in r.content
-
-
-def test_profile_create_via_form_validation_error(client):
-    """Bad temp range re-renders the form with errors (no redirect)."""
-    r = client.post("/profiles/form", data={
-        "brand": "Bad", "name": "Bad Bad", "type": "PLA",
-        "min_temp": "300", "max_temp": "200",
-    })
-    assert r.status_code == 422
-    assert b"Identity" in r.content  # form re-rendered
-
-
-# ---------------------------------------------------------------------------
 # Spools list + add form + HTMX remaining patch
 # ---------------------------------------------------------------------------
 
-def test_spools_list_renders(client, seeded_profile):
+def test_spools_list_renders(client):
     r = client.get("/spools")
     assert r.status_code == 200
     assert b"Add spool" in r.content
@@ -148,31 +78,10 @@ def test_spool_create_via_form(client, seeded_cache_profile):
     """POST /spools/form → redirect + row visible on the spools page."""
     r = client.post("/spools/form", data={
         "cloud_resource_id": seeded_cache_profile,
-        "color_override": "#112233",
-        "remaining_pct": "80",
-        "location": "shelf A",
+        "remaining_pct": "100",
     }, follow_redirects=True)
     assert r.status_code == 200
-    assert b"shelf A" in r.content
-    assert b"80%" in r.content
-
-
-    r = client.post("/spools/form", data={
-        "cloud_resource_id": seeded_cache_profile,
-        "remaining_pct": "50",
-    }, follow_redirects=False)
-    assert r.status_code == 303
-    assert r.headers["location"] == "/spools"
-
-
-def test_spool_remaining_htmx_patch(client, seeded_profile):
-    s = client.post("/api/spools", json={"profile_id": seeded_profile["id"]}).json()
-    r = client.post(f"/spools/{s['id']}/remaining", data={"remaining_pct": "42"})
-    assert r.status_code == 200
-    assert b"42%" in r.content
-    # persisted — read back via the list endpoint (no single-spool GET exists)
-    spool = next(x for x in client.get("/api/spools").json() if x["id"] == s["id"])
-    assert spool["remaining_pct"] == 42
+    assert b"Sunlu PLA+ Optimized" in r.content
 
 
 def test_spool_remaining_patch_404(client):
@@ -184,37 +93,20 @@ def test_spool_remaining_patch_404(client):
 # Fix-round-1 regressions
 # ---------------------------------------------------------------------------
 
-def test_spools_filter_empty_cloud_resource_id(client, seeded_profile):
+def test_spools_filter_empty_cloud_resource_id(client):
     """?cloud_resource_id= (the '(all)' default) must return 200, not 422."""
-    r = client.get("/spools?cloud_resource_id=&location=")
+    r = client.get("/spools?cloud_resource_id=")
     assert r.status_code == 200
     assert b"Add spool" in r.content
-
-
-def test_profile_edit_colors_rendered_from_json(client):
-    """Profile.colors is a JSON string; the edit form must render the parsed
-    list joined as comma-separated hex, not the raw JSON characters."""
-    p = _make_profile(client, colors=["#ff0000", "#00ff00"])
-    r = client.get(f"/profiles/{p['id']}/edit")
-    assert r.status_code == 200
-    assert b'value="#ff0000, #00ff00"' in r.content
-
-
-def test_profile_edit_colors_empty_array_blank(client):
-    """A profile with no colors renders an empty colors input value."""
-    p = _make_profile(client)  # default colors=[]
-    r = client.get(f"/profiles/{p['id']}/edit")
-    assert r.status_code == 200
-    assert b'value=""' in r.content
 
 
 # ---------------------------------------------------------------------------
 # Fix-round-2 regressions
 # ---------------------------------------------------------------------------
 
-def test_spools_filter_nonexistent_cloud_resource_id(client, seeded_profile):
+def test_spools_filter_nonexistent_cloud_resource_id(client):
     """?cloud_resource_id=nonexistent must not 500 — treat as no matches (200)."""
-    r = client.get("/spools?cloud_resource_id=nonexistent-uuid")
+    r = client.get("/spools?cloud_resource_id=nonexistent")
     assert r.status_code == 200
     assert b"Add spool" in r.content
 
@@ -223,131 +115,35 @@ def test_spools_filter_nonexistent_cloud_resource_id(client, seeded_profile):
 # Sync Hub redesign — label cleanup
 # ---------------------------------------------------------------------------
 
-def test_profiles_page_no_sync_from_orca(client, seeded_profile):
-    """Profiles page must not contain 'Sync from Orca' button."""
-    r = client.get("/profiles")
+def test_no_old_labels_in_sync_page(client):
+    """Sync Hub page must not contain any old labels."""
+    r = client.get("/sync")
     assert r.status_code == 200
     assert b"Sync from Orca" not in r.content
-    # Should have a link to sync hub instead
-    assert b"Sync status" in r.content or b"/sync" in r.content
-
-
-def test_profiles_page_no_orca_toast(client, seeded_profile):
-    """Profiles page must not contain the Orca toast script."""
-    r = client.get("/profiles")
-    assert b"Synced from Orca Cloud" not in r.content
-
-
-def test_orca_fragment_has_pull_from_cloud_label(client, seeded_profile):
-    """Orca fragment button says 'Pull from Cloud', not 'Sync from Orca'."""
-    r = client.get(f"/profiles/{seeded_profile['id']}/orca-fragment")
-    assert r.status_code == 200
-    assert b"Pull from Cloud" in r.content
-    assert b"Sync from Orca" not in r.content
-
-
-
-# ---------------------------------------------------------------------------
-# V10 — Orca fragment status-dependent source line
-# ---------------------------------------------------------------------------
-
-_PRESET_JSON = '{"nozzle_temperature": ["220"], "filament_flow_ratio": ["0.98"]}'
-
-
-def _add_orca_target(profile_id: int, status: str, actual_state: str | None = None):
-    """Insert an orca_preset SyncTarget for the given profile."""
-    with SessionLocal() as s:
-        s.add(SyncTarget(
-            profile_id=profile_id,
-            kind="orca_preset",
-            cloud_id="test-cloud-uuid",
-            expected_hash="some_hash",
-            actual_state=actual_state,
-            status=status,
-        ))
-        s.commit()
-
-
-def test_orca_fragment_in_sync_status_line(client, seeded_profile):
-    """Fragment shows the in_sync source line when target.status is in_sync."""
-    _add_orca_target(seeded_profile["id"], "in_sync", _PRESET_JSON)
-    r = client.get(f"/profiles/{seeded_profile['id']}/orca-fragment")
-    assert r.status_code == 200
-    assert "Matches the catalog — as pushed or adopted." in r.text
-
-
-def test_orca_fragment_drift_status_line(client, seeded_profile):
-    """Fragment shows the drift source line when target.status is drift."""
-    _add_orca_target(seeded_profile["id"], "drift", _PRESET_JSON)
-    r = client.get(f"/profiles/{seeded_profile['id']}/orca-fragment")
-    assert r.status_code == 200
-    assert "Cloud values differ from the catalog — tuned in OrcaSlicer? Pull from Cloud adopts them." in r.text
-
-
-def test_orca_fragment_pending_status_line(client, seeded_profile):
-    """Fragment shows the pending source line when target.status is pending."""
-    _add_orca_target(seeded_profile["id"], "pending", _PRESET_JSON)
-    r = client.get(f"/profiles/{seeded_profile['id']}/orca-fragment")
-    assert r.status_code == 200
-    assert "No baseline yet — push to Cloud or pull once." in r.text
-
-
-def test_orca_fragment_no_status_line_without_target(client, seeded_profile):
-    """Fragment shows none of the status source lines when no SyncTarget exists."""
-    r = client.get(f"/profiles/{seeded_profile['id']}/orca-fragment")
-    assert r.status_code == 200
-    assert "Matches the catalog" not in r.text
-    assert "Cloud values differ" not in r.text
-
-
-# ---------------------------------------------------------------------------
-# V12 — Fragment error note when pulling without Orca Cloud connection
-# ---------------------------------------------------------------------------
-
-def test_sync_from_orca_error_note_without_connection(client, seeded_profile, monkeypatch):
-    """POST /profiles/{pid}/sync-from-orca renders error note (not success toast)
-    when Orca Cloud is not connected."""
-    _add_orca_target(seeded_profile["id"], "in_sync", _PRESET_JSON)
-    monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
-    r = client.post(f"/profiles/{seeded_profile['id']}/sync-from-orca")
-    assert r.status_code == 200
-    assert "Orca Cloud not connected — set up the connection in Settings" in r.text
-    assert "Synced from Orca Cloud" not in r.text  # no success toast
-
-
-def test_sync_from_orca_error_note_without_connection_no_target(client, seeded_profile, monkeypatch):
-    """POST /profiles/{pid}/sync-from-orca renders error note in empty-state branch
-    when no SyncTarget exists and Orca Cloud is not connected."""
-    monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
-    r = client.post(f"/profiles/{seeded_profile['id']}/sync-from-orca")
-    assert r.status_code == 200
-    assert "Orca Cloud not connected — set up the connection in Settings" in r.text
-    assert "Synced from Orca Cloud" not in r.text
-    assert "No baseline yet" not in r.text
-
-def test_profiles_sync_from_orca_route_removed(client):
-    """POST /profiles/sync-from-orca returns 404 (route removed)."""
-    r = client.post("/profiles/sync-from-orca")
-    assert r.status_code == 404
+    assert b"Generate preset" not in r.content
 
 
 # ---------------------------------------------------------------------------
 # Navigation structure
 # ---------------------------------------------------------------------------
 
-def test_nav_has_six_items(client):
-    """base.html nav has exactly 6 items (not 7)."""
+def test_nav_has_four_items(client):
+    """base.html nav has exactly 4 items (Dashboard, Spools, Sync, Settings)."""
     r = client.get("/")
-    # Count nav-item elements
     content = r.text
-    assert content.count('class="nav-item') == 6 or content.count('class="nav-item active') + content.count('class="nav-item"') == 6
+    assert content.count('class="nav-item') == 4 or content.count('class="nav-item active') + content.count('class="nav-item"') == 4
 
 
-def test_nav_has_import(client):
-    """Nav contains 'Import' linking to /import."""
+def test_nav_no_profiles(client):
+    """Nav does not contain 'Profiles' link."""
     r = client.get("/")
-    assert b"Import" in r.content
-    assert b'href="/import"' in r.content
+    assert b'href="/profiles"' not in r.content
+
+
+def test_nav_no_import(client):
+    """Nav does not contain 'Import' link."""
+    r = client.get("/")
+    assert b'href="/import"' not in r.content
 
 
 def test_nav_no_migration(client):
@@ -360,44 +156,3 @@ def test_nav_no_orca_cloud_import(client):
     """Nav does not contain 'Orca Cloud Import'."""
     r = client.get("/")
     assert b"Orca Cloud Import" not in r.content
-
-
-def test_no_old_labels_in_sync_page(client):
-    """Sync Hub page must not contain any old labels."""
-    r = client.get("/sync")
-    assert b"Sync from Orca" not in r.content
-    assert b"Push all profiles" not in r.content
-    assert b"Sync now" not in r.content
-    assert b"Generate preset" not in r.content
-
-
-def test_no_old_labels_in_profiles_page(client, seeded_profile):
-    """Profiles page must not contain old labels."""
-    r = client.get("/profiles")
-    assert b"Sync from Orca" not in r.content
-
-
-# ---------------------------------------------------------------------------
-# Profile delete feedback banners
-# ---------------------------------------------------------------------------
-
-def test_profiles_page_deleted_banner(client, seeded_profile):
-    """GET /profiles?deleted=1 renders the success alert banner."""
-    r = client.get("/profiles?deleted=1")
-    assert r.status_code == 200
-    assert b"Profile deleted." in r.content
-    assert b"alert-success" in r.content
-
-def test_profiles_page_cloud_failed_banner(client, seeded_profile):
-    """GET /profiles?deleted=1&cloud_failed=1 renders the warning alert."""
-    r = client.get("/profiles?deleted=1&cloud_failed=1")
-    assert r.status_code == 200
-    assert b"alert-warning" in r.content
-    assert b"Orca Cloud preset could not be deleted" in r.content
-
-def test_profiles_page_no_banner_without_params(client, seeded_profile):
-    """GET /profiles without query params does not render delete banners."""
-    r = client.get("/profiles")
-    assert r.status_code == 200
-    assert b"Profile deleted." not in r.content
-    assert b"Orca Cloud preset could not be deleted" not in r.content

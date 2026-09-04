@@ -1,5 +1,5 @@
 # tests/test_api_sync.py
-"""Sync API tests — push, preset, drift status, job resolve.
+"""Sync API tests — push, backup, drift status, job resolve.
 
 Uses FakeTransport from conftest.  The busy-flow test pins the spec behavior
 from the task brief.
@@ -12,11 +12,12 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-
 from conftest import FakeTransport
 from fm.api.app import create_app, Settings
 from fm.config import Config
+from fm.db import SessionLocal
 from fm.errors import FmError
+from fm.models import Profile
 from fm.service import sync_handlers as sh
 
 
@@ -67,39 +68,39 @@ def client(tmp_path, monkeypatch, cfg, fake_transport, cache_db_file, fake_orca_
     monkeypatch.setenv("FM_DATABASE_URL", f"sqlite:///{tmp_path}/api.db")
     monkeypatch.setattr(sh, "_transport_factory", lambda c: fake_transport)
     monkeypatch.setattr(sh, "_cache_db_path", cache_db_file)
-    monkeypatch.setattr(sh, "_preset_template_factory", _test_template)
     monkeypatch.setattr(sh, "_sleep", lambda s: None)
     monkeypatch.setattr(sh, "_orca_client_factory", lambda: fake_orca_client)
     with TestClient(create_app(Settings(config=cfg))) as c:
         yield c
 
 
-def _test_template(p):
-    return {
-        "type": "filament",
-        "filament_type": ["PLA"],
-        "name": "Generic PLA",
-        "from": "System",
-        "inherits": "",
-        "filament_vendor": ["Generic"],
-        "filament_density": "1.24",
-        "nozzle_temperature": ["210"],
-        "nozzle_temperature_range_low": ["190"],
-        "nozzle_temperature_range_high": ["240"],
-        "version": "2.4.0.3",
-    }
-
-
 def _make_profile(client, **overrides) -> dict:
-    payload = {
-        "brand": "Sunlu", "name": "Sunlu PLA+", "type": "PLA",
-        "colors": ["#ffffff"], "min_temp": 205, "max_temp": 215,
-        "density": 1.23, "drying_temp": 50, "drying_time": 8,
-    }
-    payload.update(overrides)
-    r = client.post("/api/profiles", json=payload)
-    assert r.status_code == 201, r.text
-    return r.json()
+    """Insert a Profile directly via ORM (catalog API is decommissioned)."""
+    now = datetime.now(timezone.utc)
+    p = Profile(
+        brand=overrides.get("brand", "Sunlu"),
+        name=overrides.get("name", "Sunlu PLA+"),
+        type=overrides.get("type", "PLA"),
+        colors=overrides.get("colors", "[]"),
+        min_temp=overrides.get("min_temp", 205),
+        max_temp=overrides.get("max_temp", 215),
+        density=overrides.get("density", 1.23),
+        drying_temp=overrides.get("drying_temp", 50),
+        drying_time=overrides.get("drying_time", 8),
+        created_at=now,
+        updated_at=now,
+    )
+    with SessionLocal() as s:
+        s.add(p)
+        s.commit()
+        s.refresh(p)
+        return {
+            "id": p.id,
+            "brand": p.brand,
+            "name": p.name,
+            "type": p.type,
+            "printer_db_id": p.printer_db_id,
+        }
 
 
 def get_job_status(client, job_id) -> str:
@@ -147,10 +148,11 @@ class TestPushEndpoint:
         r = client.post("/api/sync/push", json={"profile_ids": [p1["id"]]})
         assert r.status_code == 200
         # Only p1 should have printer_db_id
-        r = client.get("/api/profiles")
-        profiles = {p["id"]: p for p in r.json()}
-        assert profiles[p1["id"]]["printer_db_id"] is not None
-        assert profiles[p2["id"]]["printer_db_id"] is None
+        with SessionLocal() as s:
+            prof1 = s.get(Profile, p1["id"])
+            prof2 = s.get(Profile, p2["id"])
+            assert prof1.printer_db_id is not None
+            assert prof2.printer_db_id is None
 
 
 # ---------------------------------------------------------------------------
@@ -228,159 +230,6 @@ class TestBusyFlow:
 
 
 # ---------------------------------------------------------------------------
-# Preset endpoint
-# ---------------------------------------------------------------------------
-
-class TestPresetEndpoint:
-    def test_preset_returns_job_id(self, client):
-        p = _make_profile(client)
-        r = client.post(f"/api/sync/preset/{p['id']}")
-        assert r.status_code == 200, r.text
-        data = r.json()
-        assert data["job_id"] is not None
-        assert data["status"] == "done"
-        # Result has filament_id
-        assert data["result"]["filament_id"].startswith("P")
-
-    def test_preset_sets_orca_sync_target(self, client, fake_orca_client):
-        from fm.db import SessionLocal
-        from fm.models import Profile as ProfileModel
-        p = _make_profile(client)
-        client.post(f"/api/sync/preset/{p['id']}")
-
-        with SessionLocal() as s:
-            prof = s.get(ProfileModel, p["id"])
-            fid = prof.filament_id
-
-        fake_orca_client.sync_pull.return_value = {
-            "next_cursor": 0,
-            "upserts": [{
-                "id": "test-cloud-uuid",
-                "name": p["name"],
-                "content": {
-                    "type": "filament",
-                    "name": p["name"],
-                    "filament_type": p["type"],
-                    "filament_vendor": p["brand"],
-                    "filament_id": fid,
-                    "nozzle_temperature": "215",
-                },
-            }],
-            "deletes": [],
-        }
-
-        r = client.get("/api/status/drift")
-        matrix = r.json()
-        assert matrix[0]["orca_preset"]["status"] == "in_sync"
-        assert matrix[0]["orca_preset"]["expected_hash"] is not None
-
-    def test_preset_404_profile(self, client):
-        r = client.post("/api/sync/preset/9999")
-        assert r.status_code == 200  # job enqueued
-        data = r.json()
-        # handler raises ValueError → job error
-        assert data["status"] == "error"
-
-
-# ---------------------------------------------------------------------------
-# Pull endpoints (Cloud → Catalog, adopt=True)
-# ---------------------------------------------------------------------------
-
-class TestPullEndpoint:
-    def test_bulk_pull_returns_ok(self, client, fake_orca_client):
-        """POST /api/sync/pull adopts all profiles from Cloud."""
-        # Create a profile with an orca_preset target
-        from fm.db import SessionLocal
-        p = _make_profile(client)
-        with SessionLocal() as s:
-            from fm.models import SyncTarget
-            target = SyncTarget(
-                profile_id=p["id"], kind="orca_preset",
-                cloud_id="test-cloud-uuid", expected_hash="old_hash",
-                status="drift",
-            )
-            s.add(target)
-            s.commit()
-
-        # Set up Cloud to return a matching preset
-        fake_orca_client.sync_pull.return_value = {
-            "next_cursor": 0,
-            "upserts": [{
-                "id": "test-cloud-uuid",
-                "content": {
-                    "type": "filament", "name": "Sunlu PLA+",
-                    "filament_id": p.get("filament_id", "Ptest123"),
-                    "filament_vendor": ["Sunlu"],
-                    "filament_type": ["PLA"],
-                    "nozzle_temperature": ["210"],
-                },
-            }],
-            "deletes": [],
-        }
-
-        r = client.post("/api/sync/pull")
-        assert r.status_code == 200
-        assert r.json()["status"] == "ok"
-
-    def test_per_profile_pull_returns_ok(self, client, fake_orca_client):
-        """POST /api/sync/pull/{profile_id} adopts one profile from Cloud."""
-        from fm.db import SessionLocal
-        p = _make_profile(client)
-        with SessionLocal() as s:
-            from fm.models import SyncTarget
-            target = SyncTarget(
-                profile_id=p["id"], kind="orca_preset",
-                cloud_id="test-cloud-uuid", expected_hash="old_hash",
-                status="drift",
-            )
-            s.add(target)
-            s.commit()
-
-        fake_orca_client.sync_pull.return_value = {
-            "next_cursor": 0,
-            "upserts": [{
-                "id": "test-cloud-uuid",
-                "content": {
-                    "type": "filament", "name": "Sunlu PLA+",
-                    "filament_id": p.get("filament_id", "Ptest123"),
-                    "filament_vendor": ["Sunlu"],
-                    "filament_type": ["PLA"],
-                    "nozzle_temperature": ["210"],
-                },
-            }],
-            "deletes": [],
-        }
-
-        r = client.post(f"/api/sync/pull/{p['id']}")
-        assert r.status_code == 200
-        assert r.json()["status"] == "ok"
-        assert r.json()["profile_id"] == p["id"]
-
-    def test_per_profile_pull_404_for_missing_profile(self, client):
-        """POST /api/sync/pull/9999 returns 404."""
-        r = client.post("/api/sync/pull/9999")
-        assert r.status_code == 404
-
-    def test_bulk_pull_error_without_orca_connection(self, client, monkeypatch):
-        """POST /api/sync/pull returns error payload when Orca Cloud is not connected."""
-        monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
-        r = client.post("/api/sync/pull")
-        assert r.status_code == 200
-        data = r.json()
-        assert data["status"] == "error"
-        assert data["result"] == "Orca Cloud not connected — set up the connection in Settings"
-
-    def test_per_profile_pull_error_without_orca_connection(self, client, monkeypatch):
-        """POST /api/sync/pull/{profile_id} returns error payload when Orca Cloud is not connected."""
-        p = _make_profile(client)
-        monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
-        r = client.post(f"/api/sync/pull/{p['id']}")
-        assert r.status_code == 200
-        data = r.json()
-        assert data["status"] == "error"
-        assert data["result"] == "Orca Cloud not connected — set up the connection in Settings"
-
-# ---------------------------------------------------------------------------
 # Drift status endpoint
 # ---------------------------------------------------------------------------
 
@@ -390,136 +239,6 @@ class TestDriftStatus:
         assert r.status_code == 200
         assert r.json() == []
 
-    def test_after_push_and_preset(self, client, fake_orca_client):
-        from fm.db import SessionLocal
-        from fm.models import Profile as ProfileModel
-        p = _make_profile(client)
-        client.post("/api/sync/push", json={})
-        client.post(f"/api/sync/preset/{p['id']}")
-
-        with SessionLocal() as s:
-            prof = s.get(ProfileModel, p["id"])
-            fid = prof.filament_id
-
-        fake_orca_client.sync_pull.return_value = {
-            "next_cursor": 0,
-            "upserts": [{
-                "id": "test-cloud-uuid",
-                "name": p["name"],
-                "content": {
-                    "type": "filament",
-                    "name": p["name"],
-                    "filament_type": p["type"],
-                    "filament_vendor": p["brand"],
-                    "filament_id": fid,
-                    "nozzle_temperature": "215",
-                },
-            }],
-            "deletes": [],
-        }
-
-        r = client.get("/api/status/drift")
-        assert r.status_code == 200
-        matrix = r.json()
-        assert len(matrix) == 1
-        entry = matrix[0]
-        assert entry["profile_id"] == p["id"]
-        assert entry["printer_db"]["status"] == "in_sync"
-        assert entry["orca_preset"]["status"] == "in_sync"
-        assert entry["printer_db"]["expected_hash"] is not None
-        assert entry["orca_preset"]["expected_hash"] is not None
-
-    def test_preset_drift_shown_when_cloud_temp_differs(self, client, fake_orca_client):
-        """drift_status is read-only: Cloud temp ≠ expected_hash → drift,
-        nozzle_temperature not written back to profile."""
-        from fm.db import SessionLocal
-        from fm.models import Profile as ProfileModel
-        p = _make_profile(client)
-        client.post(f"/api/sync/preset/{p['id']}")
-
-        with SessionLocal() as s:
-            prof = s.get(ProfileModel, p["id"])
-            fid = prof.filament_id
-            original_nozzle_temp = prof.nozzle_temperature
-
-        # Override sync_pull to return a preset with a different temp (cloud format)
-        fake_orca_client.sync_pull.return_value = {
-            "next_cursor": 0,
-            "upserts": [{
-                "id": "test-cloud-uuid",
-                "name": p["name"],
-                "content": {
-                    "type": "filament",
-                    "name": p["name"],
-                    "filament_type": p["type"],
-                    "filament_vendor": p["brand"],
-                    "filament_id": fid,
-                    "nozzle_temperature": "999",  # differs from generated preset
-                },
-            }],
-            "deletes": [],
-        }
-
-        r = client.get("/api/status/drift")
-        assert r.status_code == 200
-        matrix = r.json()
-        # Cloud hash ≠ expected_hash → drift (read-only, no adopt)
-        assert matrix[0]["orca_preset"]["status"] == "drift"
-        # nozzle_temperature not written back
-        with SessionLocal() as s:
-            prof = s.get(ProfileModel, p["id"])
-            assert prof.nozzle_temperature == original_nozzle_temp
-
-    def test_preset_in_sync_surfaces_in_drift_status(self, client, fake_orca_client):
-        """Matching pulled preset → in_sync in drift output."""
-        from fm.db import SessionLocal
-        from fm.models import Profile as ProfileModel
-        p = _make_profile(client)  # max_temp defaults to 215
-        client.post(f"/api/sync/preset/{p['id']}")
-
-        with SessionLocal() as s:
-            prof = s.get(ProfileModel, p["id"])
-            fid = prof.filament_id
-
-        # Override sync_pull to return a matching preset (cloud format)
-        fake_orca_client.sync_pull.return_value = {
-            "next_cursor": 0,
-            "upserts": [{
-                "id": "test-cloud-uuid",
-                "name": p["name"],
-                "content": {
-                    "type": "filament",
-                    "name": p["name"],
-                    "filament_type": p["type"],
-                    "filament_vendor": p["brand"],
-                    "filament_id": fid,
-                    "nozzle_temperature": "215",
-                },
-            }],
-            "deletes": [],
-        }
-
-        r = client.get("/api/status/drift")
-        assert r.status_code == 200
-        matrix = r.json()
-        assert matrix[0]["orca_preset"]["status"] == "in_sync"
-
-    def test_preset_deleted_from_cloud_shows_drift(self, client, fake_orca_client):
-        """Preset deleted from Orca Cloud → drift status (not stale in_sync)."""
-        p = _make_profile(client)
-        client.post(f"/api/sync/preset/{p['id']}")
-
-        # sync_pull returns empty — preset was deleted from cloud
-        fake_orca_client.sync_pull.return_value = {
-            "next_cursor": 0,
-            "upserts": [],
-            "deletes": [],
-        }
-
-        r = client.get("/api/status/drift")
-        assert r.status_code == 200
-        matrix = r.json()
-        assert matrix[0]["orca_preset"]["status"] == "drift"
 
     def test_stock_rfid_profile_shows_stock_status(self, client):
         """Creality profile with no printer_db target → stock status, not pending."""

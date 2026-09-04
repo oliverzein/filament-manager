@@ -3,7 +3,7 @@
 
 ``create_app()`` binds a SQLAlchemy engine (reading ``FM_DATABASE_URL`` from the
 environment, defaulting to ``sqlite:///./filaments.db`` for local dev), mounts
-the catalog + sync routers, Jinja2 templates, and a static-files directory, and
+the sync + UI routers, Jinja2 templates, and a static-files directory, and
 exposes a ``GET /api/version`` health endpoint.  Designed as a uvicorn factory
 target::
 
@@ -23,7 +23,7 @@ from fastapi.templating import Jinja2Templates
 from ..config import Config
 from ..settings_store import load_merged_config
 from ..db import init_engine
-from . import catalog, sync, ui
+from . import sync, ui
 
 _DIR = Path(__file__).parent
 
@@ -97,7 +97,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.config = app_config
     app.mount("/static", StaticFiles(directory=str(_DIR / "static")), name="static")
 
-    app.include_router(catalog.router)
     app.include_router(sync.router)
     app.include_router(ui.router)
     @app.get("/api/version", tags=["meta"])

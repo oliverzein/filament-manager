@@ -132,11 +132,9 @@ class TestSyncPage:
         assert b"Orca Cloud" in r.content
         assert b"GitHub backup" in r.content
 
-    def test_sync_page_job_progress_polling(self, client):
+    def test_sync_page_no_job_progress_section(self, client):
         r = client.get("/sync")
-        assert b"job-progress" in r.content
-        assert b"hx-get" in r.content
-        assert b"/sync/progress" in r.content
+        assert b"job-progress" not in r.content
 
     def test_sync_progress_fragment(self, client):
         r = client.get("/sync/progress?since=0")

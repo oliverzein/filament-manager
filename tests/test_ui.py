@@ -59,10 +59,15 @@ def test_dashboard_renders(client):
     assert b"Dashboard" in r.content
 
 
-def test_dashboard_preset_sync_and_activity_sections_present(client):
+def test_dashboard_sections_present(client):
     r = client.get("/")
     assert b"preset-sync-status" in r.content
-    assert b"recent-activity" in r.content
+    assert b"recent-activity" not in r.content
+
+
+def test_sync_page_no_job_progress(client):
+    r = client.get("/sync")
+    assert b"job-progress" not in r.content
 
 
 # ---------------------------------------------------------------------------

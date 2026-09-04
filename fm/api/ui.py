@@ -81,9 +81,8 @@ def _fmt_local(dt: datetime | None) -> str | None:
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: DbSession) -> HTMLResponse:
-    """Spool count by preset (top 10), preset sync status, last 20 activity
-    rows, cached preset count, total spool inventory, and printer DB target
-    stats."""
+    """Spool count by preset (top 10), preset sync status, cached preset
+    count, total spool inventory, and printer DB target stats."""
     spool_counts = db.execute(
         select(
             ProfileCache.cloud_resource_id,
@@ -115,17 +114,11 @@ def dashboard(request: Request, db: DbSession) -> HTMLResponse:
 
     presets = _preset_status_rows(db)
 
-    activity = list(
-        db.scalars(
-            select(ActivityLog).order_by(ActivityLog.ts.desc()).limit(20)
-        )
-    )
 
     return _templates(request).TemplateResponse(
         request, "dashboard.html",
         {
             "spool_counts": spool_counts, "presets": presets,
-            "activity": activity,
             "total_spools": total_spools, "cached_presets": cached_presets,
             "pdb_in_sync": pdb_in_sync, "pdb_total": pdb_total,
         },
@@ -316,21 +309,17 @@ def _last_cache_synced(db: Session) -> str | None:
 
 @router.get("/sync", response_class=HTMLResponse)
 def sync_page(request: Request, db: DbSession) -> HTMLResponse:
-    """Preset & Status Table from ProfileCache, HTMX action buttons, busy
-    dialog for awaiting_input jobs, and a job progress area."""
+    """Preset & Status Table from ProfileCache, HTMX action buttons, and
+    busy dialog for awaiting_input jobs."""
     presets = _preset_status_rows(db)
     awaiting_jobs = list(db.scalars(
         select(Job).where(Job.status == "awaiting_input").order_by(Job.id)
-    ))
-    recent_jobs = list(db.scalars(
-        select(Job).order_by(Job.id.desc()).limit(20)
     ))
     return _templates(request).TemplateResponse(
         request, "sync_hub.html",
         {
             "presets": presets,
             "awaiting_jobs": awaiting_jobs,
-            "recent_jobs": recent_jobs,
             "github_configured": load_github_config() is not None,
             "last_synced": _last_cache_synced(db),
         },

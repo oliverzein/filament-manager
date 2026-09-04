@@ -51,29 +51,6 @@
     {% include "_sync_hub_grid.html" %}
   </div>
 
-  <section id="job-progress" class="panel" hx-get="/sync/progress?since=0" hx-trigger="every 3s" hx-swap="innerHTML">
-    <div class="panel-heading">
-      <div><p class="eyebrow">Queue</p><h2>Recent jobs</h2></div>
-      <span class="live-label"><i></i> Live</span>
-    </div>
-    {% if recent_jobs %}
-    <div class="job-list">
-      {% for job in recent_jobs %}
-      <article class="job-card status-{{ job.status | status_class }}">
-        <span class="job-icon">{{ job.id }}</span>
-        <div>
-          <strong>{{ job.kind | replace('_', ' ') }}</strong>
-          <span>Job #{{ job.id }}</span>
-          {% if job.status == "error" and job.result %}{% set _r = job.result | from_json %}{% if _r.error %}<span class="job-error-msg">{{ _r.error }}</span>{% endif %}{% endif %}
-        </div>
-        <span class="status-badge status-{{ job.status | status_class }}">{{ job.status }}</span>
-      </article>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty-state compact"><p>No jobs yet. New operations appear here.</p></div>
-    {% endif %}
-  </section>
 </section>
 
 <div id="action-modal" hidden role="dialog" aria-modal="true" aria-label="Sync operation" tabindex="-1">

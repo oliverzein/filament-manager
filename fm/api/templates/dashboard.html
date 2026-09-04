@@ -32,11 +32,5 @@
     </section>
   </div>
 
-  <section id="recent-activity" class="panel">
-    <div class="panel-heading"><div><p class="eyebrow">Timeline</p><h2>Recent activity</h2></div></div>
-    {% if activity %}<div class="table-wrap"><table><thead><tr><th>Time</th><th>Action</th><th>Outcome</th></tr></thead><tbody>
-    {% for a in activity %}<tr><td class="muted">{{ a.ts }}</td><td><span class="activity-mark"></span><span class="cell-main">{{ a.action }}</span></td><td><span class="status-badge status-{{ a.outcome }}">{{ a.outcome }}</span></td></tr>{% endfor %}
-    </tbody></table></div>{% else %}<div class="empty-state compact"><p>No activity recorded. Sync actions will appear here.</p></div>{% endif %}
-  </section>
 </section>
 {% endblock %}

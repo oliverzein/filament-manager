@@ -64,7 +64,7 @@ class SyncTarget(Base):
     __tablename__ = "sync_targets"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"))
+    profile_id: Mapped[int | None] = mapped_column(ForeignKey("profiles.id"), default=None)
     kind: Mapped[str] = mapped_column(String(32))  # 'printer_db' | 'orca_preset'
     cloud_id: Mapped[str | None] = mapped_column(String(64), default=None)  # Orca Cloud resource UUID (like setting_id in .info files)
     expected_hash: Mapped[str | None] = mapped_column(default=None)

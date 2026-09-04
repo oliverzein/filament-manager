@@ -601,6 +601,17 @@ def _rebuild_from_cloud(
             entry_id = str(next_free_id(db, config.id_range_start))
             if target is not None:
                 target.printer_db_id = entry_id
+            else:
+                # No existing SyncTarget — create one so verify can find it.
+                target = SyncTarget(
+                    profile_id=None,
+                    kind="printer_db",
+                    cloud_id=res_id,
+                    printer_db_id=entry_id,
+                    status="pending",
+                )
+                session.add(target)
+                session.flush()
 
         flat = _flatten_cloud_preset(preset)
         values = _cloud_preset_to_entry_values(flat, entry_id)

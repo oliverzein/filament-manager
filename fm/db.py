@@ -128,3 +128,38 @@ def _migrate(engine: Engine) -> None:
             conn.execute(text("ALTER TABLE sync_targets_temp RENAME TO sync_targets"))
             conn.execute(text("PRAGMA foreign_keys = ON"))
             conn.commit()
+
+        # spools.profile_id — make nullable for cloud-first spools that link
+        # via cloud_resource_id instead of a local Profile.  SQLite cannot
+        # ALTER column constraints in-place, so recreate the table when needed.
+        sp_cols = list(conn.execute(text("PRAGMA table_info(spools)")))
+        sp_pid_col = next(
+            (r for r in sp_cols if r[1] == "profile_id"), None
+        )
+        if sp_pid_col is not None and sp_pid_col[3] == 1:
+            # notnull == 1 → recreate table with profile_id nullable
+            conn.execute(text("PRAGMA foreign_keys = OFF"))
+            conn.execute(text("""
+                CREATE TABLE spools_temp (
+                    id INTEGER PRIMARY KEY,
+                    profile_id INTEGER,
+                    color_override VARCHAR,
+                    remaining_pct INTEGER DEFAULT 100,
+                    location VARCHAR DEFAULT '',
+                    rfid_tag VARCHAR,
+                    notes VARCHAR DEFAULT '',
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    cloud_resource_id VARCHAR(64)
+                )
+            """))
+            conn.execute(text("""
+                INSERT INTO spools_temp
+                (id, profile_id, color_override, remaining_pct, location, rfid_tag, notes, created_at, updated_at, cloud_resource_id)
+                SELECT id, profile_id, color_override, remaining_pct, location, rfid_tag, notes, created_at, updated_at, cloud_resource_id
+                FROM spools
+            """))
+            conn.execute(text("DROP TABLE spools"))
+            conn.execute(text("ALTER TABLE spools_temp RENAME TO spools"))
+            conn.execute(text("PRAGMA foreign_keys = ON"))
+            conn.commit()

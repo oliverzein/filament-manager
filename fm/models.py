@@ -46,7 +46,7 @@ class Spool(Base):
     __tablename__ = "spools"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"), index=True)
+    profile_id: Mapped[int | None] = mapped_column(ForeignKey("profiles.id"), default=None, index=True)
     color_override: Mapped[str | None] = mapped_column(default=None)
     remaining_pct: Mapped[int] = mapped_column(default=100)
     location: Mapped[str] = mapped_column(default="")

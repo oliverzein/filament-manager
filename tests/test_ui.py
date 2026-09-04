@@ -11,7 +11,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from fm.db import SessionLocal
-from fm.models import Profile, SyncTarget
+from fm.models import Profile, ProfileCache, SyncTarget
 from fm.service import sync_handlers as sh
 
 
@@ -42,6 +42,23 @@ def _make_profile(client, **overrides) -> dict:
 @pytest.fixture
 def seeded_profile(client) -> dict:
     return _make_profile(client)
+
+@pytest.fixture
+def seeded_cache_profile(client) -> str:
+    """Insert a ProfileCache row and return its cloud_resource_id."""
+    from datetime import datetime, timezone
+    with SessionLocal() as s:
+        pc = ProfileCache(
+            cloud_resource_id="uuid-test-active",
+            name="Sunlu PLA+",
+            vendor="Sunlu",
+            type="PLA",
+            deleted_from_cloud=False,
+            last_seen_at=datetime.now(timezone.utc),
+        )
+        s.add(pc)
+        s.commit()
+        return pc.cloud_resource_id
 
 
 # ---------------------------------------------------------------------------
@@ -127,10 +144,10 @@ def test_spools_list_renders(client, seeded_profile):
     assert b"Add spool" in r.content
 
 
-def test_spool_create_via_form(client, seeded_profile):
+def test_spool_create_via_form(client, seeded_cache_profile):
     """POST /spools/form → redirect + row visible on the spools page."""
     r = client.post("/spools/form", data={
-        "profile_id": str(seeded_profile["id"]),
+        "cloud_resource_id": seeded_cache_profile,
         "color_override": "#112233",
         "remaining_pct": "80",
         "location": "shelf A",
@@ -141,7 +158,7 @@ def test_spool_create_via_form(client, seeded_profile):
 
 
     r = client.post("/spools/form", data={
-        "profile_id": str(seeded_profile["id"]),
+        "cloud_resource_id": seeded_cache_profile,
         "remaining_pct": "50",
     }, follow_redirects=False)
     assert r.status_code == 303
@@ -167,9 +184,9 @@ def test_spool_remaining_patch_404(client):
 # Fix-round-1 regressions
 # ---------------------------------------------------------------------------
 
-def test_spools_filter_empty_profile_id(client, seeded_profile):
-    """?profile_id= (the '(all)' default) must return 200, not 422."""
-    r = client.get("/spools?profile_id=&location=")
+def test_spools_filter_empty_cloud_resource_id(client, seeded_profile):
+    """?cloud_resource_id= (the '(all)' default) must return 200, not 422."""
+    r = client.get("/spools?cloud_resource_id=&location=")
     assert r.status_code == 200
     assert b"Add spool" in r.content
 
@@ -195,9 +212,9 @@ def test_profile_edit_colors_empty_array_blank(client):
 # Fix-round-2 regressions
 # ---------------------------------------------------------------------------
 
-def test_spools_filter_non_numeric_profile_id(client, seeded_profile):
-    """?profile_id=abc must not 500 — treat as no filter (200)."""
-    r = client.get("/spools?profile_id=abc")
+def test_spools_filter_nonexistent_cloud_resource_id(client, seeded_profile):
+    """?cloud_resource_id=nonexistent must not 500 — treat as no matches (200)."""
+    r = client.get("/spools?cloud_resource_id=nonexistent-uuid")
     assert r.status_code == 200
     assert b"Add spool" in r.content
 

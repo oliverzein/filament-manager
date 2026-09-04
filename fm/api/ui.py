@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from ..db import SessionLocal
 from ..config import Config
-from ..models import ActivityLog, Job, Profile, Spool, SyncTarget
+from ..models import ActivityLog, Job, Profile, ProfileCache, Spool, SyncTarget
 from ..service import jobs
 from ..service import sync_handlers
 from ..service.sync_handlers import _entry_hash, refresh_preset_drift, _cloud_presets_to_local, canonical_hash
@@ -656,25 +656,30 @@ def orca_fragment(
 def spools_page(
     request: Request,
     db: DbSession,
-    profile_id: str | None = None,
+    cloud_resource_id: str | None = None,
     location: str | None = None,
 ) -> HTMLResponse:
-    pid = int(profile_id) if profile_id and profile_id.isdigit() else None
     stmt = select(Spool).order_by(Spool.id.desc())
-    if pid:
-        stmt = stmt.where(Spool.profile_id == pid)
+    if cloud_resource_id:
+        stmt = stmt.where(Spool.cloud_resource_id == cloud_resource_id)
     if location:
         stmt = stmt.where(Spool.location == location)
     rows = list(db.scalars(stmt))
 
-    profiles = list(db.scalars(select(Profile).order_by(Profile.id)))
+    profiles = list(
+        db.scalars(
+            select(ProfileCache)
+            .where(ProfileCache.deleted_from_cloud == False)  # noqa: E712
+            .order_by(ProfileCache.vendor, ProfileCache.name)
+        )
+    )
 
     return _templates(request).TemplateResponse(
         request, "spools.html",
         {
             "spools": rows,
             "profiles": profiles,
-            "filter_profile_id": pid or "",
+            "filter_cloud_resource_id": cloud_resource_id or "",
             "filter_location": location or "",
         },
     )
@@ -684,17 +689,17 @@ def spools_page(
 def spool_create_form(
     request: Request,
     db: DbSession,
-    profile_id: int = Form(...),
+    cloud_resource_id: str = Form(...),
     color_override: str | None = Form(None),
     remaining_pct: int = Form(100),
     location: str = Form(""),
     notes: str = Form(""),
 ) -> RedirectResponse:
-    if db.get(Profile, profile_id) is None:
+    if db.get(ProfileCache, cloud_resource_id) is None:
         raise HTTPException(status_code=404, detail="profile not found")
     now = _now()
     s = Spool(
-        profile_id=profile_id,
+        cloud_resource_id=cloud_resource_id,
         color_override=color_override or None,
         remaining_pct=remaining_pct,
         location=location,
@@ -725,7 +730,7 @@ def spool_edit_form(
     request: Request,
     sid: int,
     db: DbSession,
-    profile_id: int = Form(...),
+    cloud_resource_id: str = Form(...),
     color_override: str | None = Form(None),
     remaining_pct: int = Form(100),
     location: str = Form(""),
@@ -735,9 +740,9 @@ def spool_edit_form(
     s = db.get(Spool, sid)
     if s is None:
         raise HTTPException(status_code=404, detail="spool not found")
-    if db.get(Profile, profile_id) is None:
+    if db.get(ProfileCache, cloud_resource_id) is None:
         raise HTTPException(status_code=404, detail="profile not found")
-    s.profile_id = profile_id
+    s.cloud_resource_id = cloud_resource_id
     s.color_override = color_override or None
     s.remaining_pct = remaining_pct
     s.location = location
@@ -765,7 +770,7 @@ def spool_duplicate_form(sid: int, db: DbSession) -> RedirectResponse:
         raise HTTPException(status_code=404, detail="spool not found")
     now = _now()
     dup = Spool(
-        profile_id=s.profile_id,
+        cloud_resource_id=s.cloud_resource_id,
         color_override=s.color_override,
         remaining_pct=100,
         location=s.location,

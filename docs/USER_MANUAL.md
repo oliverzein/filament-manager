@@ -43,6 +43,9 @@ the printer over SSH and to Orca Cloud directly.
 edit a filament preset, and sync it to Orca Cloud via File > Sync Presets.
 The Manager pulls the updated presets into its cache automatically.
 
+Only **filament** presets are cached — Orca Cloud also stores print
+process and printer presets, but those are ignored by the Manager.
+
 ---
 
 ## Dashboard
@@ -136,6 +139,11 @@ table. The spool retains its `cloud_resource_id` so you don't lose
 tracking history. You can reassign an orphan spool to a different cached
 preset via the edit form, or delete it if no longer needed.
 
+> **Re-uploaded presets:** if you delete a preset in OrcaSlicer and then
+> re-create it, Orca Cloud assigns it a new UUID. The Manager
+> automatically matches the new UUID to your existing spools and sync
+> state by name, so you don't lose any tracking history or push status.
+
 ---
 
 ## Sync Hub
@@ -148,17 +156,31 @@ plus target cards for the printer DB, Orca Cloud, and GitHub backup.
 
 Each row shows:
 
-- **Preset** — vendor, name, type (with "inherited" badge for inherited
-  presets).
-- **Printer DB** — the 99xxx ID if pushed, or "Not pushed".
-- **Status** — `in_sync`, `pending`, or `orphan`.
-- **Actions** — **Push to Printer** (for non-orphan presets) or
-  **Remove** (for orphan presets with a printer DB ID).
+- **Preset** — vendor + name (if the name already starts with the vendor,
+  only the name is shown to avoid duplication), type (with "inherited"
+  badge for inherited presets).
+- **Printer DB** — the 99xxx ID if pushed, "Creality Stock" for stock
+  RFID presets, or "Not pushed".
+- **Status** — `in_sync`, `pending`, `orphan`, or `stock`.
+  - **stock** — Creality stock RFID preset. Its spool RFID tag already
+    matches a stock 01xxx printer DB entry, so no 99xxx push is needed.
+    These presets show a **Stock RFID** label instead of a push button
+    and are excluded from the "not pushed" count.
+- **Actions** — **Push to Printer** (for non-orphan, non-stock presets),
+  **Remove** (for orphan presets with a printer DB ID), or **Stock RFID**
+  label (for stock presets — no action needed).
 
 ### Push to Printer
 
 Pushes cached Orca Cloud presets to the Creality K2 printer's filament
 database. This writes custom entries (99xxx IDs) to the printer.
+
+> **Stock presets:** Creality stock RFID presets are automatically
+> excluded from push — their spool RFID tags already match stock 01xxx
+> printer DB entries, so creating 99xxx duplicates would never match a
+> tag scan. Inherited variants (e.g. Hyper Stardust, EN-PLA+) are
+> recognized as Creality stock even if the vendor name is not explicitly
+> "Creality".
 
 1. Go to **Sync**.
 2. Click **Push to Printer** — either the bulk button in the Printer DB

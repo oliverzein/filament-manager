@@ -337,18 +337,32 @@ cached preset or location text.
 **Function:** `sync_profile_cache` (`fm/service/cache_sync.py`).
 
 Pulls filament presets from Orca Cloud via `OrcaCloudClient.sync_pull`
-and upserts them into the `profile_cache` table. Soft deletes from the
-tombstone feed are applied (`deleted_from_cloud=True`, `deleted_at` set).
+and upserts them into the `profile_cache` table. Only filament presets
+are cached — Orca Cloud also returns `print` and `printer` process
+presets, which are filtered out. Any stale `profile_cache` entries left
+over from a preset that changed type (e.g. a filament preset re-uploaded
+as a print preset) are purged. Soft deletes from the tombstone feed are
+applied (`deleted_from_cloud=True`, `deleted_at` set).
 
 **Flow:**
 
 1. Call `client.sync_pull(cursor=0)` — returns `{upserts, deletes}`.
 2. For each upsert:
-   - Extract `id` (cloud resource UUID), `name`, `inherits`, `filament_vendor`,
-     `filament_type`, `filament_id` from the content.
+   - Extract `id` (cloud resource UUID), `name`, `inherits`,
+     `filament_vendor`, `filament_type`, `filament_id` from the content.
+   - **Non-filament filter**: if `content.type` is `print` or `printer`
+     (or the entry lacks filament fields), skip it and purge any stale
+     `ProfileCache` row with the same `cloud_resource_id`.
    - If inherited and vendor/type missing: resolve from the parent system
      preset via `find_preset_by_name` + `flatten_preset`.
    - Upsert into `ProfileCache` (create or update, clear tombstone).
+   - **Re-upload reconciliation**: if no existing `SyncTarget(printer_db)`
+     row matches the new `cloud_resource_id`, search for one whose
+     `cloud_id` is in the deletes feed or whose linked `Profile` name
+     matches the preset name. If found, re-link the `SyncTarget.cloud_id`
+     and update all `Spool.cloud_resource_id` references from the old UUID
+     to the new one. This handles presets that were deleted and re-uploaded
+     to Orca Cloud with a new UUID.
 3. For each delete ID: tombstone the `ProfileCache` entry if not already.
 4. Commit and return summary `{synced, deleted, offline}`.
 
@@ -369,7 +383,9 @@ button on Sync Hub.
 2. **`_rebuild_printer_db`** (`sync_handlers.py`):
    - **Cloud-first path** (Orca Cloud configured): pull filament presets
      via `sync_pull`, filter by `cloud_resource_ids` if provided, skip
-     stock Creality presets, flatten inherited presets, build entries via
+     stock Creality presets (evaluated on the **flattened** preset so
+     inherited variants like Hyper Stardust and EN-PLA+ are recognized as
+     Creality stock), flatten inherited presets, build entries via
      `build_entry`. `printer_db_id` is mapped via existing `SyncTarget`
      rows (`cloud_id == res_id`) or allocated as `next_free_id`.
    - **Fallback path** (no Orca Cloud client): rebuild from cache DB +
@@ -457,8 +473,10 @@ printer DB live via `load_printer_db_for_drift` (SCP to a temp file,
 cache-file fallback, returns None if neither available). For each
 `SyncTarget(printer_db)`, computes a live status:
 
+
 | Status | Condition |
 |---|---|
+| `stock` | Preset vendor is a stock-RFID brand (e.g. Creality) — spool RFID tags match stock 01xxx entries, no 99xxx push needed |
 | `new` | No `printer_db_id` — never pushed |
 | `missing` | `printer_db_id` set but `find_entry` returns None |
 | `in_sync` | Entry exists and `_entry_drift_detail(entry, expected)` is empty |
@@ -661,6 +679,19 @@ via WS. Returns `None` if idle, or a dict with `filename`, `progress`,
 SHA-256 of canonical JSON (`sort_keys=True`) of identity + parameter
 fields. Used for drift detection (expected vs. actual hash comparison).
 
+### Stock RFID Protection
+
+`STOCK_RFID_BRANDS = {"creality"}` in `sync_handlers.py`. Presets whose
+`filament_vendor` (after flattening) matches a stock-RFID brand are
+protected from push — their spool RFID tags already match stock 01xxx
+printer DB entries, so a 99xxx duplicate would never match a tag scan.
+The stock check is performed on the **flattened** preset so that
+inherited variants (e.g. Hyper Stardust, EN-PLA+ — which inherit from
+Creality system presets) are recognized as stock. On the Sync Hub, stock
+presets show a `stock` status badge, **Creality Stock** in the Printer DB
+column, and a **Stock RFID** label instead of a push button. They are
+excluded from the "not pushed" count in the Printer DB target card.
+
 ---
 
 ## Iron Rules
@@ -826,7 +857,7 @@ select template (does not appear automatically).
 ```bash
 scripts/dev-start.sh   # uvicorn on :8404, isolated SQLite in .local/
 scripts/dev-stop.sh    # deterministic stop via .local/server.pid
-scripts/test.sh        # full pytest suite (309 tests)
+scripts/test.sh        # full pytest suite (322 tests)
 ```
 
 `dev-start.sh` exports:
@@ -875,7 +906,7 @@ Override printer env vars inline if needed.
 ## Testing
 
 ```bash
-scripts/test.sh        # full pytest suite (309 tests)
+scripts/test.sh        # full pytest suite (322 tests)
 ```
 
 ### Test Files
@@ -888,7 +919,7 @@ scripts/test.sh        # full pytest suite (309 tests)
 | `tests/test_sync_handlers_reshaped.py` | Reshaped push handler: cloud-first rebuild, orphan rule |
 | `tests/test_sync_hub_reshaped.py` | Reshaped Sync Hub: preset & status table, orphan removal |
 | `tests/test_spools_reshaped.py` | Reshaped spools: cloud_resource_id linking, orphan badge |
-| `tests/test_cache_sync.py` | Orca Cloud cache sync: upsert, soft-delete, inheritance resolution |
+| `tests/test_cache_sync.py` | Orca Cloud cache sync: upsert, soft-delete, inheritance resolution, non-filament filtering, re-upload reconciliation |
 | `tests/test_pipeline.py` | Push pipeline: MIN_DB check, busy check, backup, version bump, reboot |
 | `tests/test_transport.py` | SSH transport: run, scp_push/pull, ws_request, busy check, reboot wait |
 | `tests/test_flattener_k2.py` | Preset flattener: flatten_preset, find_preset_by_name |
@@ -903,6 +934,7 @@ scripts/test.sh        # full pytest suite (309 tests)
 | `tests/test_config.py` | Config dataclass, load_config, required env vars |
 | `tests/test_models.py` | Model instantiation and defaults |
 | `tests/test_migration.py` | Database migration: _migrate() column additions |
+| `tests/test_template_index.py` | Template index loader (legacy, used by tests) |
 
 ### Test Conventions
 

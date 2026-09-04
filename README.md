@@ -7,7 +7,9 @@ tuned in OrcaSlicer Desktop, synced to Orca Cloud, and the Manager caches
 them read-only for spool tracking and printer DB push.
 
 The full design lives in
-[`docs/superpowers/specs/2026-08-26-filament-manager-design.md`](docs/superpowers/specs/2026-08-26-filament-manager-design.md).
+[`docs/superpowers/specs/2026-09-04-filament-manager-rework.md`](docs/superpowers/specs/2026-09-04-filament-manager-rework.md)
+(original design spec archived at
+[`docs/archive/superpowers/specs/2026-08-26-filament-manager-design.md`](docs/archive/superpowers/specs/2026-08-26-filament-manager-design.md)).
 Working instructions for agents and humans are in [`AGENTS.md`](AGENTS.md).
 
 ## Purpose
@@ -77,7 +79,7 @@ The existing skill stays untouched and remains available for agent-driven flows.
 scripts/dev-start.sh   # uvicorn on :8404, isolated SQLite in .local/
 # ... iterate ...
 scripts/dev-stop.sh    # deterministic stop via .local/server.pid
-scripts/test.sh        # full pytest suite (309 tests)
+scripts/test.sh        # full pytest suite (322 tests)
 ```
 
 `dev-start.sh` exports an isolated
@@ -133,7 +135,7 @@ authoritative `FM_*` list lives in `fm/config.py`.
 |---|---|
 | `scripts/dev-start.sh` | Start the app locally (uvicorn, dev config, isolated SQLite in `.local/`); waits for readiness. |
 | `scripts/dev-stop.sh` | Stop the local dev app deterministically via `.local/server.pid`. |
-| `scripts/test.sh` | Run the full pytest suite (309 tests). |
+| `scripts/test.sh` | Run the full pytest suite (322 tests). |
 | `scripts/release.sh <version>` | Semver tag, build the Docker image, save a gzipped tarball to `dist/`; refuses a dirty tree. |
 | `scripts/deploy-unraid.sh <version>` | Load the released image + XML template onto Unraid, restart the container, wait for readiness. |
 
@@ -154,12 +156,20 @@ Per `AGENTS.md`, any action likely to repeat goes into a script under `scripts/`
 The Manager pulls filament presets from Orca Cloud via the Sync API
 (`GET /api/v1/sync/pull`) and stores them in a read-only `profile_cache`
 table. Each cache entry records the cloud resource ID, name, vendor, type,
-filament ID, inheritance flag, and soft-delete tombstone.
+filament ID, inheritance flag, and soft-delete tombstone. Only filament
+presets are cached — Orca Cloud process and printer presets are filtered
+out, and any stale cache entries from a prior type are purged.
 
 **Presets are created and tuned in OrcaSlicer Desktop.** The user opens
 OrcaSlicer, creates or edits a filament preset, and syncs it to Orca Cloud
 via File > Sync Presets. The Manager then pulls the updated presets into
 the cache on the next sync. The Manager never writes presets to Orca Cloud.
+
+**Re-upload reconciliation**: when a preset is re-uploaded to Orca Cloud
+(e.g. deleted and recreated), it gets a new cloud resource UUID. The cache
+sync automatically matches the new UUID to existing `SyncTarget` rows and
+spools by name, re-linking them so push state and spool associations survive
+the re-upload.
 
 **Inherited presets** (those with an `inherits` field) are resolved at cache
 sync time — the parent system preset's identity (filament_id,
@@ -189,12 +199,18 @@ remaining-percentage slider (auto-saves via HTMX).
 The Sync Hub (`/sync`) is the central sync management page. It shows:
 
 - **Preset & Status table** — one row per cached Orca Cloud preset, showing
-  vendor, name, type, printer DB ID (if pushed), and sync status
-  (`in_sync`, `pending`, or `orphan`). Each row has a **Push to Printer**
-  button (for non-orphan presets) or a **Remove** button (for orphan presets
-  with a printer DB ID).
-- **Printer DB target card** — summary of in-sync vs. not-pushed counts, with
-  a bulk **Push to Printer** button.
+  vendor + name (vendor prefix deduplicated: if the preset name already
+  starts with the vendor, only the name is shown), type, printer DB ID (if
+  pushed), and sync status (`in_sync`, `pending`, `orphan`, or `stock`).
+  Each row has a **Push to Printer** button (for non-orphan, non-stock
+  presets) or a **Remove** button (for orphan presets with a printer DB ID).
+  Creality stock RFID presets show **Creality Stock** in the Printer DB
+  column, a `stock` status badge, and a **Stock RFID** label instead of a
+  push button — their spool RFID tags already match stock 01xxx entries, so
+  no 99xxx push is needed.
+- **Printer DB target card** — summary of in-sync vs. not-pushed counts
+  (stock presets excluded from the not-pushed count), with a bulk
+  **Push to Printer** button.
 - **Cloud presets target card** — summary of cached presets and orphan count.
   Orca Cloud is the sole source of filament presets; new presets are created
   in OrcaSlicer and sync via Orca Cloud.
@@ -208,10 +224,12 @@ The Sync Hub (`/sync`) is the central sync management page. It shows:
 
 Pushes cached Orca Cloud presets to the Creality K2 printer's filament
 database. The push handler pulls live presets from Orca Cloud, filters out
-stock Creality presets, flattens inherited presets, and builds printer DB
-entries with 99xxx IDs. The iron-rule pipeline enforces: busy-check before
-upload, backup with rotation (keep 5), version bump (≥ 9876543210), SCP
-upload, reboot, and automatic verify.
+stock Creality presets (evaluated on the flattened preset so inherited
+variants like Hyper Stardust and EN-PLA+ are recognized as Creality),
+flattens inherited presets, and builds printer DB entries with 99xxx IDs.
+The iron-rule pipeline enforces: busy-check before upload, backup with
+rotation (keep 5), version bump (≥ 9876543210), SCP upload, reboot, and
+automatic verify.
 
 ### Orphan printer DB entry removal
 
@@ -276,6 +294,6 @@ session sees them:
 5. Refuse push when DB `< 30` entries (`MIN_DB_ENTRIES`) unless explicitly
    forced.
 
-See the [design spec](docs/superpowers/specs/2026-08-26-filament-manager-design.md)
+See the [rework spec](docs/superpowers/specs/2026-09-04-filament-manager-rework.md)
 for the rationale and the full sync-engine, drift-detection, and error-handling
 details.

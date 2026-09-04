@@ -7,8 +7,8 @@ Web app to manage 3D-printing filament spool inventory and sync to a
 Creality K2 printer DB from Orca Cloud filament presets. Orca Cloud is
 the sole source of presets — presets are created and tuned in OrcaSlicer
 Desktop, synced to Orca Cloud, and the Manager caches them read-only.
-See `docs/superpowers/specs/2026-08-26-filament-manager-design.md` for the
-design.
+See `docs/superpowers/specs/2026-09-04-filament-manager-rework.md` for the
+rework design (original design spec archived under `docs/archive/superpowers/specs/`).
 
 ## Working Rules
 

@@ -1185,8 +1185,17 @@ def _normalize_job_entry(job: Job) -> dict:
     }
 
 
-def _normalize_activity_entry(act: ActivityLog) -> dict:
-    """Normalize an ActivityLog row into a unified LogEntry dict."""
+def _normalize_activity_entry(
+    act: ActivityLog, job_lookup: dict[int, Job] | None = None,
+) -> dict:
+    """Normalize an ActivityLog row into a unified LogEntry dict.
+
+    When ``job_id`` is present in ``detail`` the entry is treated as a
+    job-derived log (source ``"job"``) so the badge reads ``Job #X``
+    instead of ``Action``.  If the corresponding ``Job`` is available in
+    ``job_lookup``, its duration and ``finished_at`` are used instead of
+    the hardcoded ``"instant"`` / ``None``.
+    """
     detail = json.loads(act.detail) if act.detail else {}
     job_id = detail.get("job_id")
     result_obj = detail.get("result")
@@ -1200,10 +1209,17 @@ def _normalize_activity_entry(act: ActivityLog) -> dict:
         act.outcome, (act.outcome, act.outcome, act.outcome),
     )
     has_detail = bool(detail)
+    # If this activity row carries a job_id, treat it as a job entry so
+    # the badge says "Job #X" rather than "Action".
+    source = "job" if job_id is not None else "action"
+    source_id = job_id if job_id is not None else act.id
+    job = job_lookup.get(job_id) if (job_lookup and job_id is not None) else None
+    duration = _compute_duration(job) if job is not None else "instant"
+    finished_at_fmt = _fmt_local(job.finished_at) if job is not None else None
     return {
         "id": f"act-{act.id}",
-        "source": "action",
-        "source_id": act.id,
+        "source": source,
+        "source_id": source_id,
         "source_job_id": job_id,  # for dedup linking
         "timestamp": act.ts,
         "timestamp_fmt": _fmt_local(act.ts),
@@ -1215,13 +1231,13 @@ def _normalize_activity_entry(act: ActivityLog) -> dict:
         "status": outcome_status,
         "status_class": outcome_class,
         "status_label": outcome_label,
-        "duration": "instant",
+        "duration": duration,
         "detail": detail,
         "detail_json": json.dumps(detail, indent=2, default=str) if has_detail else "",
         "error_msg": error_msg,
         "busy_detail": busy_detail,
         "has_detail": has_detail,
-        "finished_at_fmt": None,
+        "finished_at_fmt": finished_at_fmt,
     }
 
 
@@ -1234,6 +1250,9 @@ def _unified_log_entries(
     Returns ``(entries, total_count, truncated)``.
     """
     LIMIT = 100
+
+    # Preload all jobs for job_lookup (duration, finished_at, etc.)
+    jobs_by_id: dict[int, Job] = {j.id: j for j in db.scalars(select(Job))}
 
     # Collect job_ids that have a matching activity_log entry (for dedup).
     job_ids_with_activity: set[int] = set()
@@ -1262,15 +1281,56 @@ def _unified_log_entries(
     jobs = list(db.scalars(job_query))
 
     # Query activity_log
-    act_query = select(ActivityLog)
-    activities = list(db.scalars(act_query))
+    activities = list(db.scalars(select(ActivityLog)))
+
+    # Historical deduplication: discard orphan github_backup activity_log
+    # rows (no job_id) whose commit_sha or timestamp matches another
+    # github_backup row that *does* carry a job_id.  These were written by
+    # the handler before the redundant log_activity call was removed.
+    _gh_with_jid: list[ActivityLog] = []
+    _gh_orphans: list[ActivityLog] = []
+    for act in activities:
+        if act.action != "github_backup":
+            continue
+        try:
+            d = json.loads(act.detail) if act.detail else {}
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if d.get("job_id") is not None:
+            _gh_with_jid.append(act)
+        else:
+            _gh_orphans.append(act)
+    orphan_ids: set[int] = set()
+    if _gh_with_jid and _gh_orphans:
+        # Build lookup of commit_shas and timestamps from rows with job_id
+        jid_shas: dict[str, ActivityLog] = {}
+        jid_times: list[datetime] = []
+        for act in _gh_with_jid:
+            d = json.loads(act.detail) if act.detail else {}
+            sha = d.get("commit_sha")
+            if sha:
+                jid_shas[sha] = act
+            if act.ts:
+                jid_times.append(act.ts)
+        for act in _gh_orphans:
+            d = json.loads(act.detail) if act.detail else {}
+            sha = d.get("commit_sha")
+            # Match by commit_sha, or by timestamp within 2 seconds
+            sha_match = sha is not None and sha in jid_shas
+            time_match = any(
+                abs((act.ts - t).total_seconds()) <= 2
+                for t in jid_times if act.ts and t
+            )
+            if sha_match or time_match:
+                orphan_ids.add(act.id)
+    activities = [a for a in activities if a.id not in orphan_ids]
 
     # Normalize both into unified entries
     entries: list[dict] = []
     for job in jobs:
         entries.append(_normalize_job_entry(job))
     for act in activities:
-        entries.append(_normalize_activity_entry(act))
+        entries.append(_normalize_activity_entry(act, jobs_by_id))
 
     # Deduplicate: if a job and an activity share the same job_id,
     # keep only the activity (it has the richer result).

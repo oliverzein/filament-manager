@@ -420,6 +420,53 @@ def test_logs_deduplication(client):
     html = r.text
     # Should have exactly 1 log row (the activity_log entry, not the job)
     assert html.count('class="log-row ') == 1
-    # The entry should be the action (ActivityLog), not the job
-    assert b"badge-muted" in r.content
-    assert b"badge-purple" not in r.content
+    # The activity entry carries a job_id, so it is shown as a Job entry
+    assert b"badge-purple" in r.content
+    assert b"badge-muted" not in r.content
+
+
+def test_logs_github_backup_not_duplicated(client, monkeypatch):
+    """A github_backup job run via jobs.run_pending produces exactly ONE
+    log row — not duplicated as both a Job and an Action."""
+    from fm.service import sync_handlers as sh
+    from fm.service import jobs as svc_jobs
+    from unittest.mock import MagicMock
+
+    # Mock external dependencies so the handler succeeds without network
+    mock_orca = MagicMock()
+    mock_orca.sync_pull.return_value = {
+        "next_cursor": 0, "upserts": [], "deletes": [],
+    }
+    mock_github = MagicMock()
+    mock_github.backup.return_value = {
+        "commit_sha": "abc123def", "files_written": 1,
+    }
+    monkeypatch.setattr(sh, "_orca_client_factory", lambda: mock_orca)
+    monkeypatch.setattr(sh, "_github_client_factory", lambda: mock_github)
+
+    with SessionLocal() as s:
+        svc_jobs.enqueue(s, "github_backup", {})
+        s.commit()
+
+    # Run the job through run_pending (as the real app does)
+    with SessionLocal() as s:
+        from fm.config import Config
+        cfg = Config(printer_ip="1.2.3.4", ssh_user="root",
+                     ssh_password="x", db_remote_path="/x",
+                     id_range_start=99001)
+        svc_jobs.run_pending(s, cfg)
+        s.commit()
+
+    # Verify /logs/table shows exactly ONE row
+    r = client.get("/logs/table")
+    assert r.status_code == 200
+    html = r.text
+    assert html.count('class="log-row ') == 1
+    # The single row should be a Job entry (badge-purple), not an Action
+    assert b"badge-purple" in r.content
+    assert b"badge-muted" not in r.content
+
+    # Also verify /logs (full page) shows exactly one row
+    r_full = client.get("/logs")
+    assert r_full.status_code == 200
+    assert r_full.text.count('class="log-row ') == 1

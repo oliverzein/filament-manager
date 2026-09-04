@@ -904,15 +904,6 @@ def handle_github_backup(session: Session, config: Config, payload: dict) -> dic
     message = f"Backup: {_now().isoformat()} — {len(presets)} presets"
     result = client.backup(files, message)
 
-    jobs.log_activity(
-        session, "github_backup", "ok",
-        {
-            "commit_sha": result["commit_sha"],
-            "files_written": result["files_written"],
-            "preset_count": len(presets),
-        },
-    )
-
     return {
         "commit_sha": result["commit_sha"],
         "files_written": result["files_written"],

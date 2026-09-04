@@ -226,11 +226,9 @@ class TestHandleGithubBackup:
         assert "presets/Sunlu-PLA-.json" in files
         assert "index.json" in files
 
-        # Verify activity log
+        # Handler no longer logs directly — run_pending logs on job completion.
         logs = list(s.scalars(select(ActivityLog)))
-        assert len(logs) == 1
-        assert logs[0].action == "github_backup"
-        assert logs[0].outcome == "ok"
+        assert len(logs) == 0
 
     def test_backup_github_not_configured(self, inmemory_session, cfg, monkeypatch):
         s = inmemory_session

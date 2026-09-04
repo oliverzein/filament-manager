@@ -200,3 +200,23 @@ def _migrate(engine: Engine) -> None:
             conn.execute(text("ALTER TABLE spools_temp RENAME TO spools"))
             conn.execute(text("PRAGMA foreign_keys = ON"))
             conn.commit()
+
+        # Delete historical orphan github_backup activity_log rows — these
+        # were written by the handler before the redundant log_activity call
+        # was removed.  Keep only rows that either carry a job_id or have a
+        # commit_sha that does NOT appear in another row with a job_id.
+        tables = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+        if "activity_log" in tables:
+            conn.execute(text("""
+                DELETE FROM activity_log
+                WHERE action = 'github_backup'
+                  AND json_extract(detail, '$.job_id') IS NULL
+                  AND json_extract(detail, '$.commit_sha') IN (
+                      SELECT json_extract(detail, '$.commit_sha')
+                      FROM activity_log
+                      WHERE action = 'github_backup'
+                        AND json_extract(detail, '$.job_id') IS NOT NULL
+                        AND json_extract(detail, '$.commit_sha') IS NOT NULL
+                  )
+            """))
+            conn.commit()

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from ..config import Config
 from ..db import SessionLocal
 from ..models import Job, Profile, SyncTarget
-from ..service import jobs
+from ..service import jobs, sync_handlers
 from ..service.sync_handlers import compute_printer_db_drift, refresh_preset_drift, register_handlers, _is_stock_rfid  # noqa: F401 — register_handlers side-effect import stays
 
 router = APIRouter(prefix="/api", tags=["sync"])
@@ -136,6 +136,9 @@ def sync_backup_github(request: Request, db: DbSession) -> dict:
 @router.post("/sync/pull")
 def sync_pull_all(db: DbSession) -> dict:
     """Pull all Orca Cloud presets and adopt (replaces /profiles/sync-from-orca)."""
+    if sync_handlers._orca_client_factory() is None:
+        return {"status": "error",
+                "result": "Orca Cloud not connected — set up the connection in Settings"}
     refresh_preset_drift(db, adopt=True)
     db.flush()
     return {"status": "ok"}
@@ -150,6 +153,9 @@ def sync_pull_profile(profile_id: int, db: DbSession) -> dict:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="profile not found",
         )
+    if sync_handlers._orca_client_factory() is None:
+        return {"status": "error",
+                "result": "Orca Cloud not connected — set up the connection in Settings"}
     refresh_preset_drift(db, adopt=True, profile_id=profile_id)
     db.flush()
     return {"status": "ok", "profile_id": profile_id}
@@ -190,10 +196,19 @@ def drift_status(request: Request, db: DbSession) -> list[dict]:
                     "detail": live[p.id]["detail"],
                 }
             elif target:
+                # Extract drift detail (e.g. duplicate-cloud-preset warning)
+                # stored by refresh_preset_drift inside actual_state JSON.
+                detail = ""
+                if target.actual_state:
+                    try:
+                        state = json.loads(target.actual_state)
+                        detail = state.get("_drift_detail", "") or ""
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        pass
                 entry[kind] = {
                     "status": target.status,
                     "expected_hash": target.expected_hash,
-                    "detail": "",
+                    "detail": detail,
                 }
             elif kind == "printer_db" and _is_stock_rfid(p):
                 entry[kind] = {"status": "stock", "expected_hash": None, "detail": ""}

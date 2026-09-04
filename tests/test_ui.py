@@ -11,7 +11,8 @@ import pytest
 from starlette.testclient import TestClient
 
 from fm.db import SessionLocal
-from fm.models import Profile
+from fm.models import Profile, SyncTarget
+from fm.service import sync_handlers as sh
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +229,85 @@ def test_orca_fragment_has_pull_from_cloud_label(client, seeded_profile):
     assert b"Sync from Orca" not in r.content
 
 
+
+# ---------------------------------------------------------------------------
+# V10 — Orca fragment status-dependent source line
+# ---------------------------------------------------------------------------
+
+_PRESET_JSON = '{"nozzle_temperature": ["220"], "filament_flow_ratio": ["0.98"]}'
+
+
+def _add_orca_target(profile_id: int, status: str, actual_state: str | None = None):
+    """Insert an orca_preset SyncTarget for the given profile."""
+    with SessionLocal() as s:
+        s.add(SyncTarget(
+            profile_id=profile_id,
+            kind="orca_preset",
+            cloud_id="test-cloud-uuid",
+            expected_hash="some_hash",
+            actual_state=actual_state,
+            status=status,
+        ))
+        s.commit()
+
+
+def test_orca_fragment_in_sync_status_line(client, seeded_profile):
+    """Fragment shows the in_sync source line when target.status is in_sync."""
+    _add_orca_target(seeded_profile["id"], "in_sync", _PRESET_JSON)
+    r = client.get(f"/profiles/{seeded_profile['id']}/orca-fragment")
+    assert r.status_code == 200
+    assert "Matches the catalog — as pushed or adopted." in r.text
+
+
+def test_orca_fragment_drift_status_line(client, seeded_profile):
+    """Fragment shows the drift source line when target.status is drift."""
+    _add_orca_target(seeded_profile["id"], "drift", _PRESET_JSON)
+    r = client.get(f"/profiles/{seeded_profile['id']}/orca-fragment")
+    assert r.status_code == 200
+    assert "Cloud values differ from the catalog — tuned in OrcaSlicer? Pull from Cloud adopts them." in r.text
+
+
+def test_orca_fragment_pending_status_line(client, seeded_profile):
+    """Fragment shows the pending source line when target.status is pending."""
+    _add_orca_target(seeded_profile["id"], "pending", _PRESET_JSON)
+    r = client.get(f"/profiles/{seeded_profile['id']}/orca-fragment")
+    assert r.status_code == 200
+    assert "No baseline yet — push to Cloud or pull once." in r.text
+
+
+def test_orca_fragment_no_status_line_without_target(client, seeded_profile):
+    """Fragment shows none of the status source lines when no SyncTarget exists."""
+    r = client.get(f"/profiles/{seeded_profile['id']}/orca-fragment")
+    assert r.status_code == 200
+    assert "Matches the catalog" not in r.text
+    assert "Cloud values differ" not in r.text
+
+
+# ---------------------------------------------------------------------------
+# V12 — Fragment error note when pulling without Orca Cloud connection
+# ---------------------------------------------------------------------------
+
+def test_sync_from_orca_error_note_without_connection(client, seeded_profile, monkeypatch):
+    """POST /profiles/{pid}/sync-from-orca renders error note (not success toast)
+    when Orca Cloud is not connected."""
+    _add_orca_target(seeded_profile["id"], "in_sync", _PRESET_JSON)
+    monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
+    r = client.post(f"/profiles/{seeded_profile['id']}/sync-from-orca")
+    assert r.status_code == 200
+    assert "Orca Cloud not connected — set up the connection in Settings" in r.text
+    assert "Synced from Orca Cloud" not in r.text  # no success toast
+
+
+def test_sync_from_orca_error_note_without_connection_no_target(client, seeded_profile, monkeypatch):
+    """POST /profiles/{pid}/sync-from-orca renders error note in empty-state branch
+    when no SyncTarget exists and Orca Cloud is not connected."""
+    monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
+    r = client.post(f"/profiles/{seeded_profile['id']}/sync-from-orca")
+    assert r.status_code == 200
+    assert "Orca Cloud not connected — set up the connection in Settings" in r.text
+    assert "Synced from Orca Cloud" not in r.text
+    assert "No baseline yet" not in r.text
+
 def test_profiles_sync_from_orca_route_removed(client):
     """POST /profiles/sync-from-orca returns 404 (route removed)."""
     r = client.post("/profiles/sync-from-orca")
@@ -278,3 +358,29 @@ def test_no_old_labels_in_profiles_page(client, seeded_profile):
     """Profiles page must not contain old labels."""
     r = client.get("/profiles")
     assert b"Sync from Orca" not in r.content
+
+
+# ---------------------------------------------------------------------------
+# Profile delete feedback banners
+# ---------------------------------------------------------------------------
+
+def test_profiles_page_deleted_banner(client, seeded_profile):
+    """GET /profiles?deleted=1 renders the success alert banner."""
+    r = client.get("/profiles?deleted=1")
+    assert r.status_code == 200
+    assert b"Profile deleted." in r.content
+    assert b"alert-success" in r.content
+
+def test_profiles_page_cloud_failed_banner(client, seeded_profile):
+    """GET /profiles?deleted=1&cloud_failed=1 renders the warning alert."""
+    r = client.get("/profiles?deleted=1&cloud_failed=1")
+    assert r.status_code == 200
+    assert b"alert-warning" in r.content
+    assert b"Orca Cloud preset could not be deleted" in r.content
+
+def test_profiles_page_no_banner_without_params(client, seeded_profile):
+    """GET /profiles without query params does not render delete banners."""
+    r = client.get("/profiles")
+    assert r.status_code == 200
+    assert b"Profile deleted." not in r.content
+    assert b"Orca Cloud preset could not be deleted" not in r.content

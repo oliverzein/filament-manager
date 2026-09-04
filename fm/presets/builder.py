@@ -43,6 +43,11 @@ def _kv_from_profile(profile_dict):
         v = profile_dict.get(col)
         if v is not None:
             kv[preset_key] = v
+    # Derive enable_pressure_advance from pa: "1" when non-zero, "0" otherwise.
+    # Not a catalog column — it's an OrcaSlicer toggle keyed off the pa value.
+    pa_val = profile_dict.get("pa")
+    if pa_val is not None:
+        kv["enable_pressure_advance"] = "1" if float(pa_val) > 0 else "0"
     return kv
 
 

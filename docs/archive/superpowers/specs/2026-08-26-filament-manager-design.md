@@ -5,6 +5,7 @@
 **Repo:** `/home/oliverzein/Dokumente/Daten/Development/3D Printing/filament-manager`
 **Predecessor knowledge:** skill repo `Creality-custom-filament` (cfs.py/orca.py logic), BrainVault `projects/homeassistant/k2-rfid-custom-filament.md`, `k2-orca-preset-implementation.md`
 > **Superseded sections (2026-08):** §2 Companion agent, §4 Temp sync und §5 Companion Agent Contract wurden durch den Orca Cloud Sync ersetzt und aus dem Code entfernt — Preset-Auslieferung und Temp-Write-back laufen heute über die Cloud-Transportstrecke (`generate_preset` → Cloud → OrcaSlicer-eigener Sync; `refresh_preset_drift(adopt=True)` mit exaktem `cloud_id`-Matching). Siehe docs/sync-workflow-analysis.md. Die nachfolgenden Abschnitte beschreiben den ursprünglichen Design-Entwurf und werden als historisches Dokument unverändert belassen.
+> **Superseded (2026-09-04):** Der Rework-Spec `docs/superpowers/specs/2026-09-04-filament-manager-rework.md` superseded die catalog-zentrierte Architektur (§1–§6). Orca Cloud wird zur einzigen Profil-Quelle — der interne Profile-Store (`profiles`-Tabelle), die Profil-CRUD, die Preset-Generierung inkl. Builder sowie die gesamte Drift-/Adopt-/Write-back-Maschinerie entfallen. Push-to-Printer liest Felder live aus der Cloud; ein minimaler lokaler Cache ersetzt den Catalog. Siehe den Rework-Spec für den verbindlichen Zielzustand.
 
 
 ## 1. Purpose

@@ -3,6 +3,7 @@
 {% block content %}
 <section id="profiles">
   <header class="page-header"><div><p class="eyebrow">Catalog</p><h1>Filament profiles</h1><p>Manage material definitions shared with your printer and slicer.</p></div><div class="button-group"><a href="/profiles/new" class="button button-primary"><span>＋</span> New profile</a><a href="/sync" class="text-link">Sync status →</a></div></header>
+  {% if deleted and cloud_failed %}<div class="alert alert-warning"><strong>Profile deleted, but the Orca Cloud preset could not be deleted — remove it manually in Orca Cloud.</strong></div>{% elif deleted %}<div class="alert alert-success"><strong>Profile deleted.</strong></div>{% endif %}
 
   <section class="panel table-panel">
     <div class="toolbar">

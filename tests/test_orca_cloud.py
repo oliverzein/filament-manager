@@ -168,6 +168,27 @@ class TestSyncPush:
                 client.sync_push("Pabc123", "Test", {"name": "Test"})
         assert exc.value.status == 500
 
+    def test_explicit_cloud_id_overrides_uuidv5(self):
+        """When cloud_id is passed explicitly, it is used as the resource
+        id instead of the UUIDv5-derived one — prevents same-name duplicates.
+        """
+        jwt = _make_jwt({"sub": "43d7af43-fe15-4d11-be6b-59a88db20355"})
+        refresh_resp = _mock_response(200, {
+            "access_token": jwt, "refresh_token": "new-refresh",
+        })
+        push_resp = _mock_response(200, {"updated_time": 99999, "created_time": 12345})
+        client = OrcaCloudClient(refresh_token="refresh")
+        with patch("fm.orca_cloud.requests.post", return_value=refresh_resp), \
+             patch("fm.orca_cloud.requests.request", return_value=push_resp) as mock_req:
+            client.sync_push(
+                profile_id="Pabc123",
+                name="Test Profile",
+                content={"name": "Test Profile"},
+                cloud_id="existing-resource-uuid",
+            )
+        json_body = mock_req.call_args[1]["json"]
+        assert json_body["id"] == "existing-resource-uuid"
+
 
 # ---------------------------------------------------------------------------
 # sync_pull

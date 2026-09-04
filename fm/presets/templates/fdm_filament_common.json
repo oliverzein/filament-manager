@@ -24,6 +24,9 @@
 	"during_print_exhaust_fan_speed": [
 		"70"
 	],
+	"enable_pressure_advance": [
+		"0"
+	],
 	"eng_plate_temp": [
 		"60"
 	],
@@ -146,6 +149,9 @@
 	],
 	"overhang_fan_threshold": [
 		"95%"
+	],
+	"pressure_advance": [
+		"0"
 	],
 	"reduce_fan_stop_start_freq": [
 		"0"

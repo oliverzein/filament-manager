@@ -4,9 +4,9 @@
 <section id="sync-page">
   <header class="page-header">
     <div>
-      <p class="eyebrow">Connections</p>
+      <p class="eyebrow">Sync</p>
       <h1>Sync Hub</h1>
-      <p>Keep the catalog, printer database, Orca Cloud, and GitHub backup aligned.</p>
+      <p>Keep your catalog, printer database, and Orca Cloud presets aligned.</p>
     </div>
   </header>
 
@@ -25,106 +25,30 @@
     .target-head .eyebrow { margin-bottom: 4px; }
     .target-head h2 { margin: 0; }
     .target-summary { display: block; margin-bottom: 8px; color: var(--text); font: 700 18px/1.3 var(--font-heading, inherit); }
-    .target-note { display: block; margin-top: 12px; color: var(--text-muted); font-size: 10px; }
     .row-actions { display: inline-flex; flex-wrap: nowrap; gap: 6px; justify-content: flex-end; white-space: nowrap; }
     .row-actions .button { min-height: 32px; padding: 6px 10px; font-size: 11px; width: auto; }
     @media (max-width: 1200px) { .sync-hub-grid { grid-template-columns: 1fr; } .sync-hub-right { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
     @media (max-width: 900px) { .sync-hub-right { grid-template-columns: 1fr; } }
     #busy-dialog { padding: 20px 24px; }
+    /* Action modal overlay — scoped to #action-modal */
+    #action-modal { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; background: rgba(1,5,17,.7); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+    #action-modal[hidden] { display: none; }
+    .push-modal-dialog { width: min(480px, 90vw); padding: 32px; border: 1px solid var(--border-strong); border-radius: var(--radius-card); background: var(--surface); box-shadow: 0 24px 60px rgba(0,0,0,.5); }
+    .push-modal-body { text-align: center; }
+    .push-modal-state { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    .push-modal-busy-detail { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+    .push-modal-body h3 { margin: 0; font-size: 18px; }
+    .push-modal-body p { margin: 0; }
+    .push-modal-sub { color: var(--text-muted); font-size: 11px; }
+    .push-modal-icon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 50%; font-size: 20px; font-weight: 700; }
+    .push-modal-icon-ok { background: rgba(5,193,104,.15); color: var(--green); }
+    .push-modal-icon-err { background: rgba(255,90,101,.15); color: #ff8d95; }
+    .push-modal-error-msg { color: #ff8d95; font-size: 13px; overflow-wrap: anywhere; }
+    .push-modal-awaiting .button-group { justify-content: center; margin-top: 8px; }
   </style>
 
-  <div class="sync-hub-grid">
-    <div class="sync-hub-left">
-      <section id="drift-table" class="panel" aria-labelledby="drift-heading">
-        <header class="panel-heading">
-          <div><p class="eyebrow">Health check</p><h2 id="drift-heading">Drift status</h2></div>
-          <span class="live-label"><i></i> Live</span>
-        </header>
-        {% if drift %}
-        <div class="table-wrap">
-          <table class="drift-table">
-            <thead><tr><th>Profile</th><th>Printer DB</th><th>Orca preset</th><th class="actions-cell">Actions</th></tr></thead>
-            <tbody>
-            {% for d in drift %}
-              <tr>
-                <td><span class="cell-main">{{ d.name if d.name.lower().startswith(d.brand.lower()) else d.brand ~ ' ' ~ d.name }}</span></td>
-                <td><span class="status-badge status-{{ d.printer_db.status | status_class }}"{% if d.printer_db.detail %} title="{{ d.printer_db.detail }}"{% endif %}>{{ d.printer_db.status | replace('_', ' ') }}</span></td>
-                <td><span class="status-badge status-{{ d.orca_preset.status | status_class }}">{{ d.orca_preset.status | replace('_', ' ') }}</span></td>
-                <td class="actions-cell">
-                  <div class="row-actions">
-                    {% if d.printer_db_id %}
-                    <button class="button button-ghost" hx-post="/api/sync/push" hx-vals='{"profile_ids": [{{ d.profile_id }}]}' hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='awaiting_input'){location.reload()}else if(r.status=='error'){orcaToast('Push failed: '+(r.result&&r.result.error||'unknown error'),true)}else{orcaToast('Pushed to printer',false)}}else{orcaToast('Request failed',true)}">Push to Printer</button>
-                    {% else %}
-                    <span class="muted">Not linked</span>
-                    {% endif %}
-                    <button class="button button-ghost" hx-post="/api/sync/preset/{{ d.profile_id }}" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Push failed: '+(r.result||'unknown error'),true)}else{orcaToast('Preset pushed to Orca Cloud',false)}}else{orcaToast('Request failed',true)}">Push to Cloud</button>
-                    <button class="button button-ghost" hx-post="/api/sync/pull/{{ d.profile_id }}" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Pull failed: '+(r.result||'unknown error'),true)}else{orcaToast('Pulled from Orca Cloud',false)}}else{orcaToast('Request failed',true)}">Pull from Cloud</button>
-                  </div>
-                </td>
-              </tr>
-            {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        {% else %}
-        <div class="empty-state compact"><p>No profiles tracked.</p></div>
-        {% endif %}
-      </section>
-
-      {% if awaiting_jobs %}
-      <section id="busy-dialog" class="alert alert-warning">
-        <div><strong>Printer input required</strong><p>The printer is busy. Choose how each job should proceed.</p></div>
-        {% for job in awaiting_jobs %}
-        <div class="awaiting-job" id="awaiting-{{ job.id }}">
-          <span>Job #{{ job.id }} · {{ job.kind }}</span>
-          <div class="button-group">
-            <button class="button button-danger" hx-post="/sync/jobs/{{ job.id }}/resolve" hx-vals='{"choice": "force_reboot"}' hx-target="#busy-dialog" hx-swap="outerHTML">Force reboot</button>
-            <button class="button button-secondary" hx-post="/sync/jobs/{{ job.id }}/resolve" hx-vals='{"choice": "wait"}' hx-target="#busy-dialog" hx-swap="outerHTML">Wait</button>
-            <button class="button button-ghost" hx-post="/sync/jobs/{{ job.id }}/resolve" hx-vals='{"choice": "no_reboot"}' hx-target="#busy-dialog" hx-swap="outerHTML">No reboot</button>
-          </div>
-        </div>
-        {% endfor %}
-      </section>
-      {% endif %}
-    </div>
-
-    <aside class="sync-hub-right" aria-label="Sync targets">
-      {% set ns = namespace(pdb_sync=0, pdb_drift=0, orca_sync=0, orca_attention=0) %}
-      {% for d in drift %}
-        {% if d.printer_db.status == 'in_sync' %}{% set ns.pdb_sync = ns.pdb_sync + 1 %}{% elif d.printer_db.status not in ('pending', 'stock') %}{% set ns.pdb_drift = ns.pdb_drift + 1 %}{% endif %}
-        {% if d.orca_preset.status == 'in_sync' %}{% set ns.orca_sync = ns.orca_sync + 1 %}{% else %}{% set ns.orca_attention = ns.orca_attention + 1 %}{% endif %}
-      {% endfor %}
-
-      <section class="panel target-card" aria-labelledby="printer-target-heading">
-        <div class="target-head">
-          <span class="stat-icon purple" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2h10v4H7V2Zm-3 6h16a2 2 0 0 1 2 2v8h-4v4H6v-4H2v-8a2 2 0 0 1 2-2Zm4 8v4h8v-4H8Zm9-5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"/></svg></span>
-          <div><p class="eyebrow">Printer database</p><h2 id="printer-target-heading">Printer DB</h2></div>
-        </div>
-        <span class="target-summary">{{ ns.pdb_sync }} in sync, {{ ns.pdb_drift }} drifted</span>
-        <p>Push catalog profiles to the printer database.</p>
-        <button class="button button-primary" hx-post="/api/sync/push" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='awaiting_input'){location.reload()}else if(r.status=='error'){orcaToast('Push failed: '+(r.result&&r.result.error||'unknown error'),true)}else{orcaToast('Push complete: '+(r.result&&r.result.pushed||0)+' profiles, '+(r.result&&r.result.skipped||0)+' skipped',false)}}else{orcaToast('Request failed',true)}">Push to Printer</button>
-      </section>
-
-      <section class="panel target-card" aria-labelledby="cloud-target-heading">
-        <div class="target-head">
-          <span class="stat-icon blue" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0 0 5.26 8.02 5.994 5.994 0 0 0 6 20h13a5 5 0 0 0 .35-9.96ZM13 13v4h-2v-4H8l4-4 4 4h-3Z"/></svg></span>
-          <div><p class="eyebrow">Orca Cloud</p><h2 id="cloud-target-heading">Cloud presets</h2></div>
-        </div>
-        <span class="target-summary">{{ ns.orca_sync }} in sync, {{ ns.orca_attention }} need attention</span>
-        <p><strong>Pull from Cloud</strong> adopts the cloud baseline and writes temperatures back to the catalog. <strong>Push to Cloud</strong> generates a fresh preset from catalog values.</p>
-        <button class="button button-secondary" hx-post="/api/sync/pull" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Pull failed: '+(r.result||'unknown error'),true)}else{orcaToast('Pulled all presets from Orca Cloud',false)}}else{orcaToast('Request failed',true)}">Pull from Cloud (all)</button>
-      </section>
-
-      <section class="panel target-card" aria-labelledby="backup-target-heading">
-        <div class="target-head">
-          <span class="stat-icon green" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 .7a11.5 11.5 0 0 0-3.64 22.4c.58.1.79-.25.79-.56v-2.24c-3.23.7-3.91-1.37-3.91-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.72 1.27 3.38.97.1-.75.4-1.27.74-1.56-2.58-.3-5.29-1.29-5.29-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.47.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.76 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.58.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.72 5.39-5.31 5.68.42.36.79 1.07.79 2.16v3.21c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg></span>
-          <div><p class="eyebrow">Backup</p><h2 id="backup-target-heading">GitHub backup</h2></div>
-        </div>
-        <p>Commit the current catalog and generated presets to the configured repository.</p>
-        <button class="button button-secondary" {% if github_configured %}hx-post="/api/sync/backup-github" hx-headers='{"Accept": "application/json"}' hx-swap="none" hx-on::after-request="if(event.detail.xhr.status==200){var r=JSON.parse(event.detail.xhr.responseText);if(r.status=='error'){orcaToast('Backup failed: '+(r.result&&r.result.error||'unknown error'),true)}else{orcaToast('Backup complete: '+(r.result&&r.result.preset_count||0)+' presets pushed to GitHub',false)}}else{orcaToast('Request failed',true)}"{% else %}disabled{% endif %}>Backup to GitHub</button>
-        {% if github_configured %}<span class="target-note">Also triggered automatically after every successful preset push.</span>{% else %}<span class="target-note">Add a GitHub token and repository in Settings to enable backups.</span>{% endif %}
-      </section>
-    </aside>
+  <div id="sync-hub-content">
+    {% include "_sync_hub_grid.html" %}
   </div>
 
   <section id="job-progress" class="panel" hx-get="/sync/progress?since=0" hx-trigger="every 3s" hx-swap="innerHTML">
@@ -151,15 +75,50 @@
     {% endif %}
   </section>
 </section>
-<div id="orca-toast" class="orca-toast"></div>
+
+<div id="action-modal" hidden role="dialog" aria-modal="true" aria-label="Sync operation" tabindex="-1">
+  <div class="push-modal-dialog">
+    <div id="action-modal-body" class="push-modal-body" aria-live="polite">
+      <div class="push-modal-state">
+        <div class="spinner spinner-lg"></div>
+        <p>Starting…</p>
+      </div>
+    </div>
+  </div>
+</div>
 <script>
-function orcaToast(msg, isError) {
-  var t = document.getElementById('orca-toast');
-  if (!t) return;
-  t.innerHTML = '<span>' + msg + '</span>';
-  t.style.background = isError ? 'rgba(255,90,101,.95)' : 'rgba(5,193,104,.95)';
-  t.classList.add('show');
-  setTimeout(function() { t.classList.remove('show'); }, 5000);
+function openActionModal() {
+  var m = document.getElementById('action-modal');
+  if (!m) return;
+  _actionModalPriorFocus = document.activeElement;
+  m.removeAttribute('hidden');
+  m.focus();
+  var b = document.getElementById('action-modal-body');
+  if (b) b.innerHTML = '<div class="push-modal-state"><div class="spinner spinner-lg"></div><p>Starting…</p></div>';
+  document.addEventListener('keydown', _actionModalKeydown);
 }
+function closeActionModal() {
+  var m = document.getElementById('action-modal');
+  if (!m) return;
+  m.setAttribute('hidden', '');
+  document.removeEventListener('keydown', _actionModalKeydown);
+  if (_actionModalPriorFocus && _actionModalPriorFocus.focus) _actionModalPriorFocus.focus();
+  _actionModalPriorFocus = null;
+}
+var _actionModalPriorFocus = null;
+function _actionModalKeydown(e) {
+  if (e.key !== 'Escape') return;
+  var m = document.getElementById('action-modal');
+  if (!m || m.hasAttribute('hidden')) return;
+  var body = document.getElementById('action-modal-body');
+  if (body && body.querySelector('.spinner')) return;
+  closeActionModal();
+}
+document.getElementById('action-modal').addEventListener('click', function(e) {
+  if (e.target !== this) return;
+  var body = document.getElementById('action-modal-body');
+  if (body && body.querySelector('.spinner')) return;
+  closeActionModal();
+});
 </script>
 {% endblock %}

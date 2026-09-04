@@ -225,12 +225,17 @@ class OrcaCloudClient:
         name: str,
         content: dict,
         original_updated_time: str = "",
+        cloud_id: str | None = None,
     ) -> dict:
         """Push a profile.
 
-        ``profile_id`` is the filament_id (e.g. ``Pabc123...``).  The Orca
-        Cloud resource UUID is derived deterministically from user_id +
-        filament_id via UUID v5.
+        ``profile_id`` is the filament_id (e.g. ``Pabc123...``).  By default
+        the Orca Cloud resource UUID is derived deterministically from
+        user_id + filament_id via UUID v5.  Pass ``cloud_id`` to target a
+        specific existing resource (e.g. one discovered via sync_pull or
+        stored from a prior import) — this prevents creating a same-name
+        duplicate when the stored resource UUID differs from the computed
+        one.
 
         Content is converted from local array format to cloud flat-string
         format automatically.
@@ -238,9 +243,9 @@ class OrcaCloudClient:
         Returns ``{updated_time, created_time}`` on success.
         Raises :class:`OrcaCloudConflict` on 409.
         """
-        cloud_id = self.cloud_id(profile_id)
+        resource_id = cloud_id or self.cloud_id(profile_id)
         cloud_content = self._local_to_cloud(content)
-        body: dict = {"id": cloud_id, "name": name, "content": cloud_content}
+        body: dict = {"id": resource_id, "name": name, "content": cloud_content}
         if original_updated_time:
             body["original_updated_time"] = original_updated_time
         resp = self._request(

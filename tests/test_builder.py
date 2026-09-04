@@ -171,6 +171,25 @@ def test_preserves_system_preset_fields(profile_hyper):
     assert flat["filament_flow_ratio"] == ["1.0"]
 
 
+def test_pressure_advance_from_pa(profile_dict):
+    """pa catalog field flows into pressure_advance + enable_pressure_advance."""
+    system_preset = {
+        "name": "Generic PLA",
+        "filament_type": "PLA",
+        "pressure_advance": ["0"],
+        "enable_pressure_advance": ["0"],
+    }
+    # pa=0.032 → pressure_advance set, enable toggle on
+    flat = builder.build_standalone_preset(profile_dict, system_preset)
+    assert flat["pressure_advance"] == ["0.032"]
+    assert flat["enable_pressure_advance"] == ["1"]
+
+    # pa=0 → pressure_advance zeroed, enable toggle off
+    profile_dict["pa"] = 0
+    flat = builder.build_standalone_preset(profile_dict, system_preset)
+    assert flat["pressure_advance"] == ["0"]
+
+
 def test_filament_settings_id_matches_name(profile_dict):
     system_preset = {"name": "Generic PLA", "filament_type": "PLA"}
     flat = builder.build_standalone_preset(profile_dict, system_preset)

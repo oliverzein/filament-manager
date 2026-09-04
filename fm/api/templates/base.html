@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/app.css">
-  <script src="https://unpkg.com/htmx.org" defer></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 </head>
 <body>
   <input class="nav-toggle" type="checkbox" id="nav-toggle" aria-label="Toggle navigation">
@@ -54,5 +54,16 @@
     </header>
     <main class="content">{% block content %}{% endblock %}</main>
   </div>
+<div id="orca-toast" class="orca-toast"></div>
+<script>
+function orcaToast(msg, isError) {
+  var t = document.getElementById('orca-toast');
+  if (!t) return;
+  t.innerHTML = '<span>' + msg + '</span>';
+  t.style.background = isError ? 'rgba(255,90,101,.95)' : 'rgba(5,193,104,.95)';
+  t.classList.add('show');
+  setTimeout(function() { t.classList.remove('show'); }, 5000);
+}
+</script>
 </body>
 </html>

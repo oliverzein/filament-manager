@@ -603,6 +603,48 @@ def handle_verify(session: Session, config: Config, payload: dict) -> dict:
     }
 
 
+def _discover_cloud_resource(
+    client: OrcaCloudClient, filament_id: str, name: str,
+) -> str | None:
+    """Discover an existing cloud resource for a preset before pushing.
+
+    Returns the cloud resource UUID, or ``None`` if no match exists (safe
+    to create a new resource).  Returns the sentinel ``"__ambiguous__"``
+    when multiple cloud presets share the same name — the caller must
+    refuse to push to avoid creating a duplicate.
+
+    Matching strategy:
+    1. Exact ``filament_id`` match in cloud content (deterministic).
+    2. Exact name match — only when unique (single hit).
+    """
+    try:
+        pull_result = client.sync_pull()
+    except OrcaCloudError:
+        return None
+
+    upserts = pull_result.get("upserts", [])
+
+    # Strategy 1: match by filament_id in cloud content
+    for upsert in upserts:
+        content = upsert.get("content") or {}
+        if content.get("type") != "filament":
+            continue
+        if content.get("filament_id") == filament_id:
+            return upsert.get("id")
+
+    # Strategy 2: match by exact name (unique only)
+    name_matches = [
+        upsert.get("id")
+        for upsert in upserts
+        if (upsert.get("content") or {}).get("type") == "filament"
+        and (upsert.get("content") or {}).get("name") == name
+    ]
+    if len(name_matches) == 1:
+        return name_matches[0]
+    if len(name_matches) > 1:
+        return "__ambiguous__"
+    return None
+
 def handle_generate_preset(session: Session, config: Config, payload: dict) -> dict:
     """Generate preset handler: build preset, push directly to Orca Cloud,
     set SyncTarget(orca_preset).expected_hash.
@@ -653,10 +695,12 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
     # Update profile filament_id
     profile.filament_id = preset["filament_id"]
 
-    # Set SyncTarget with cloud_id (Orca Cloud resource UUID, like setting_id)
+    # Set SyncTarget — preserve existing cloud_id if known (from prior push
+    # or W6 import).  Resetting it to None would discard the link to the
+    # actual cloud resource, causing sync_push to target a UUIDv5-derived
+    # id that may differ → server creates a same-name duplicate.
     target = _get_or_create_target(session, profile.id, "orca_preset")
     target.expected_hash = expected_hash
-    target.cloud_id = None  # set after successful push
     target.status = "pending"
 
     # Push preset directly to Orca Cloud
@@ -666,11 +710,36 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
             "Orca Cloud not configured — set up the connection in Settings"
         )
 
+    # Determine the cloud resource id to push against.
+    push_cloud_id = target.cloud_id
+    if push_cloud_id is None:
+        # Never pushed by this app and not imported — discover the existing
+        # resource to avoid creating a same-name duplicate.  Match by
+        # filament_id first (deterministic), then by exact name (unique only).
+        push_cloud_id = _discover_cloud_resource(
+            client, preset["filament_id"], preset["name"],
+        )
+        if push_cloud_id == "__ambiguous__":
+            # Multiple cloud presets share this name — refuse to guess.
+            target.status = "drift"
+            log.warning(
+                "Ambiguous cloud match for profile %s (name=%r) — "
+                "multiple presets with same name exist; refusing to "
+                "create a duplicate",
+                profile_id, preset["name"],
+            )
+            return {
+                "filament_id": preset["filament_id"],
+                "expected_hash": expected_hash,
+                "status": "drift",
+            }
+
     try:
         client.sync_push(
             profile_id=preset["filament_id"],
             name=preset["name"],
             content=preset,
+            cloud_id=push_cloud_id,
         )
     except OrcaCloudConflict as exc:
         # Conflict means the profile already exists on Orca Cloud.
@@ -684,6 +753,7 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
                     name=preset["name"],
                     content=preset,
                     original_updated_time=str(server_time),
+                    cloud_id=push_cloud_id,
                 )
             except OrcaCloudConflict:
                 log.warning(
@@ -705,15 +775,16 @@ def handle_generate_preset(session: Session, config: Config, payload: dict) -> d
                 "status": "drift",
             }
     # Store cloud resource UUID for exact-match on future pulls
-    target.cloud_id = client.cloud_id(preset["filament_id"])
+    target.cloud_id = push_cloud_id or client.cloud_id(preset["filament_id"])
     target.status = "in_sync"
     target.last_synced_at = _now()
 
-    _enqueue_github_backup(session)
+    backup_scheduled = _enqueue_github_backup(session)
     return {
         "filament_id": preset["filament_id"],
         "expected_hash": expected_hash,
         "status": "in_sync",
+        "github_backup_scheduled": backup_scheduled,
     }
 
 
@@ -729,11 +800,33 @@ def _sanitize_filename(name: str) -> str:
     return _UNSAFE_CHARS.sub('-', name)
 
 
-def _enqueue_github_backup(session: Session) -> None:
-    """Enqueue a github_backup job if GitHub is configured. No-op otherwise."""
+def _enqueue_github_backup(session: Session) -> bool:
+    """Enqueue a github_backup job if GitHub is configured. No-op otherwise.
+
+    Returns True when a job was enqueued, False when GitHub is unconfigured.
+    """
     if _github_client_factory() is None:
-        return
+        return False
     jobs.enqueue(session, "github_backup", {})
+    return True
+
+def handle_pull(session: Session, config: Config, payload: dict) -> dict:
+    """Pull handler: refresh preset drift from Orca Cloud with adopt=True.
+
+    Wraps ``refresh_preset_drift`` so pull operations can run as background
+    jobs with modal polling — same UX as push/preset/backup.
+    """
+    client = _orca_client_factory()
+    if client is None:
+        raise ValueError(
+            "Orca Cloud not connected — set up the connection in Settings"
+        )
+    profile_id = payload.get("profile_id")
+    refresh_preset_drift(session, adopt=True, profile_id=profile_id)
+    return {
+        "status": "ok",
+        "profile_id": profile_id,
+    }
 
 
 def handle_github_backup(session: Session, config: Config, payload: dict) -> dict:
@@ -852,6 +945,21 @@ def refresh_preset_drift(
     by_cloud_id = {upsert.get("id"): upsert for upsert in pull_result.get("upserts", [])
                    if (upsert.get("content") or {}).get("type") == "filament"}
     by_name = {p.get("name", ""): p for p in presets}
+    # Detect duplicate cloud presets (H-B: OrcaSlicer desktop re-uploads
+    # its own copy with a different resource id).  Match case-insensitively
+    # by name AND by filament_id — the duplicate may differ in name casing
+    # (e.g. 'SUNLU PLA+' vs 'Sunlu PLA+') but share the same filament_id.
+    _name_counts_lower: dict[str, int] = {}
+    _fid_counts: dict[str, int] = {}
+    for up in pull_result.get("upserts", []):
+        content = up.get("content") or {}
+        if content.get("type") == "filament":
+            n = (content.get("name") or up.get("name") or "").lower()
+            if n:
+                _name_counts_lower[n] = _name_counts_lower.get(n, 0) + 1
+            fid = content.get("filament_id") or ""
+            if fid:
+                _fid_counts[fid] = _fid_counts.get(fid, 0) + 1
 
     # Process existing orca_preset targets only
     stmt = select(SyncTarget).where(SyncTarget.kind == "orca_preset")
@@ -912,6 +1020,40 @@ def refresh_preset_drift(
         if preset is None:
             continue
 
+        # Detect duplicate cloud presets (H-B: OrcaSlicer desktop
+        # re-uploads its own copy with a different resource id, or an
+        # old orphan survived a partial web-UI deletion).  The app
+        # cannot know which origin applies, so surface it as a
+        # neutral drift-detail warning directing the user to check
+        # both the Orca Cloud web UI and OrcaSlicer desktop.
+        # Match case-insensitively by name OR by filament_id (the
+        # duplicate may differ in name casing but share the same
+        # filament_id).
+        preset_name = preset.get("name", "")
+        preset_fid = preset.get("filament_id", "")
+        name_key = preset_name.lower()
+        name_dups = _name_counts_lower.get(name_key, 0)
+        fid_dups = _fid_counts.get(preset_fid, 0) if preset_fid else 0
+        if name_dups > 1 or fid_dups > 1:
+            dup_ids = [
+                up.get("id") for up in pull_result.get("upserts", [])
+                if (up.get("content") or {}).get("type") == "filament"
+                and (
+                    ((up.get("content") or {}).get("name") or up.get("name") or "").lower() == name_key
+                    or (preset_fid and (up.get("content") or {}).get("filament_id") == preset_fid)
+                )
+            ]
+            # Deduplicate ids while preserving order
+            seen: set[str] = set()
+            dup_ids = [i for i in dup_ids if not (i in seen or seen.add(i))]
+            preset["_drift_detail"] = (
+                f"{len(dup_ids)} cloud presets share the name "
+                f"'{preset_name}' or filament_id '{preset_fid}' "
+                f"(ids: {', '.join(dup_ids)}). "
+                f"Remove the stale copy — check the Orca Cloud web UI "
+                f"and OrcaSlicer desktop (whichever holds it)."
+            )
+
         actual_hash = canonical_hash({
             "name": preset.get("name"),
             "filament_id": preset.get("filament_id"),
@@ -944,6 +1086,10 @@ def refresh_preset_drift(
             target.status = (
                 "in_sync" if actual_hash == target.expected_hash else "drift"
             )
+
+        # Duplicate cloud presets → drift regardless of hash match
+        if preset.get("_drift_detail"):
+            target.status = "drift"
 
         target.actual_state = json.dumps(preset)
         target.last_synced_at = _now()
@@ -1040,9 +1186,9 @@ def register_handlers() -> None:
     jobs.HANDLERS["push"] = handle_push
     jobs.HANDLERS["verify"] = handle_verify
     jobs.HANDLERS["generate_preset"] = handle_generate_preset
+    jobs.HANDLERS["pull"] = handle_pull
     jobs.HANDLERS["import_scan"] = handle_import_scan
     jobs.HANDLERS["github_backup"] = handle_github_backup
-
 
 # Auto-register on import so including the sync router wires handlers.
 register_handlers()

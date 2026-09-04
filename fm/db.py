@@ -120,6 +120,11 @@ def _migrate(engine: Engine) -> None:
             """))
             conn.commit()
 
+            # v2.0.0: Orca Cloud is the sole source — remove obsolete
+            # orca_preset sync_targets (legacy drift tracking).
+            conn.execute(text("DELETE FROM sync_targets WHERE kind = 'orca_preset'"))
+            conn.commit()
+
 
         # profiles.template_override — added for preset template selection
         profile_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(profiles)"))}

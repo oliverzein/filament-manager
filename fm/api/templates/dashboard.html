@@ -6,9 +6,8 @@
     <div><p class="eyebrow">Overview</p><h1>Dashboard</h1><p>Monitor inventory and profile synchronization at a glance.</p></div>
   </header>
 
-  {% set totals = namespace(spools=0, synced=0) %}
+  {% set totals = namespace(spools=0) %}
   {% for row in spool_counts %}{% set totals.spools = totals.spools + row.spool_count %}{% endfor %}
-  {% for d in drift %}{% if d.printer_db.status == 'in_sync' and d.orca_preset.status == 'in_sync' %}{% set totals.synced = totals.synced + 1 %}{% endif %}{% endfor %}
   <div class="stat-grid">
     <article class="stat-card"><span class="stat-icon purple"><svg viewBox="0 0 24 24"><path d="M7 3h10v3h3v15H4V6h3V3Zm2 3h6V5H9v1Z"/></svg></span><div><span class="stat-label">Cached presets</span><strong>{{ cached_presets }}</strong><small>from Orca Cloud</small></div></article>
     <article class="stat-card"><span class="stat-icon blue"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 3a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm0 14a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z"/></svg></span><div><span class="stat-label">Spools in stock</span><strong>{{ total_spools }}</strong><small>total inventory</small></div></article>
@@ -17,20 +16,19 @@
 
   <div class="dashboard-grid">
     <section id="spool-summary" class="panel">
-      <div class="panel-heading"><div><p class="eyebrow">Inventory</p><h2>Spools by profile</h2></div><a href="/spools" class="text-link">View inventory →</a></div>
+      <div class="panel-heading"><div><p class="eyebrow">Inventory</p><h2>Spools by preset</h2></div><a href="/spools" class="text-link">View inventory →</a></div>
       {% if spool_counts %}
-      <div class="table-wrap"><table><thead><tr><th>Profile</th><th>Spool count</th></tr></thead><tbody>
-      {% for row in spool_counts %}<tr><td><span class="avatar">{{ row.brand[:1] }}{{ row.name[:1] }}</span><span class="cell-main">{{ row.brand }} {{ row.name }}</span></td><td><span class="badge badge-purple">{{ row.spool_count }} spool{% if row.spool_count != 1 %}s{% endif %}</span></td></tr>{% endfor %}
+      <div class="table-wrap"><table><thead><tr><th>Preset</th><th>Spool count</th></tr></thead><tbody>
+      {% for row in spool_counts %}<tr><td><span class="avatar">{{ (row.vendor or '?')[:1] }}{{ (row.name or '?')[:1] }}</span><span class="cell-main">{{ row.name if row.name.lower().startswith((row.vendor or '').lower()) else (row.vendor ~ ' ' ~ row.name if row.vendor else row.name) }}</span></td><td><span class="badge badge-purple">{{ row.spool_count }} spool{% if row.spool_count != 1 %}s{% endif %}</span></td></tr>{% endfor %}
       </tbody></table></div>
       {% else %}<div class="empty-state"><span>◌</span><h3>No spools yet</h3><p>Add a spool to begin tracking inventory.</p><a href="/spools" class="button button-secondary">Add spool</a></div>{% endif %}
     </section>
 
-    <section id="drift-matrix" class="panel">
-      <div class="panel-heading"><div><p class="eyebrow">Connections</p><h2>Sync drift</h2></div><a href="/sync" class="text-link">Manage sync →</a></div>
-      <p class="target-note">Status refresh includes a live check against Orca Cloud.</p>
-      {% if drift %}<div class="table-wrap"><table><thead><tr><th>Profile</th><th>Printer</th><th>Orca</th></tr></thead><tbody>
-      {% for d in drift %}<tr><td><span class="cell-main">{{ d.brand }} {{ d.name }}</span></td><td><span class="status-badge status-{{ d.printer_db.status }}"{% if d.printer_db.detail %} title="{{ d.printer_db.detail }}"{% endif %}>{{ d.printer_db.status | replace('_', ' ') }}</span></td><td><span class="status-badge status-{{ d.orca_preset.status }}"{% if d.orca_preset.detail %} title="{{ d.orca_preset.detail }}"{% endif %}>{{ d.orca_preset.status | replace('_', ' ') }}</span></td></tr>{% endfor %}
-      </tbody></table></div>{% else %}<div class="empty-state compact"><p>No profiles tracked.</p></div>{% endif %}
+    <section id="preset-sync-status" class="panel">
+      <div class="panel-heading"><div><p class="eyebrow">Connections</p><h2>Preset sync status</h2></div><a href="/sync" class="text-link">Manage sync →</a></div>
+      {% if presets %}<div class="table-wrap"><table><thead><tr><th>Preset</th><th>Printer DB</th><th>Status</th></tr></thead><tbody>
+      {% for p in presets %}<tr><td><span class="cell-main">{{ p.name if p.name.lower().startswith(p.vendor.lower()) else p.vendor ~ ' ' ~ p.name }}</span><span class="cell-sub">{{ p.type }}</span></td><td>{% if p.is_stock %}<span class="muted">Creality Stock</span>{% elif p.printer_db_id %}<span class="cell-main">{{ p.printer_db_id }}</span>{% else %}<span class="muted">Not pushed</span>{% endif %}</td><td><span class="status-badge status-{{ p.status | status_class }}">{{ p.status | replace('_', ' ') }}</span></td></tr>{% endfor %}
+      </tbody></table></div>{% else %}<div class="empty-state compact"><p>No cached presets.</p></div>{% endif %}
     </section>
   </div>
 

@@ -20,12 +20,12 @@ from sqlalchemy.orm import Session
 
 from ..db import SessionLocal
 from ..config import Config
-from ..models import ActivityLog, Job, Profile, ProfileCache, Spool, SyncTarget
+from ..models import ActivityLog, Job, ProfileCache, Spool, SyncTarget
 from ..service import jobs
 from ..service import sync_handlers
 from ..service.cache_sync import sync_profile_cache
 from ..printer.dbcodec import find_entry, load_db, save_db, remove_entry
-from .sync import drift_status, _get_config
+from .sync import _get_config
 from ..settings_store import (
     load_settings, save_settings, build_config,
     load_orca_token, save_orca_token,
@@ -74,16 +74,20 @@ def _fmt_local(dt: datetime | None) -> str | None:
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: DbSession) -> HTMLResponse:
-    """Spool count by profile (top 10), drift matrix, last 20 activity rows,
-    cached preset count, total spool inventory, and printer DB target stats."""
+    """Spool count by preset (top 10), preset sync status, last 20 activity
+    rows, cached preset count, total spool inventory, and printer DB target
+    stats."""
     spool_counts = db.execute(
         select(
-            Profile.id, Profile.brand, Profile.name,
+            ProfileCache.cloud_resource_id,
+            ProfileCache.vendor,
+            ProfileCache.name,
             func.count(Spool.id).label("spool_count"),
         )
-        .join(Spool, Spool.profile_id == Profile.id, isouter=True)
-        .group_by(Profile.id)
-        .order_by(func.count(Spool.id).desc(), Profile.id)
+        .join(Spool, Spool.cloud_resource_id == ProfileCache.cloud_resource_id, isouter=True)
+        .where(ProfileCache.deleted_from_cloud == False)  # noqa: E712
+        .group_by(ProfileCache.cloud_resource_id)
+        .order_by(func.count(Spool.id).desc(), ProfileCache.name)
         .limit(10)
     ).all()
 
@@ -102,7 +106,7 @@ def dashboard(request: Request, db: DbSession) -> HTMLResponse:
         .where(SyncTarget.kind == "printer_db")
     ) or 0
 
-    drift = drift_status(request, db)
+    presets = _preset_status_rows(db)
 
     activity = list(
         db.scalars(
@@ -113,7 +117,8 @@ def dashboard(request: Request, db: DbSession) -> HTMLResponse:
     return _templates(request).TemplateResponse(
         request, "dashboard.html",
         {
-            "spool_counts": spool_counts, "drift": drift, "activity": activity,
+            "spool_counts": spool_counts, "presets": presets,
+            "activity": activity,
             "total_spools": total_spools, "cached_presets": cached_presets,
             "pdb_in_sync": pdb_in_sync, "pdb_total": pdb_total,
         },

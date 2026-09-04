@@ -58,9 +58,9 @@ def test_dashboard_renders(client):
     assert b"Dashboard" in r.content
 
 
-def test_dashboard_drift_and_activity_sections_present(client):
+def test_dashboard_preset_sync_and_activity_sections_present(client):
     r = client.get("/")
-    assert b"drift-matrix" in r.content
+    assert b"preset-sync-status" in r.content
     assert b"recent-activity" in r.content
 
 
@@ -200,3 +200,68 @@ def test_dashboard_cached_presets_excludes_deleted(client):
     # Only 1 active preset should be counted
     assert ">1<" in html
     assert ">2<" not in html
+
+
+# ---------------------------------------------------------------------------
+# v2.0.0 dashboard modernization — ProfileCache spools, preset sync, no doubles
+# ---------------------------------------------------------------------------
+
+def test_dashboard_no_double_names(client, seeded_cache_profile):
+    """Dashboard must not print 'Sunlu Sunlu PLA+ Optimized' — the name already
+    starts with the vendor, so the brand prefix is deduplicated."""
+    r = client.get("/")
+    assert r.status_code == 200
+    html = r.text
+    assert "Sunlu PLA+ Optimized" in html
+    assert "Sunlu Sunlu" not in html
+
+
+def test_dashboard_spools_by_preset_header(client):
+    """The spool summary panel header reads 'Spools by preset' (not 'profile')."""
+    r = client.get("/")
+    assert b"Spools by preset" in r.content
+
+
+def test_dashboard_no_drift_column(client):
+    """The obsolete 'Sync drift' / 'Printer | Orca' matrix must be gone."""
+    r = client.get("/")
+    assert b"Sync drift" not in r.content
+    assert b"drift-matrix" not in r.content
+
+
+def test_dashboard_preset_sync_status_table(client, seeded_cache_profile):
+    """The right panel shows 'Preset sync status' with Preset/Printer DB/Status
+    columns and the cached preset row."""
+    r = client.get("/")
+    assert r.status_code == 200
+    html = r.text
+    assert "Preset sync status" in html
+    assert "Printer DB" in html
+    # The seeded preset appears with deduplicated name
+    assert "Sunlu PLA+ Optimized" in html
+
+
+def test_dashboard_spool_counts_via_cloud_resource_id(client, seeded_cache_profile):
+    """Spools linked via cloud_resource_id are counted in the spool summary."""
+    from fm.models import Spool
+    now = datetime.now(timezone.utc)
+    with SessionLocal() as s:
+        s.add(Spool(
+            cloud_resource_id=seeded_cache_profile,
+            remaining_pct=100,
+            created_at=now,
+            updated_at=now,
+        ))
+        s.commit()
+    r = client.get("/")
+    assert r.status_code == 200
+    html = r.text
+    assert "Sunlu PLA+ Optimized" in html
+    assert "1 spool" in html
+
+
+def test_dashboard_empty_presets_state(client):
+    """With no cached presets, the preset sync panel shows the empty state."""
+    r = client.get("/")
+    assert r.status_code == 200
+    assert b"No cached presets." in r.content

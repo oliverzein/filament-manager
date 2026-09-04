@@ -52,3 +52,32 @@ def test_sync_hub_renders_preset_status_table(client):
 def test_push_modal_accepts_cloud_resource_ids(client):
     resp = client.post("/sync/push-modal", data={"cloud_resource_ids": "uuid-1"})
     assert resp.status_code in (200, 204)
+
+
+def test_orphan_remove_token_mismatch_returns_422(client):
+    """Double-Confirm: wrong typed token returns HTTP 422."""
+    resp = client.post("/sync/printer-db/99001/remove", data={"confirm": "wrong"})
+    assert resp.status_code == 422
+
+
+def test_orphan_remove_missing_target_returns_404(client):
+    """No SyncTarget for the given entry_id returns HTTP 404."""
+    resp = client.post("/sync/printer-db/99999/remove", data={"confirm": "99999"})
+    assert resp.status_code == 404
+
+
+def test_orphan_remove_success_returns_fragment_and_deletes_target(client):
+    """Successful remove returns the hub fragment (200) and deletes the SyncTarget."""
+    from sqlalchemy import select as _sel
+    from fm.db import SessionLocal
+
+    resp = client.post("/sync/printer-db/99001/remove", data={"confirm": "99001"})
+    assert resp.status_code == 200
+    # Fragment should contain the preset table, not a full page redirect
+    assert "preset-table" in resp.text
+    # SyncTarget should be gone
+    with SessionLocal() as s:
+        target = s.scalars(
+            _sel(SyncTarget).where(SyncTarget.printer_db_id == "99001")
+        ).first()
+        assert target is None

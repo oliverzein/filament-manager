@@ -27,7 +27,7 @@ from ..models import ActivityLog, Job, Profile, ProfileCache, Spool, SyncTarget
 from ..service import jobs
 from ..service import sync_handlers
 from ..service.sync_handlers import _entry_hash, refresh_preset_drift, _cloud_presets_to_local, canonical_hash
-from ..printer.dbcodec import load_db, save_db, remove_entry
+from ..printer.dbcodec import find_entry, load_db, save_db, remove_entry
 from .sync import drift_status, _get_config
 from .catalog import _validate, perform_delete
 from ..settings_store import (
@@ -1394,13 +1394,14 @@ def sync_hub_fragment(request: Request, db: DbSession) -> HTMLResponse:
 def sync_printer_db_remove(
     request: Request, entry_id: str, db: DbSession,
     confirm: str = Form(...),
-) -> RedirectResponse:
+) -> HTMLResponse:
     """Remove an orphan printer DB entry and its SyncTarget.
 
     Double-Confirm: the typed ``confirm`` token must match ``entry_id``
-    exactly (e.g. ``99001``) before any deletion proceeds.  Loads the
-    cached printer DB, calls ``remove_entry`` (which refuses stock IDs),
-    saves the cache, and removes the SyncTarget row.
+    exactly (e.g. ``99001``) before any deletion proceeds.  Removes the
+    entry from the cached printer DB (if present) and deletes the
+    SyncTarget row.  Returns the refreshed ``_sync_hub_grid.html``
+    fragment so HTMX can swap it into ``#sync-hub-content``.
     """
     if confirm != entry_id:
         raise HTTPException(
@@ -1420,7 +1421,8 @@ def sync_printer_db_remove(
             detail=f"No SyncTarget for printer DB entry {entry_id}",
         )
     # Remove from the cached printer DB (if a cache is available).
-    config = getattr(request.app.state, "config", None)
+    # Guard with find_entry so a missing cache entry doesn't block
+    # SyncTarget cleanup.
     cache_path = (
         sync_handlers._cache_db_path
         if sync_handlers._cache_db_path is not None
@@ -1428,16 +1430,29 @@ def sync_printer_db_remove(
     )
     if cache_path is not None and Path(cache_path).exists():
         printer_db = load_db(cache_path)
-        remove_entry(printer_db, entry_id)
-        save_db(cache_path, printer_db)
-    # Remove the SyncTarget.
+        if find_entry(printer_db, entry_id) is not None:
+            remove_entry(printer_db, entry_id)
+            save_db(cache_path, printer_db)
+    # Remove the SyncTarget — always executes regardless of cache state.
     db.delete(target)
     jobs.log_activity(
         db, "printer_db_remove", "ok",
         {"entry_id": entry_id, "sync_target_id": target.id},
     )
     db.commit()
-    return RedirectResponse(url="/sync?removed=1", status_code=303)
+    # Return the refreshed hub fragment for HTMX swap.
+    presets = _preset_status_rows(db)
+    awaiting_jobs = list(db.scalars(
+        select(Job).where(Job.status == "awaiting_input").order_by(Job.id)
+    ))
+    return _templates(request).TemplateResponse(
+        request, "_sync_hub_grid.html",
+        {
+            "presets": presets,
+            "awaiting_jobs": awaiting_jobs,
+            "github_configured": load_github_config() is not None,
+        },
+    )
 
 # ---------------------------------------------------------------------------
 # Migration wizard — one-time import of existing printer DB entries

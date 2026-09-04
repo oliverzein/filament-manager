@@ -1,9 +1,10 @@
 # Filament Manager
 
-A hosted web app to manage 3D-printing filaments: a profile catalog, a spool
-inventory, and a sync engine that keeps a Creality K2 printer DB and OrcaSlicer
-presets derived from the catalog. It replaces the sync portions of the
-`creality-custom-filament` Devin skill with a UI-driven workflow.
+A hosted web app to manage 3D-printing filament spool inventory and keep a
+Creality K2 printer database in sync with Orca Cloud filament presets.
+Orca Cloud is the sole source of filament presets — presets are created and
+tuned in OrcaSlicer Desktop, synced to Orca Cloud, and the Manager caches
+them read-only for spool tracking and printer DB push.
 
 The full design lives in
 [`docs/superpowers/specs/2026-08-26-filament-manager-design.md`](docs/superpowers/specs/2026-08-26-filament-manager-design.md).
@@ -11,42 +12,42 @@ Working instructions for agents and humans are in [`AGENTS.md`](AGENTS.md).
 
 ## Purpose
 
-1. **Profile catalog** — brands, types, colors, print parameters (temps, flow
-   ratio, retraction, PA, density, drying). OrcaSlicer is the sole editor of
-   print settings; the catalog displays them read-only after sync.
-2. **Spool inventory** — which spools are in stock, their color (dropdown of
-   common colors + custom picker), remaining amount, location. Spools can be
-   edited, duplicated (remaining reset to 100%), and deleted inline.
-3. **Sync** — keep the Creality K2 printer DB and OrcaSlicer presets derived
-   from the catalog. Drift is detected by comparing expected vs. actual state; the printer DB column pulls live status from the printer (with cache fallback) rather than relying on sync bookkeeping.
-4. **Import from Orca Cloud** — bring standard filament presets (including
-   inherited presets with resolved identity) into the catalog as profiles for
-   spool tracking and print-settings display.
+1. **Spool inventory** — which spools are in stock, their color (dropdown of
+   common colors + custom picker), remaining amount, location. Spools are
+   linked to cached Orca Cloud presets via `cloud_resource_id`. Spools can
+   be edited, duplicated (remaining reset to 100%), and deleted inline.
+   Spools whose preset was deleted from Orca Cloud show an **Orphan** badge.
+2. **Sync** — push cached Orca Cloud presets to the Creality K2 printer DB.
+   The Sync Hub shows a Preset & Status table with per-preset printer DB
+   sync state, push-to-printer actions, and orphan printer DB entry removal.
+3. **Orca Cloud cache** — the Manager pulls filament presets from Orca Cloud
+   into a read-only `profile_cache` table. Presets are created and edited in
+   OrcaSlicer Desktop; the Manager never writes presets to Orca Cloud.
 
-Non-goals: NFC tag programming (stays manual; the app shows checklists),
-multi-printer support, multi-user/auth.
+Non-goals: local profile/catalog editing, preset generation, NFC tag
+programming (stays manual; the app shows checklists), multi-printer support,
+multi-user/auth.
 
 ## Architecture
 
-Catalog is the single source of truth. Printer DB entries and OrcaSlicer
-presets are derived views; drift is detected by comparing expected vs. actual
-state. The printer DB drift column pulls live status from the printer via SSH on each page load (with cache-file fallback) so profiles pushed before the Manager existed show their true status. OrcaSlicer is the sole editor of print settings — the Manager generates
-a starter preset, the user tunes in OrcaSlicer, and the Manager displays the
-tuned values read-only after sync.
+Orca Cloud is the sole source of filament presets. The Manager caches them
+read-only in a `profile_cache` table. Printer DB entries are derived from
+cached cloud presets and pushed to the printer. Spools reference cached
+presets via `cloud_resource_id`. Presets deleted from Orca Cloud are
+soft-deleted in the cache (tombstoned) and surface as orphan badges on
+linked spools and in the Sync Hub.
 
 ```
 ┌─────────────────────────── Unraid container ───────────────────────────┐
 │  Filament Manager (FastAPI + SQLite + Jinja2/HTMX)                     │
-│  • Profiles + Spool inventory                                          │
-│  • Sync engine: derives printer DB entries + preset payloads           │
+│  • Spool inventory (linked to cached presets via cloud_resource_id)    │
+│  • Orca Cloud cache: read-only profile_cache from sync_pull            │
+│  • Sync Hub: Preset & Status table, push to printer, orphan removal    │
 │  • Printer sync: SSH/SCP push + version bump + reboot + verify         │
 │    (logic lifted from cfs.py, iron rules enforced server-side)         │
-│  • Orca Cloud sync: push starter presets + pull tuned settings         │
-│    (direct Orca Cloud Sync API integration)                            │
-│  • Import from Orca Cloud: standard presets → catalog profiles         │
-│  • Preset templates: bundled @base presets drive preset generation     │
+│  • GitHub backup: commit all Orca Cloud presets as JSON to a repo      │
 │  • Settings page: printer connection + Orca Cloud connection           │
-└──────────────┬─────────────────────────────────────────────────────────┘
+└──────────────┬──────────────┬──────────────────────────────────────────┘
                │ SSH/SCP to printer (LAN-only)
                │ HTTPS to Orca Cloud API
 ┌──────────────▼───────────── Printer ───────────────────────────────────┐
@@ -54,8 +55,8 @@ tuned values read-only after sync.
 └────────────────────────────────────────────────────────────────────────┘
 ┌──────────────▼───────────── Orca Cloud ────────────────────────────────┐
 │  OrcaSlicer Cloud Sync API (api.orcaslicer.com)                        │
-│  • Starter presets pushed via POST /api/v1/sync/push                   │
-│  • Tuned settings pulled via GET /api/v1/sync/pull                     │
+│  • Presets created/tuned in OrcaSlicer Desktop                        │
+│  • Manager pulls via GET /api/v1/sync/pull (read-only cache)           │
 │  • OrcaSlicer syncs via File > Sync Presets (desktop app)              │
 └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -63,9 +64,8 @@ tuned values read-only after sync.
 | Component | Runs on | Tech |
 |---|---|---|
 | Web app | Unraid Docker | Python 3.12, FastAPI, SQLAlchemy + SQLite, Jinja2 + HTMX |
-| Orca Cloud sync | in app image | Direct Orca Cloud Sync API client (`fm/orca_cloud.py`), stdlib + requests |
-| Preset templates | in app image | Bundled `@base` filament presets (`fm/presets/templates/`, `template_index.json`) committed to git — no OrcaSlicer needed at runtime |
-| Shared core | in app image | Modules lifted from the skill: DB patching, version bump, preset matching, flatten, preset builder |
+| Orca Cloud cache | in app image | Direct Orca Cloud Sync API client (`fm/orca_cloud.py`), stdlib + requests |
+| Shared core | in app image | Modules lifted from the skill: DB patching, version bump, preset matching, flatten |
 
 The existing skill stays untouched and remains available for agent-driven flows.
 
@@ -77,7 +77,7 @@ The existing skill stays untouched and remains available for agent-driven flows.
 scripts/dev-start.sh   # uvicorn on :8404, isolated SQLite in .local/
 # ... iterate ...
 scripts/dev-stop.sh    # deterministic stop via .local/server.pid
-scripts/test.sh        # full pytest suite (379 tests)
+scripts/test.sh        # full pytest suite (309 tests)
 ```
 
 `dev-start.sh` exports an isolated
@@ -90,8 +90,8 @@ The image is built and loaded locally — there is no registry. From a clean
 tree:
 
 ```bash
-scripts/release.sh 0.1.0          # tag vX.Y.Z, build image, save dist/*.tar.gz
-scripts/deploy-unraid.sh 0.1.0    # load image + XML template on Unraid, restart
+scripts/release.sh 2.0.0           # tag vX.Y.Z, build image, save dist/*.tar.gz
+scripts/deploy-unraid.sh 2.0.0     # load image + XML template on Unraid, restart
 ```
 
 `deploy-unraid.sh` expects a deploy env file at `deploy/filament-manager.env`
@@ -133,10 +133,9 @@ authoritative `FM_*` list lives in `fm/config.py`.
 |---|---|
 | `scripts/dev-start.sh` | Start the app locally (uvicorn, dev config, isolated SQLite in `.local/`); waits for readiness. |
 | `scripts/dev-stop.sh` | Stop the local dev app deterministically via `.local/server.pid`. |
-| `scripts/test.sh` | Run the full pytest suite (379 tests). |
+| `scripts/test.sh` | Run the full pytest suite (309 tests). |
 | `scripts/release.sh <version>` | Semver tag, build the Docker image, save a gzipped tarball to `dist/`; refuses a dirty tree. |
 | `scripts/deploy-unraid.sh <version>` | Load the released image + XML template onto Unraid, restart the container, wait for readiness. |
-| `scripts/build_templates.py` | One-off dev-time bundler: scans a local OrcaSlicer install for `@base` filament presets, copies them into `fm/presets/templates/`, and regenerates `fm/presets/template_index.json`. Output is committed to git; re-run only when OrcaSlicer updates its preset library. |
 
 Per `AGENTS.md`, any action likely to repeat goes into a script under `scripts/`
 — agents call scripts, never ad-hoc command sequences.
@@ -146,68 +145,81 @@ Per `AGENTS.md`, any action likely to repeat goes into a script under `scripts/`
 | Page | Route | Description |
 |---|---|---|
 | Dashboard | `/` | Spool count by profile, drift matrix, recent activity. |
-| Profiles | `/profiles` | Catalog of filament profiles with filter/search. |
-| Profile edit | `/profiles/{id}/edit` | Edit identity (brand, name, type, colors, density, drying, notes), pick a preset source template, and view read-only OrcaSlicer print settings (synced from Orca Cloud). |
-| Profile delete | `/profiles/{id}/delete` | Confirmation page (Iron Rule 5): typed-token confirm for pushed profiles, spool cascade checkbox, sync-target cleanup. Orca Cloud presets are not auto-deleted. |
-| Spools | `/spools` | Spool inventory with inline edit, duplicate (remaining=100%), delete, and color dropdown (30 common colors + custom picker). |
-| Sync | `/sync` | Drift table, push/verify/preset actions, job progress, busy-printer resolution. |
-| Orca Cloud Import | `/import-orca` | Import standard Orca Cloud presets (including resolved inherited presets) as catalog profiles. |
-| Migration | `/migration` | One-time import of existing printer DB entries. |
+| Spools | `/spools` | Spool inventory linked to cached Orca Cloud presets via `cloud_resource_id`. Inline edit, duplicate (remaining=100%), delete, and color dropdown (30 common colors + custom picker). Spools whose preset was deleted from Orca Cloud show an **Orphan** badge. |
+| Sync | `/sync` | Sync Hub: Preset & Status table from `profile_cache`, push-to-printer actions, orphan printer DB entry removal (double-confirm typed token), job progress, busy-printer resolution. |
 | Settings | `/settings` | Printer connection config + Orca Cloud connection (IP, SSH credentials, DB path, test connection, Orca Cloud auth). |
 
-## Migration (one-time)
+## Orca Cloud cache
 
-The Migration page (`/migration`) imports existing printer-DB custom entries
-into the catalog on first deploy.
+The Manager pulls filament presets from Orca Cloud via the Sync API
+(`GET /api/v1/sync/pull`) and stores them in a read-only `profile_cache`
+table. Each cache entry records the cloud resource ID, name, vendor, type,
+filament ID, inheritance flag, and soft-delete tombstone.
 
-1. Open **Migration** in the web UI.
-2. **Step 1 — Import scan**: click *Start import scan*. The app pulls the
-   printer DB, extracts all 99xxx entries as proposals.
-3. **Step 2 — Review proposals**: a table lists each proposed profile
-   (printer DB ID, brand, name, type, temps, density) with an import checkbox.
-   Entries already in the catalog are marked *exists* and pre-checked.
-4. Select the entries to import and click **Import selected**. The app creates
-   / updates Profiles and SyncTargets, **preserving existing `printer_db_id`
-   and `filament_id`** to avoid OrcaSlicer Cloud collisions.
+**Presets are created and tuned in OrcaSlicer Desktop.** The user opens
+OrcaSlicer, creates or edits a filament preset, and syncs it to Orca Cloud
+via File > Sync Presets. The Manager then pulls the updated presets into
+the cache on the next sync. The Manager never writes presets to Orca Cloud.
 
-Expected first-run entries: 99001 Sunlu PLA+, 99002 eSUN PETG Basic, 99003
-CAILAB PLA Silk, 99004 Cailab PLA+ Bio.
+**Inherited presets** (those with an `inherits` field) are resolved at cache
+sync time — the parent system preset's identity (filament_id,
+filament_vendor) and type are merged into the child, with child overrides
+winning.
 
-## Import from Orca Cloud
+**Soft deletes**: presets deleted from Orca Cloud are tombstoned in the
+cache (`deleted_from_cloud=True`, `deleted_at` timestamp). Spools linked to
+tombstoned presets show an **Orphan** badge. Tombstoned presets appear in
+the Sync Hub with an **orphan** status and a **Remove** button for cleaning
+up orphaned printer DB entries.
 
-The Orca Cloud Import page (`/import-orca`) shows Orca Cloud presets not yet
-linked to a catalog profile. Presets are pulled directly from Orca Cloud via
-the Sync API. Inherited presets (those with an `inherits` field) are resolved
-at import time — the parent system preset's identity (filament_id,
-filament_vendor) and settings are merged into the child, with child overrides
-winning. `filament_type` is derived from the parent preset name when the
-system preset omits it.
+## Spool inventory
 
-Imported profiles get `printer_db_id=None` (no push to printer — standard
-filaments are already on the printer). After import, click "Sync from Orca" on
-the profile page to populate the read-only print settings.
+Spools are physical filament rolls. Each spool references a cached Orca Cloud
+preset via `cloud_resource_id` (a foreign key to `profile_cache`). The spool
+form's profile dropdown lists non-deleted cached presets. Spools linked to
+deleted presets retain their `cloud_resource_id` and show an **Orphan** badge
+in the inventory table.
 
-## Preset templates
+Spool operations: add (select a cached preset, pick a color, set location and
+remaining %), inline edit, duplicate (remaining reset to 100%), delete, and
+remaining-percentage slider (auto-saves via HTMX).
 
-Preset generation starts from a bundled `@base` filament template so starter
-presets carry realistic defaults. `scripts/build_templates.py` is a one-off
-dev-time bundler: it scans a local OrcaSlicer install
-(`/opt/orca-slicer/resources/profiles`), copies the `@base` filament presets
-into `fm/presets/templates/`, and generates `fm/presets/template_index.json`
-(352 indexed entries). Both are committed to git, so the app, repo, and Docker
-image are self-contained — servers need no OrcaSlicer installed. Re-run the
-script only when OrcaSlicer updates its preset library.
+## Sync Hub
 
-The profile form has an HTMX **Preset source** picker: a type filter, a vendor
-filter ("All vendors"), and a template dropdown (optgroups, defaulting to "Use
-Generic \<type\> defaults (recommended)") with a live preview of nozzle
-temperature, flow ratio, fan range, and max volumetric flow. The chosen
-template is stored on `Profile.template_override`; brand and template vendor
-are independent, so a house brand may use a Generic preset. Changing the type
-resets the selection. Server-side validation clears a template that does not
-match the submitted type, and the builder falls back to the generic type
-default (with a warning log) if a template file is missing. Changing a
-profile's template has no effect until the next generate-preset run.
+The Sync Hub (`/sync`) is the central sync management page. It shows:
+
+- **Preset & Status table** — one row per cached Orca Cloud preset, showing
+  vendor, name, type, printer DB ID (if pushed), and sync status
+  (`in_sync`, `pending`, or `orphan`). Each row has a **Push to Printer**
+  button (for non-orphan presets) or a **Remove** button (for orphan presets
+  with a printer DB ID).
+- **Printer DB target card** — summary of in-sync vs. not-pushed counts, with
+  a bulk **Push to Printer** button.
+- **Cloud presets target card** — summary of cached presets and orphan count.
+  Orca Cloud is the sole source of filament presets; new presets are created
+  in OrcaSlicer and sync via Orca Cloud.
+- **GitHub backup target card** — commit all Orca Cloud presets as JSON files
+  to a configured repository.
+- **Busy dialog** — when the printer is busy, awaiting-input jobs show
+  resolution options (force reboot, wait, no reboot).
+- **Job progress** — live polling of job status (push, verify, github_backup).
+
+### Push to printer
+
+Pushes cached Orca Cloud presets to the Creality K2 printer's filament
+database. The push handler pulls live presets from Orca Cloud, filters out
+stock Creality presets, flattens inherited presets, and builds printer DB
+entries with 99xxx IDs. The iron-rule pipeline enforces: busy-check before
+upload, backup with rotation (keep 5), version bump (≥ 9876543210), SCP
+upload, reboot, and automatic verify.
+
+### Orphan printer DB entry removal
+
+Orphan printer DB entries (99xxx IDs whose cloud preset was deleted) persist
+on the printer until explicitly removed. The Sync Hub's **Remove** button
+(on orphan rows with a printer DB ID) triggers a double-confirm flow: the
+typed token must match the entry ID. This removes the entry from the local
+printer DB cache and deletes the associated `SyncTarget`.
 
 ## Orca Cloud integration
 
@@ -220,35 +232,14 @@ configured on the Settings page (Orca Cloud email/password connect,
 the server persists the new token automatically after each API call
 (`fm/settings_store.py`).
 
-**Push** (starter presets): triggered from the Sync page's drift table
-(per-profile generate button) or via `POST /api/sync/preset/{profile_id}`;
-it enqueues a `generate_preset` job that builds a standalone preset
-from the catalog profile and pushes it directly to Orca Cloud via
-`OrcaCloudClient.sync_push`, setting `SyncTarget(orca_preset).expected_hash`.
-The user then opens OrcaSlicer, runs File > Sync Presets to pull the starter,
-tunes the print settings, and syncs again to push the tuned values back to
-Cloud. Printer DB push is the separate `push` job.
-
-**Pull** (tuned settings): the Manager pulls tuned presets from Orca Cloud
-via `GET /api/v1/sync/pull` and stores them in `SyncTarget.actual_state` for
-read-only display on the profile page. Incremental pulls use a cursor stored
-in settings; a 410 Gone response triggers a full resync (cursor reset to 0).
-
-**Sync from Orca** (UI): "Sync from Orca" on a profile page
-(`POST /profiles/{pid}/sync-from-orca`) pulls that profile's tuned preset and
-refreshes the read-only print-settings fragment (`GET /profiles/{pid}/orca-fragment`,
-which now shows "template: \<name\>"). `POST /profiles/sync-from-orca` does the
-same for every profile at once.
+**Pull** (read-only cache): the Manager pulls presets from Orca Cloud via
+`GET /api/v1/sync/pull` and upserts them into the `profile_cache` table.
+Soft deletes are processed from the tombstone feed. This is a read-only
+operation — the Manager never pushes presets to Orca Cloud.
 
 **Conflict handling**: if the server's `updated_time` is newer than the
 client's (409 conflict), the server returns the current version and the
 client can re-pull to get the latest.
-
-**Profile IDs**: Orca Cloud profile IDs are deterministic UUIDs derived from
-the profile name + user ID (matching OrcaSlicer's `generate_uuid_for_setting_id`).
-This ensures the same profile always maps to the same Cloud ID across pushes.
-
-**Payload limit**: the Sync API accepts payloads up to 1 MB per profile.
 
 ## Sync jobs
 
@@ -263,13 +254,12 @@ Job kinds:
 
 | Kind | Trigger | Action |
 |---|---|---|
-| `push` | `POST /api/sync/push` | Rebuild printer DB from cache + catalog, push via SSH/SCP, bump version + reboot, enqueue `verify`. |
+| `push` | `POST /api/sync/push`, Sync Hub push button | Rebuild printer DB from cloud presets (or catalog fallback), push via SSH/SCP, bump version + reboot, enqueue `verify`. |
 | `verify` | (enqueued by `push`) | Pull fresh DB, floor-check + presence + hash compare, update `SyncTarget.status`. |
-| `generate_preset` | `POST /api/sync/preset/{profile_id}` | Build standalone preset, push directly to Orca Cloud, set `expected_hash`. |
-| `import_scan` | `POST /import-orca/apply`, migration step | Pull presets/printer DB and produce import proposals. |
+| `github_backup` | `POST /api/sync/backup-github`, Sync Hub backup button | Pull all Orca Cloud presets, write each as JSON + index.json, commit to GitHub. |
 
 A `push` that finds the printer busy parks the job as `awaiting_input`; the
-user resolves it from the Sync page (or `POST /api/jobs/{id}/resolve`) by
+user resolves it from the Sync Hub (or `POST /api/jobs/{id}/resolve`) by
 choosing `force_reboot`, `wait`, or `no_reboot`, which re-queues and drains the
 job.
 
@@ -280,11 +270,10 @@ session sees them:
 
 1. Version `>= 9876543210` + reboot mandatory after every printer-DB write;
    the busy-check runs **before** any upload.
-2. Profile name must contain the vendor ("Sunlu PLA+", not "PLA+").
-3. Custom printer IDs only in the 99xxx range; stock IDs protected.
-4. Backup on the printer before every write; rotate, keep 5.
-5. Double-confirm on delete (typed token must match).
-6. Refuse push when DB `< 30` entries (`MIN_DB_ENTRIES`) unless explicitly
+2. Custom printer IDs only in the 99xxx range; stock IDs protected.
+3. Backup on the printer before every write; rotate, keep 5.
+4. Double-confirm on delete (typed token must match).
+5. Refuse push when DB `< 30` entries (`MIN_DB_ENTRIES`) unless explicitly
    forced.
 
 See the [design spec](docs/superpowers/specs/2026-08-26-filament-manager-design.md)

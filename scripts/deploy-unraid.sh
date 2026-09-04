@@ -2,7 +2,7 @@
 # deploy-unraid.sh <version> — load the released image onto the Unraid host
 # and restart the filament-manager container.
 #
-#   scripts/deploy-unraid.sh 0.1.0
+#   scripts/deploy-unraid.sh 2.0.0
 #
 # Prerequisites:
 #   - dist/filament-manager-<version>.tar.gz produced by scripts/release.sh
@@ -17,7 +17,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [[ $# -ne 1 ]]; then
-  echo "usage: $0 <version>   (e.g. 0.1.0)" >&2
+  echo "usage: $0 <version>   (e.g. 2.0.0)" >&2
   exit 2
 fi
 version="$1"

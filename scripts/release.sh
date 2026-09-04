@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # release.sh <version> — tag, build the Docker image, and save a gzipped tarball.
 #
-#   scripts/release.sh 0.1.0
+#   scripts/release.sh 2.0.0
 #
 # Requires a clean git tree. Produces dist/filament-manager-<version>.tar.gz
 # and prints its sha256 checksum.
@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [[ $# -ne 1 ]]; then
-  echo "usage: $0 <version>   (e.g. 0.1.0)" >&2
+  echo "usage: $0 <version>   (e.g. 2.0.0)" >&2
   exit 2
 fi
 version="$1"

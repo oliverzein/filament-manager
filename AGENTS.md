@@ -3,10 +3,10 @@
 Instructions for AI agents (and humans) working in this repository.
 
 ## Project
-
-Web app to manage 3D-printing filament profiles + spool inventory, with sync
-to a Creality K2 printer DB and OrcaSlicer presets. OrcaSlicer is the sole
-editor of print settings; the Manager displays them read-only after sync.
+Web app to manage 3D-printing filament spool inventory and sync to a
+Creality K2 printer DB from Orca Cloud filament presets. Orca Cloud is
+the sole source of presets — presets are created and tuned in OrcaSlicer
+Desktop, synced to Orca Cloud, and the Manager caches them read-only.
 See `docs/superpowers/specs/2026-08-26-filament-manager-design.md` for the
 design.
 
@@ -27,10 +27,11 @@ design.
 4. **Dev server restart**: After changing UI routes (`fm/api/ui.py`), restart
    the dev server to pick up new endpoints. Templates and CSS are picked up
    without restart.
-5. **OrcaSlicer is the editor**: Do not add print-settings fields to the
-   Profile model or the profile edit form. Print settings come from OrcaSlicer
-   via the Orca Cloud Sync API and are stored in
-   `SyncTarget.actual_state` (JSON). The profile page displays them read-only.
+5. **Orca Cloud is the sole source**: Do not add local profile editing,
+   preset generation, or catalog CRUD. Presets are created and tuned in
+   OrcaSlicer Desktop and synced to Orca Cloud. The Manager caches them
+   read-only in `profile_cache`. Spools link to cached presets via
+   `cloud_resource_id`.
 6. **No model migrations**: Use existing columns and `SyncTarget.actual_state`
    for new data. Do not add columns to the Profile or Spool models.
 
@@ -38,24 +39,22 @@ design.
 
 1. Version ≥ 9876543210 + reboot mandatory after every printer-DB write;
    busy-check runs BEFORE any upload.
-2. Profile name must contain the vendor ("Sunlu PLA+", not "PLA+").
-3. Custom printer IDs only in 99xxx range; stock IDs protected.
-4. Backup on printer before every write; rotate, keep 5.
-5. Double-confirm on delete (typed token must match).
-6. Refuse push when DB < 30 entries (`MIN_DB_ENTRIES`) unless explicitly forced.
+2. Custom printer IDs only in 99xxx range; stock IDs protected.
+3. Backup on printer before every write; rotate, keep 5.
+4. Double-confirm on delete (typed token must match).
+5. Refuse push when DB < 30 entries (`MIN_DB_ENTRIES`) unless explicitly forced.
 
 ## Key Files
 
-| File | Purpose |
-|---|---|
 | `fm/api/ui.py` | UI routes (pages, forms, HTMX fragments). Restart dev server after adding routes. |
 | `fm/api/templates/` | Jinja2 templates. Changes picked up without restart. |
 | `fm/api/static/app.css` | Stylesheet. Changes picked up without restart. |
-| `fm/orca_cloud.py` | Orca Cloud Sync API client (push/pull/delete, Supabase auth, token rotation). |
-| `fm/service/sync_handlers.py` | Sync logic, `refresh_preset_drift`, printer DB operations, Orca Cloud push/pull. |
-| `fm/presets/matching.py` | OrcaSlicer preset matching, `find_orca_user_dir`, `load_presets`. |
-| `fm/presets/builder.py` | Preset builder, `_KV_MAP` (catalog → Orca key mapping). |
-| `fm/settings_store.py` | Settings.json read/write (printer connection config, Orca Cloud token storage). |
+| `fm/orca_cloud.py` | Orca Cloud Sync API client (pull, Supabase auth, token rotation). |
+| `fm/service/sync_handlers.py` | Sync logic: push, verify, github_backup, `compute_printer_db_drift`, printer DB operations. |
+| `fm/service/cache_sync.py` | Orca Cloud cache sync: `sync_profile_cache` (pull presets into `profile_cache`). |
+| `fm/presets/flattener.py` | Preset flattening, `find_preset_by_name`, `find_system_preset`. |
+| `fm/github_backup.py` | GitHub backup client (commit presets as JSON). |
+| `fm/settings_store.py` | Settings.json read/write (printer config, Orca Cloud token, GitHub config). |
 
 ## Verification
 

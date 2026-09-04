@@ -1,35 +1,30 @@
 # Filament Manager — User Manual
 
-A web app to manage 3D-printing filament profiles, track spool inventory,
-and keep your Creality K2 printer database and Orca Cloud filament
-presets in sync. OrcaSlicer remains the sole editor of print settings;
-the Manager displays them read-only after sync.
+A web app to track 3D-printing filament spool inventory and keep your
+Creality K2 printer database in sync with Orca Cloud filament presets.
+Orca Cloud is the sole source of filament presets — presets are created
+and tuned in OrcaSlicer Desktop, synced to Orca Cloud, and the Manager
+caches them read-only for spool tracking and printer DB push.
 
 ## Table of Contents
 
 1. [Getting Started](#getting-started)
 2. [Dashboard](#dashboard)
-3. [Profiles](#profiles)
-   - [Create a New Profile (New Brand/Material)](#create-a-new-profile-new-brandmaterial)
-   - [Preset Source (Template Picker)](#preset-source-template-picker)
-   - [Edit a Profile](#edit-a-profile)
-   - [Pull Print Settings from Orca Cloud](#pull-print-settings-from-orca-cloud)
-4. [Spools](#spools)
+3. [Spools](#spools)
    - [Add a Spool](#add-a-spool)
    - [Edit a Spool](#edit-a-spool)
    - [Duplicate a Spool](#duplicate-a-spool)
    - [Delete a Spool](#delete-a-spool)
    - [Update Remaining Material](#update-remaining-material)
-   - [Filter Spools](#filter-spool)
-5. [Sync](#sync)
+   - [Filter Spools](#filter-spools)
+   - [Orphan Spools](#orphan-spools)
+4. [Sync Hub](#sync-hub)
    - [Push to Printer](#push-to-printer)
-   - [Generate Orca Cloud Preset](#generate-orca-cloud-preset)
-   - [Drift Status](#drift-status)
+   - [Orphan Printer DB Entry Removal](#orphan-printer-db-entry-removal)
+   - [GitHub Backup](#github-backup)
    - [Printer Busy — Resolution Options](#printer-busy--resolution-options)
-6. [Import from Orca Cloud](#import-from-orca-cloud)
-7. [Migration (One-Time)](#migration-one-time)
-8. [Settings](#settings)
-9. [Complete Workflow Examples](#complete-workflow-examples)
+5. [Settings](#settings)
+6. [Complete Workflow Examples](#complete-workflow-examples)
 
 ---
 
@@ -44,144 +39,41 @@ Before using sync features, configure the printer connection under
 there as well. Nothing needs to be installed on a PC — the app talks to
 the printer over SSH and to Orca Cloud directly.
 
+**Presets are created in OrcaSlicer Desktop.** Open OrcaSlicer, create or
+edit a filament preset, and sync it to Orca Cloud via File > Sync Presets.
+The Manager pulls the updated presets into its cache automatically.
+
 ---
 
 ## Dashboard
 
 The dashboard (`/`) is the landing page. It shows:
 
-- **Profile count** — total catalog entries.
-- **Spools in stock** — total spools across all profiles.
-- **Fully synced** — profiles where both the printer DB and Orca Cloud
-  preset are in sync.
-- **Spools by profile** — which profiles have stock.
-- **Sync drift** — per-profile status for printer DB and Orca Cloud
-  preset. The printer DB column shows live status from the printer:
-  **New** (never pushed), **In Sync** (entry matches catalog),
-  **Modified** (entry differs — hover for detail), **Missing** (ID set
-  but entry absent), **Stock** (Creality profile).
+- **Profile count** — total cached preset entries.
+- **Spools in stock** — total spools across all presets.
+- **Fully synced** — presets where the printer DB is in sync.
+- **Spools by profile** — which presets have stock.
+- **Sync drift** — per-preset status for printer DB. The printer DB
+  column shows live status from the printer: **New** (never pushed),
+  **In Sync** (entry matches cache), **Modified** (entry differs — hover
+  for detail), **Missing** (ID set but entry absent).
 - **Recent activity** — timeline of sync actions and their outcomes.
 
-Quick actions: click **＋ New profile** to jump to profile creation.
-
----
-
-## Profiles
-
-Profiles are material definitions (brand, type, temperatures, density,
-drying info, colors, notes). They are the catalog entries that spools
-reference and that get synced to the printer and Orca Cloud.
-
-### Create a New Profile (New Brand/Material)
-
-Use this workflow when you have a filament from a brand or material not
-yet in your catalog.
-
-1. Go to **Profiles** (`/profiles`) or click **＋ New profile** on the
-   dashboard.
-2. Click **＋ New profile**.
-3. Fill in the form:
-
-   | Field | Description | Example |
-   |---|---|---|
-   | Brand | Manufacturer name | Polymaker |
-   | Name | Product name — **must contain the brand name** | PolyLite Galaxy |
-   | Type | Material type (PLA, PETG, ABS, TPU, PA, PC, PLA-Silk, Other) | PLA |
-   | Preset source | OrcaSlicer base template used when generating a preset (see [below](#preset-source-template-picker)) | Generic PLA defaults |
-   | Colors | Comma-separated hex color values | #8f42ff, #442188 |
-   | Minimum temp | Safe minimum nozzle temperature (°C) | 200 |
-   | Maximum temp | Safe maximum nozzle temperature (°C) | 230 |
-   | Density | Material density (g/cm³) | 1.24 |
-   | Drying temp | Recommended drying temperature (°C) | 65 |
-   | Drying time | Recommended drying time (hours) | 6 |
-   | Notes | Optional handling or print notes | Prints best at 210°C |
-
-4. Click **Create profile**.
-
-The profile is saved to the catalog. It does **not** automatically go to
-the printer or Orca Cloud — use the [Sync](#sync) page for that.
-
-> **Rule:** The profile name must contain the vendor/brand name (e.g.
-> "Sunlu PLA+", not just "PLA+"). This prevents matching conflicts in
-> OrcaSlicer.
-
-### Preset Source (Template Picker)
-
-The **Preset source** picker in the profile form chooses which OrcaSlicer
-base tuning is used when the app generates a preset for this profile. It
-has three parts:
-
-1. **Filter by vendor** — an optional dropdown (default **All vendors**)
-   that narrows the template list. It is not saved with the profile.
-2. **Template** — the dropdown that matters. The default option is
-   **Use Generic \<type\> defaults (recommended)**, which uses the
-   generic tuning for the selected material type. Below it, templates are
-   grouped by vendor (optgroups). Pick a specific template to override
-   the generic defaults.
-3. **Template preview** — a live panel showing the base values for the
-   selected template: **Nozzle** (°C), **Flow ratio**, **Fan** (min–max
-   %), and **Max volumetric** (mm³/s). A note reminds you that profile
-   settings may override these base values.
-
-Changing the **Type** field resets the picker to the generic default for
-the new type and announces a status message. The brand you enter and the
-template's vendor are independent — a house brand may use a Generic
-preset, and vice versa.
-
-The chosen template only takes effect the next time you generate a
-preset (see [Generate Orca Cloud Preset](#generate-orca-cloud-preset)).
-
-### Edit a Profile
-
-1. Go to **Profiles**.
-2. Click the edit (pencil) icon on the profile row.
-3. Update any identity or temperature fields.
-4. Click **Save changes**.
-
-The print settings section (nozzle temperature, flow ratio, pressure
-advance, retraction, fan speeds, plate temps) is **read-only** — it
-comes from Orca Cloud via the [Pull from Cloud](#pull-print-settings-from-orca-cloud)
-button.
-
-### Pull Print Settings from Orca Cloud
-
-After a preset exists in Orca Cloud (either generated by the app or
-synced from OrcaSlicer), you can pull the tuned print settings back into
-the profile page for read-only display:
-
-1. Open the profile's edit page.
-2. In the **Print settings** section, click **Pull from Cloud**.
-3. The app pulls the preset from Orca Cloud and populates the read-only
-   fields. A toast confirms "Synced from Orca Cloud".
-4. The section shows 12 print settings:
-   - Nozzle temperature
-   - Initial layer temperature
-   - Pressure advance (shows "Disabled" if PA is off)
-   - Flow ratio
-   - Max volumetric speed
-   - Retraction length / speed
-   - Fan min / max speed
-   - Cool / engineering / hot plate temp
-
-The section header notes the template the settings came from
-(`template: <name>`), or "Generic \<type\> defaults" when no override is
-set. A timestamp shows when the settings were last synced.
-
-You can also sync **all** profiles at once: on the **Sync** page, click
-**Pull from Cloud (all)** in the Cloud presets card.
+Quick actions: click **＋ Add spool** to jump to the spools page.
 
 ---
 
 ## Spools
 
 Spools are physical filament rolls in your inventory. Each spool
-references a profile and tracks color, remaining material, and location.
+references a cached Orca Cloud preset via `cloud_resource_id` and tracks
+color, remaining material, and location.
 
 ### Add a Spool
 
-> A profile must exist first. If the brand/material is not in the
-> catalog, [create a profile](#create-a-new-profile-new-brandmaterial)
-> before adding a spool.
+> A cached preset must exist first. If the filament is not yet in Orca
+> Cloud, create it in OrcaSlicer Desktop and sync to Orca Cloud, then
+> let the Manager pull it into the cache.
 
 1. Go to **Spools** (`/spools`).
 2. Click **＋ Add spool**.
@@ -189,7 +81,7 @@ references a profile and tracks color, remaining material, and location.
 
    | Field | Description |
    |---|---|
-   | Profile | Select from the dropdown (all catalog profiles) |
+   | Profile | Select from the dropdown (all non-deleted cached presets) |
    | Color | Dropdown of 30 common filament colors with live swatch preview, or use the custom color picker |
    | Location | Where the spool is stored (e.g. "Dry box A", "Shelf 2") |
    | Remaining | Percentage of material remaining (defaults to 100%) |
@@ -230,38 +122,58 @@ percentage display updates inline.
 
 Use the filter bar at the top of the spools page:
 
-- **Profile** — filter by a specific profile.
+- **Profile** — filter by a specific cached preset.
 - **Location** — filter by location text.
 
 Click **Apply filters** to update the list.
 
+### Orphan Spools
+
+If a preset is deleted from Orca Cloud (e.g. you removed it in
+OrcaSlicer and synced), the Manager tombstones it in the cache. Spools
+linked to tombstoned presets show an **Orphan** badge in the inventory
+table. The spool retains its `cloud_resource_id` so you don't lose
+tracking history. You can reassign an orphan spool to a different cached
+preset via the edit form, or delete it if no longer needed.
+
 ---
 
-## Sync
+## Sync Hub
 
-The Sync page (`/sync`) keeps your catalog, printer DB, and Orca Cloud
-presets aligned.
+The Sync Hub (`/sync`) is the central sync management page. It shows a
+**Preset & Status table** with one row per cached Orca Cloud preset,
+plus target cards for the printer DB, Orca Cloud, and GitHub backup.
+
+### Preset & Status Table
+
+Each row shows:
+
+- **Preset** — vendor, name, type (with "inherited" badge for inherited
+  presets).
+- **Printer DB** — the 99xxx ID if pushed, or "Not pushed".
+- **Status** — `in_sync`, `pending`, or `orphan`.
+- **Actions** — **Push to Printer** (for non-orphan presets) or
+  **Remove** (for orphan presets with a printer DB ID).
 
 ### Push to Printer
 
-Pushes catalog profiles to the Creality K2 printer's filament
+Pushes cached Orca Cloud presets to the Creality K2 printer's filament
 database. This writes custom entries (99xxx IDs) to the printer.
 
 1. Go to **Sync**.
 2. Click **Push to Printer** — either the bulk button in the Printer DB
-   card (pushes all profiles) or the per-profile button in the drift
-   table (pushes only that profile).
+   card (pushes all cached presets) or the per-preset button in the
+   Preset & Status table (pushes only that preset).
 3. An overlay modal appears instantly with a spinner showing
    "Pushing to printer…". The modal shows live progress as the
    operation runs:
-   - **Pushing** — the app rebuilds the printer DB, uploads it via SSH,
-     and reboots the printer.
+   - **Pushing** — the app rebuilds the printer DB from cloud presets,
+     uploads it via SSH, and reboots the printer.
    - **Verifying** — after the push, a verify job runs automatically to
      confirm entries survived. The modal shows "Verifying…" while this
      runs.
-   - **Push complete** — the modal shows a summary (N profiles pushed,
-     M skipped) and the Sync Hub's drift table + target-card summaries
-     refresh automatically to show current statuses. No manual page
+   - **Push complete** — the modal shows a summary (N presets pushed,
+     M skipped) and the Sync Hub refreshes automatically. No manual page
      reload is needed.
 4. Click **Close** to dismiss the modal.
 
@@ -270,60 +182,33 @@ database. This writes custom entries (99xxx IDs) to the printer.
 > the three resolution options inside the overlay (see
 > [below](#printer-busy--resolution-options)).
 
-> **Note:** The per-profile "Push to Printer" button only appears for
-> profiles that already have a `printer_db_id` (i.e., have been pushed
-> before). To push a new profile for the first time, use the bulk
-> "Push to Printer" button in the Printer DB card.
+### Orphan Printer DB Entry Removal
 
-### Generate Orca Cloud Preset
+When a preset is deleted from Orca Cloud, its printer DB entry (if
+previously pushed) becomes an orphan — a 99xxx entry on the printer
+with no matching cloud preset. Orphan entries persist on the printer
+until explicitly removed.
 
-Creates a standalone OrcaSlicer filament preset from a catalog profile
-and pushes it directly to Orca Cloud.
+1. In the Sync Hub's Preset & Status table, find the orphan row (status
+   badge shows "orphan").
+2. Click **Remove**.
+3. A confirmation dialog appears. Type the printer DB entry ID (the
+   99xxx number) to confirm removal.
+4. The entry is removed from the local printer DB cache and the
+   associated sync target is deleted. The entry will be physically
+   removed from the printer on the next push.
 
-1. Go to **Sync**.
-2. In the drift table, find the profile you want a preset for.
-3. Click **Push to Cloud** on that row.
-4. The app builds the preset from the catalog profile and the selected
-   [preset source](#preset-source-template-picker) template, then pushes
-   it to Orca Cloud. A toast confirms "Preset pushed to Orca Cloud", or
-   "Preset pushed — GitHub backup scheduled" when a GitHub backup was
-   enqueued.
+### GitHub Backup
 
-The preset appears in OrcaSlicer once it syncs from Orca Cloud. Open
-OrcaSlicer, tune the print settings as needed, then use
-[Pull from Cloud](#pull-print-settings-from-orca-cloud) on the profile
-page to pull the tuned values back for read-only display.
+Commits all Orca Cloud presets as JSON files plus an `index.json` to a
+configured GitHub repository. This provides an off-cloud backup of your
+preset library.
 
-> Changing a profile's preset source has no effect until the next
-generate-preset run.
-
-### Drift Status
-
-The drift table on the Sync page shows per-profile status for two sync
-targets:
-
-**Printer DB** (live — pulled from the printer on each page load, with
-cache-file fallback):
-
-| Status | Meaning |
-|---|---|
-| New | Profile has never been pushed to the printer (no printer DB ID) |
-| In Sync | Printer DB entry matches the catalog profile |
-| Modified | Printer DB entry differs from the catalog — hover the badge for a detail tooltip (e.g. "Nozzle temp: 240 → 250") |
-| Missing | Profile has a printer DB ID but the entry is absent from the printer |
-| Stock | Creality stock filament (RFID-tagged, not managed by the app) |
-
-If the printer is unreachable and no cache file exists, the column
-falls back to the last known sync status (pending / in_sync / error).
-
-**Orca Cloud preset** (sync bookkeeping):
-
-| Status | Meaning |
-|---|---|
-| in_sync | Orca Cloud preset matches the catalog |
-| pending | A preset was generated but not yet verified |
-| drift | The preset diverged from the catalog |
-| error | Verification failed |
+1. Configure a GitHub token and repository under **Settings**.
+2. Go to **Sync**.
+3. Click **Backup to GitHub** in the GitHub backup card.
+4. A modal shows progress. When complete, all presets are committed to
+   the repo.
 
 ### Printer Busy — Resolution Options
 
@@ -344,75 +229,6 @@ automatically.
 > **Fallback:** If you navigate away from the Sync page while a job is
 > awaiting input, a page-level busy dialog appears when you return to
 > the Sync page, showing the same three options.
----
-
-## Import from Orca Cloud
-
-The **Orca Cloud Import** page (`/import-orca`) brings standard Orca
-Cloud filament presets into your catalog as profiles. This is useful for
-filaments that are already on the printer (standard filaments) and don't
-need a custom printer DB entry.
-
-1. Go to **Orca Cloud Import** in the navigation.
-2. The page shows Orca Cloud presets that are not yet linked to a
-   catalog profile (matched presets — those whose filament ID already
-   maps to a profile — are hidden). Three states:
-   - **No presets found** — your Orca Cloud account is not connected or
-     has no presets yet. Connect it under **Settings**, then click
-     **Sync now** to pull presets.
-   - **All presets matched** — every Orca Cloud preset with a filament
-     ID is already linked to a catalog profile.
-   - **Select presets to import** — a table lists the unmatched presets.
-3. The import table shows for each preset:
-   - Checkbox, Name, Brand, Type, Nozzle temp, PA, Flow ratio
-   - **Source** — a **User-tuned** badge (no inheritance) or an
-     **Inherits** badge (inherited from a system preset)
-4. Use the **Only user-tuned presets** filter to show only presets you
-   have customized.
-5. Select the presets you want to import and click **Import selected**.
-6. Profiles are created with:
-   - `printer_db_id = None` (no push to printer — standard filaments
-     are already there)
-   - Nozzle temperature from the preset
-   - Temp range derived from the nozzle temperature (±15°C)
-7. After import, click **Pull from Cloud** on the profile page to
-   populate the read-only print settings.
-
----
-
-## Migration (One-Time)
-
-The Migration page (`/migration`) imports existing custom filament
-entries from your printer's database into the catalog. Use this once,
-when first deploying the app, to bring in entries you previously created
-manually via the skill CLI.
-
-### Step 1 — Scan
-
-1. Go to **Migration**.
-2. Click **Start import scan**.
-3. The app pulls the printer DB, extracts all custom (99xxx) entries,
-   and presents them as proposals.
-
-### Step 2 — Review
-
-A table lists each proposed profile with:
-
-- Printer DB ID, brand, name, type, temperature range, density
-- Import checkbox
-- Status: entries already in the catalog are marked **exists** and
-  pre-checked
-
-Select the entries to import and click **Import selected**.
-
-### Step 3 — Complete
-
-Imported entries become catalog profiles with their `printer_db_id`
-preserved (so they stay linked to the printer DB without Orca Cloud
-collisions).
-
-Expected first-run entries: 99001 Sunlu PLA+, 99002 eSUN PETG Basic,
-99003 CAILAB PLA Silk, 99004 Cailab PLA+ Bio.
 
 ---
 
@@ -447,6 +263,15 @@ the token locally. When connected, the section shows
 **✓ Connected — user ID: \<email\>** with a **Disconnect** button to
 remove the stored credentials.
 
+### GitHub Backup
+
+| Field | Description |
+|---|---|
+| GitHub token | Personal access token with repo access |
+| Repository | `owner/repo` format (e.g. `myuser/filament-backup`) |
+
+Click **Test** to verify the token and repository access before saving.
+
 ### Advanced
 
 | Field | Default | Description |
@@ -462,55 +287,41 @@ Click **Save settings** to persist. Settings are stored in
 
 ## Complete Workflow Examples
 
-### Workflow 1: Add a Spool of a New Brand
+### Workflow 1: Add a Spool for an Existing Preset
 
-1. **Create the profile:**
-   - Profiles → ＋ New profile
-   - Enter brand, name (include brand), type, temps, density, drying
-   - Pick a [preset source](#preset-source-template-picker) (or leave the
-     generic default)
-   - Click **Create profile**
+1. **Ensure the preset is in Orca Cloud:**
+   - Open OrcaSlicer Desktop, create or edit a filament preset
+   - Sync to Orca Cloud via File > Sync Presets
+   - The Manager pulls it into the cache on the next sync
 
-2. **Generate an Orca Cloud preset:**
-   - Sync → click **Push to Cloud** for the new profile
-   - The starter preset is pushed to Orca Cloud
-   - Open OrcaSlicer and let it sync from Orca Cloud — the preset appears
-
-3. **(Optional) Tune and sync back:**
-   - Open OrcaSlicer, adjust print settings in the preset
-   - Let OrcaSlicer sync the changes to Orca Cloud
-   - Profiles → edit the profile → **Pull from Cloud**
-   - Read-only print settings populate on the profile page
-
-4. **Push to the printer:**
-   - Sync → **Push to Printer**
-   - Printer reboots; verify runs automatically
-
-5. **Add the spool:**
+2. **Add the spool:**
    - Spools → ＋ Add spool
-   - Select the new profile, pick a color, enter location
+   - Select the preset from the dropdown, pick a color, enter location
    - Click **Add spool**
 
-6. **(Manual) Write the NFC tag:**
+3. **(Optional) Push to the printer:**
+   - Sync → find the preset in the Preset & Status table
+   - Click **Push to Printer**
+   - Printer reboots; verify runs automatically
+
+4. **(Manual) Write the NFC tag:**
    - Use your RFID writer to program the spool's NFC tag with the
-     custom ID assigned by the app (visible in the drift table or
-     profile details).
+     custom ID assigned by the app (visible in the Sync Hub).
 
-### Workflow 2: Import an Existing Orca Cloud Preset
-
-1. Settings → connect your Orca Cloud account
-2. Orca Cloud Import → the page lists unmatched presets
-   (if empty, click **Sync now** to pull presets first)
-3. Select the preset(s) from the table → **Import selected**
-4. Profiles → edit the imported profile → **Pull from Cloud** to
-   populate read-only print settings
-5. Spools → ＋ Add spool → select the imported profile
-
-### Workflow 3: First-Time Migration from Printer DB
+### Workflow 2: First-Time Setup
 
 1. Settings → configure printer connection → **Save settings**
-2. Migration → **Start import scan**
-3. Review proposals → select entries → **Import selected**
-4. Profiles → review imported profiles
-5. Sync → **Push to Printer** to verify everything is consistent
+2. Settings → connect your Orca Cloud account
+3. Open OrcaSlicer Desktop → create/tune filament presets → sync to
+   Orca Cloud via File > Sync Presets
+4. Sync → **Push to Printer** to push all cached presets to the printer
+5. Spools → ＋ Add spool → select a preset for each physical spool
 
+### Workflow 3: Remove a Deleted Preset's Printer DB Entry
+
+1. In OrcaSlicer Desktop, delete the preset and sync to Orca Cloud
+2. Go to **Sync** — the preset shows an **orphan** status badge
+3. Click **Remove** on the orphan row
+4. Type the 99xxx entry ID to confirm removal
+5. Click **Push to Printer** to push the updated DB (without the orphan
+   entry) to the printer

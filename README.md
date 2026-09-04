@@ -65,7 +65,7 @@ linked spools and in the Sync Hub.
 |---|---|---|
 | Web app | Unraid Docker | Python 3.12, FastAPI, SQLAlchemy + SQLite, Jinja2 + HTMX |
 | Orca Cloud cache | in app image | Direct Orca Cloud Sync API client (`fm/orca_cloud.py`), stdlib + requests |
-| Shared core | in app image | Modules lifted from the skill: DB patching, version bump, preset matching, flatten |
+| Shared core | in app image | Modules lifted from the skill: DB patching, version bump, preset flattening |
 
 The existing skill stays untouched and remains available for agent-driven flows.
 

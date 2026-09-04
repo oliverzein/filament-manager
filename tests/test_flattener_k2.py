@@ -1,5 +1,3 @@
-import pytest
-from pathlib import Path
 from fm.presets.flattener import flatten_preset, find_preset_by_name, _BUNDLED_DIR
 
 
@@ -32,3 +30,14 @@ def test_en_pla_plus_multi_level_flattening():
     assert flat.get("nozzle_temperature") in (["220"], "220", 220)
     assert flat.get("filament_density") in (["1.24"], "1.24", 1.24)
     assert flat.get("filament_flow_ratio") in (["0.98"], "0.98", 0.98)
+
+
+def test_petg_k2_template_flattens_without_missing_parent():
+    """PETG K2 templates inherit from fdm_filament_petg, which must be bundled."""
+    template_path = find_preset_by_name("CR-PETG @K2-all")
+    assert template_path is not None
+
+    flat = flatten_preset(template_path)
+    assert flat.get("filament_type") in (["PETG"], "PETG")
+    assert flat.get("nozzle_temperature") in (["250"], "250", 250)
+    assert flat.get("filament_density") in (["1.24"], "1.24", 1.24)

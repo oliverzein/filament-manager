@@ -23,6 +23,11 @@ def bundle_k2():
     for f in SOURCE_DIR.glob("Creality Generic *.json"):
         shutil.copy2(f, TARGET_DIR / f.name)
         count += 1
+    # Copy fdm_filament_*.json base presets (e.g. fdm_filament_petg.json) that
+    # K2 templates inherit from but may not already be bundled.
+    for f in SOURCE_DIR.glob("fdm_filament_*.json"):
+        shutil.copy2(f, TARGET_DIR / f.name)
+        count += 1
     print(f"Bundled {count} K2 templates to {TARGET_DIR}")
 
 

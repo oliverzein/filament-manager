@@ -3,7 +3,7 @@ import pytest
 from fastapi.testclient import TestClient
 from fm.api.app import create_app, Settings
 from fm.db import init_engine
-from fm.models import Base, ProfileCache, Spool
+from fm.models import ProfileCache, Spool
 from sqlalchemy.orm import Session
 
 
@@ -57,3 +57,23 @@ def test_add_spool_with_cloud_resource_id(client):
         "location": "Shelf A",
     }, follow_redirects=False)
     assert resp.status_code == 303
+
+
+def test_edit_orphan_spool_preserves_cloud_resource_id(client):
+    """Editing an orphan spool's non-profile fields must not silently
+    reassign its cloud_resource_id to a different profile. The edit form
+    includes the orphan profile as a selected option so it stays put."""
+    # The orphan spool is id=2 (second inserted). Update only location.
+    resp = client.post("/spools/2/edit", data={
+        "cloud_resource_id": "uuid-orphan",
+        "remaining_pct": "20",
+        "location": "Dry box B",
+    }, follow_redirects=False)
+    assert resp.status_code == 303
+
+    # Verify via the spools page that the orphan profile is still shown.
+    page = client.get("/spools", follow_redirects=True)
+    assert page.status_code == 200
+    assert "Old PETG" in page.text
+    assert "Orphan" in page.text
+    assert "Dry box B" in page.text

@@ -116,6 +116,7 @@ tbody tr:last-child td { border-bottom: 0; }tbody tr { transition: background .1
 .status-drifted, .status-error, .status-failed, .status-missing { color: #ff8d95; background: rgba(255,90,101,.1); }
 .status-running, .status-in_progress, .status-new { color: #77c3ff; background: rgba(56,160,255,.1); }
 .status-stock, .status-unknown { color: var(--text-secondary); background: rgba(174,185,225,.1); }
+.status-orphan { color: #ffb454; background: rgba(255,160,40,.12); }
 .muted { color: var(--text-muted); }.activity-mark { display: inline-block; width: 7px; height: 7px; margin-right: 10px; border-radius: 50%; background: var(--accent); }
 .empty-state { display: flex; min-height: 260px; align-items: center; justify-content: center; flex-direction: column; padding: 36px; text-align: center; }.empty-state > span { margin-bottom: 10px; color: var(--text-muted); font-size: 30px; }.empty-state p { max-width: 360px; margin-bottom: 18px; }.empty-state.compact { min-height: 130px; }.empty-state.compact p { margin: 0; }
 

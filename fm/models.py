@@ -52,6 +52,7 @@ class Spool(Base):
     location: Mapped[str] = mapped_column(default="")
     rfid_tag: Mapped[str | None] = mapped_column(default=None)
     notes: Mapped[str] = mapped_column(default="")
+    color_name: Mapped[str | None] = mapped_column(String(64), default=None)
     created_at: Mapped[datetime] = mapped_column()
     updated_at: Mapped[datetime] = mapped_column()
 

@@ -1,12 +1,29 @@
 {% extends "base.html" %}
 {% block title %}Spools — Filament Manager{% endblock %}
 {% block content %}
+{# ── Profile label macro: deduplicates vendor prefix in profile name ── #}
+{% macro plabel(p) -%}
+{%- if p.vendor and (p.name.lower().startswith(p.vendor.lower() ~ ' ') or p.name.lower() == p.vendor.lower()) -%}
+{{ p.name }}
+{%- else -%}
+{{ p.vendor }} {{ p.name }}
+{%- endif -%}
+{%- endmacro %}
 <section id="spools">
   <header class="page-header"><div><p class="eyebrow">Inventory</p><h1>Spool inventory</h1><p>Track stock, location and remaining material in real time.</p></div></header>
   <section class="panel inventory-controls">
-    <form method="get" action="/spools" class="filters"><label><span>Profile</span><select name="cloud_resource_id"><option value="">All profiles</option>{% for p in profiles %}<option value="{{ p.cloud_resource_id }}" {% if filter_cloud_resource_id == p.cloud_resource_id %}selected{% endif %}>{{ p.vendor }} {{ p.name }}</option>{% endfor %}</select></label><label><span>Location</span><input name="location" value="{{ filter_location }}" placeholder="Search location"></label><button type="submit" class="button button-secondary">Apply filters</button></form>
+    <form method="get" action="/spools" class="filters"><label><span>Profile</span><select name="cloud_resource_id"><option value="">All profiles</option>{% for p in profiles %}<option value="{{ p.cloud_resource_id }}" {% if filter_cloud_resource_id == p.cloud_resource_id %}selected{% endif %}>{{ plabel(p) }}</option>{% endfor %}</select></label><label><span>Location</span><input name="location" value="{{ filter_location }}" placeholder="Search location"></label><button type="submit" class="button button-secondary">Apply filters</button></form>
     <details><summary class="button button-primary">＋ Add spool</summary><form method="post" action="/spools/form" class="add-form">
-      <div class="form-grid three-col"><label><span>Profile</span><select name="cloud_resource_id" required>{% for p in profiles %}<option value="{{ p.cloud_resource_id }}">{{ p.vendor }} {{ p.name }}</option>{% endfor %}</select></label><label class="color-field"><span>Color</span><div class="color-row"><span class="swatch color-row-swatch" id="color-swatch" style="background:#cccccc"></span><select name="color_override" id="color-select"><option value="#cccccc">Custom</option><option value="#ffffff">White</option><option value="#f5f5dc">Beige</option><option value="#d9d9d9">Light Grey</option><option value="#808080">Grey</option><option value="#404040">Dark Grey</option><option value="#1a1a1a">Black</option><option value="#ff0000">Red</option><option value="#c0392b">Dark Red</option><option value="#ff5e4d">Coral</option><option value="#ff8c00">Orange</option><option value="#e67e22">Dark Orange</option><option value="#ffd700">Gold</option><option value="#f1c40f">Yellow</option><option value="#9acd32">Yellow Green</option><option value="#2ecc71">Green</option><option value="#27ae60">Dark Green</option><option value="#00b894">Teal</option><option value="#1abc9c">Cyan</option><option value="#3498db">Blue</option><option value="#2980b9">Dark Blue</option><option value="#2c3e50">Navy</option><option value="#9b59b6">Purple</option><option value="#8e44ad">Dark Purple</option><option value="#e91e63">Magenta</option><option value="#e8b4b8">Pink</option><option value="#964b00">Brown</option><option value="#5d4037">Dark Brown</option><option value="#c0c0c0">Silver</option><option value="#d4af37">Gold Metallic</option></select><input type="color" id="color-custom" value="#cccccc" title="Custom color" class="color-custom-btn"></div></label><label><span>Location</span><input name="location" value="" placeholder="e.g. Dry box A"></label><label class="range-field"><span>Remaining <output>100%</output></span><input type="range" name="remaining_pct" min="0" max="100" value="100" oninput="this.previousElementSibling.querySelector('output').textContent=this.value+'%'"></label></div>
+      <div class="form-grid three-col">
+        {# ── Row 1 ── #}
+        <label><span>Profile</span><select name="cloud_resource_id" required>{% for p in profiles %}<option value="{{ p.cloud_resource_id }}">{{ plabel(p) }}</option>{% endfor %}</select></label>
+        <label class="color-field"><span>Color</span><div class="color-row"><span class="swatch color-row-swatch" id="add-color-swatch" style="background:#cccccc"></span><select name="color_override" id="add-color-select"><option value="#cccccc">Custom</option><option value="#ffffff">White</option><option value="#f5f5dc">Beige</option><option value="#d9d9d9">Light Grey</option><option value="#808080">Grey</option><option value="#404040">Dark Grey</option><option value="#1a1a1a">Black</option><option value="#ff0000">Red</option><option value="#c0392b">Dark Red</option><option value="#ff5e4d">Coral</option><option value="#ff8c00">Orange</option><option value="#e67e22">Dark Orange</option><option value="#ffd700">Gold</option><option value="#f1c40f">Yellow</option><option value="#9acd32">Yellow Green</option><option value="#2ecc71">Green</option><option value="#27ae60">Dark Green</option><option value="#00b894">Teal</option><option value="#1abc9c">Cyan</option><option value="#3498db">Blue</option><option value="#2980b9">Dark Blue</option><option value="#2c3e50">Navy</option><option value="#9b59b6">Purple</option><option value="#8e44ad">Dark Purple</option><option value="#e91e63">Magenta</option><option value="#e8b4b8">Pink</option><option value="#964b00">Brown</option><option value="#5d4037">Dark Brown</option><option value="#c0c0c0">Silver</option><option value="#d4af37">Gold Metallic</option></select><input type="color" id="add-color-custom" value="#cccccc" title="Custom color picker" class="color-custom-btn" aria-label="Open native color picker"></div><input type="text" id="add-color-hex" value="#cccccc" placeholder="#RRGGBB" class="hex-input" maxlength="7" inputmode="text" autocomplete="off" aria-label="Hex color code"></label>
+        <label><span>Location</span><input name="location" value="" placeholder="e.g. Dry box A"></label>
+        {# ── Row 2 ── #}
+        <label><span>Color name</span><input type="text" name="color_name" id="add-color-name" value="" placeholder="e.g. Vivid Yellow" maxlength="60" autocomplete="off"></label>
+        <label class="range-field"><span>Remaining <output id="add-remaining-output">100%</output></span><div class="range-row"><input type="range" id="add-range" min="0" max="100" value="100" aria-label="Remaining material (slider)"><input type="number" name="remaining_pct" id="add-number" min="0" max="100" value="100" class="range-number" aria-label="Remaining material (percent)"></div></label>
+        <label><span>Quantity</span><input type="number" name="quantity" id="add-quantity" min="1" max="50" value="1" class="range-number" aria-label="Number of spools to create"><small id="add-quantity-hint"></small></label>
+      </div>
       <div class="form-actions"><button type="submit" class="button button-primary">Add spool</button><button type="button" class="button button-secondary" onclick="this.closest('details').removeAttribute('open')">Cancel</button></div>
     </form></details>
   </section>
@@ -14,27 +31,202 @@
     <div class="panel-heading"><div><p class="eyebrow">Stock</p><h2>Active spools</h2></div><span class="result-count">{{ spools | length }} total</span></div>
     {% if spools %}<div class="table-wrap"><table><thead><tr><th>Profile</th><th>Color</th><th>Material remaining</th><th>Location</th><th></th></tr></thead><tbody>
     {% for s in spools %}
-    <tr class="spool-row" id="spool-row-{{ s.id }}"><td><div class="profile-cell"><span class="avatar spool-avatar">{{ (s.cached_profile.vendor or '?')[:1] }}{{ (s.cached_profile.name or '?')[:1] }}</span><div><span class="cell-main">{{ s.cached_profile.name }}{% if s.cached_profile.deleted_from_cloud %} <span class="status-badge status-orphan" title="Deleted in OrcaSlicer">Orphan</span>{% endif %}</span><span class="cell-sub">{{ s.cached_profile.vendor }}</span></div></div></td><td>{% if s.color_override %}<span class="color-value"><span class="swatch" style="background:{{ s.color_override }}"></span>{{ s.color_override }}</span>{% else %}<span class="muted">Profile default</span>{% endif %}</td><td><div class="remaining-cell"><div><span id="remaining-{{ s.id }}" class="remaining">{{ s.remaining_pct }}%</span><span class="remaining-label">available</span></div><input type="range" min="0" max="100" value="{{ s.remaining_pct }}" name="remaining_pct" hx-post="/spools/{{ s.id }}/remaining" hx-trigger="change" hx-target="#remaining-{{ s.id }}" hx-swap="outerHTML" hx-include="this" aria-label="Remaining material for spool {{ s.id }}"></div></td><td><span class="location-tag">⌖ {{ s.location or 'Unassigned' }}</span></td><td class="actions-cell"><button type="button" class="icon-button" onclick="document.getElementById('spool-edit-{{ s.id }}').classList.toggle('hidden')" title="Edit" aria-label="Edit spool {{ s.id }}">✎</button><form method="post" action="/spools/{{ s.id }}/duplicate" style="display:inline"><button type="submit" class="icon-button" title="Duplicate" aria-label="Duplicate spool {{ s.id }}">⧉</button></form><form method="post" action="/spools/{{ s.id }}/delete" style="display:inline" onsubmit="return confirm('Delete spool #{{ s.id }}?')"><button type="submit" class="icon-button" title="Delete" aria-label="Delete spool {{ s.id }}">🗑</button></form></td></tr>
-    <tr class="spool-edit-row hidden" id="spool-edit-{{ s.id }}"><td colspan="5"><form method="post" action="/spools/{{ s.id }}/edit" class="spool-edit-form"><div class="form-grid three-col"><label><span>Profile</span><select name="cloud_resource_id" required>{% if s.cached_profile and s.cached_profile.deleted_from_cloud %}<option value="{{ s.cached_profile.cloud_resource_id }}" selected>{{ s.cached_profile.vendor }} {{ s.cached_profile.name }} (Orphan)</option>{% endif %}{% for p in profiles %}<option value="{{ p.cloud_resource_id }}" {% if p.cloud_resource_id == s.cloud_resource_id %}selected{% endif %}>{{ p.vendor }} {{ p.name }}</option>{% endfor %}</select></label><label class="color-field"><span>Color</span><div class="color-row"><span class="swatch color-row-swatch" id="edit-swatch-{{ s.id }}" style="background:{{ s.color_override or '#cccccc' }}"></span><select name="color_override" id="edit-select-{{ s.id }}" onchange="document.getElementById('edit-swatch-{{ s.id }}').style.background=this.value;document.getElementById('edit-custom-{{ s.id }}').value=this.value"><option value="{{ s.color_override or '#cccccc' }}" {% if not s.color_override %}selected{% endif %}>Profile default</option><option value="#ffffff">White</option><option value="#f5f5dc">Beige</option><option value="#d9d9d9">Light Grey</option><option value="#808080">Grey</option><option value="#404040">Dark Grey</option><option value="#1a1a1a">Black</option><option value="#ff0000">Red</option><option value="#c0392b">Dark Red</option><option value="#ff5e4d">Coral</option><option value="#ff8c00">Orange</option><option value="#e67e22">Dark Orange</option><option value="#ffd700">Gold</option><option value="#f1c40f">Yellow</option><option value="#9acd32">Yellow Green</option><option value="#2ecc71">Green</option><option value="#27ae60">Dark Green</option><option value="#00b894">Teal</option><option value="#1abc9c">Cyan</option><option value="#3498db">Blue</option><option value="#2980b9">Dark Blue</option><option value="#2c3e50">Navy</option><option value="#9b59b6">Purple</option><option value="#8e44ad">Dark Purple</option><option value="#e91e63">Magenta</option><option value="#e8b4b8">Pink</option><option value="#964b00">Brown</option><option value="#5d4037">Dark Brown</option><option value="#c0c0c0">Silver</option><option value="#d4af37">Gold Metallic</option></select><input type="color" id="edit-custom-{{ s.id }}" value="{{ s.color_override or '#cccccc' }}" title="Custom color" class="color-custom-btn" oninput="var sel=document.getElementById('edit-select-{{ s.id }}');sel.options[0].value=this.value;sel.options[0].text='Custom';sel.selectedIndex=0;document.getElementById('edit-swatch-{{ s.id }}').style.background=this.value"></div></label><label><span>Location</span><input name="location" value="{{ s.location or '' }}" placeholder="e.g. Dry box A"></label><label class="range-field"><span>Remaining <output>{{ s.remaining_pct }}%</output></span><input type="range" name="remaining_pct" min="0" max="100" value="{{ s.remaining_pct }}" oninput="this.previousElementSibling.querySelector('output').textContent=this.value+'%'"></label><label class="full-width"><span>Notes</span><input name="notes" value="{{ s.notes or '' }}" placeholder="Optional notes"></label></div><div class="form-actions"><button type="submit" class="button button-primary">Save</button><button type="button" class="button button-secondary" onclick="document.getElementById('spool-edit-{{ s.id }}').classList.add('hidden')">Cancel</button></div></form></td></tr>
+    <tr class="spool-row" id="spool-row-{{ s.id }}"><td><div class="profile-cell"><span class="avatar spool-avatar">{{ (s.cached_profile.vendor or '?')[:1] }}{{ (s.cached_profile.name or '?')[:1] }}</span><div><span class="cell-main">{{ s.cached_profile.name }}{% if s.cached_profile.deleted_from_cloud %} <span class="status-badge status-orphan" title="Deleted in OrcaSlicer">Orphan</span>{% endif %}</span><span class="cell-sub">{{ s.cached_profile.vendor }}</span></div></div></td><td>{% if s.color_override %}<span class="color-value"><span class="swatch" style="background:{{ s.color_override }}"></span><span class="color-info"><span class="color-name-text">{{ s.color_name or s.color_override }}</span>{% if s.color_name %}<span class="color-hex-sub">{{ s.color_override }}</span>{% endif %}</span></span>{% else %}<span class="muted">Profile default</span>{% endif %}</td><td><div class="remaining-cell"><div><span id="remaining-{{ s.id }}" class="remaining">{{ s.remaining_pct }}%</span><span class="remaining-label">available</span></div><input type="range" min="0" max="100" value="{{ s.remaining_pct }}" name="remaining_pct" hx-post="/spools/{{ s.id }}/remaining" hx-trigger="change" hx-target="#remaining-{{ s.id }}" hx-swap="outerHTML" hx-include="this" aria-label="Remaining material for spool {{ s.id }}"></div></td><td><span class="location-tag">⌖ {{ s.location or 'Unassigned' }}</span></td><td class="actions-cell"><button type="button" class="icon-button" onclick="document.getElementById('spool-edit-{{ s.id }}').classList.toggle('hidden')" title="Edit" aria-label="Edit spool {{ s.id }}">✎</button><form method="post" action="/spools/{{ s.id }}/duplicate" style="display:inline"><button type="submit" class="icon-button" title="Duplicate" aria-label="Duplicate spool {{ s.id }}">⧉</button></form><form method="post" action="/spools/{{ s.id }}/delete" style="display:inline" onsubmit="return confirm('Delete spool #{{ s.id }}?')"><button type="submit" class="icon-button" title="Delete" aria-label="Delete spool {{ s.id }}">🗑</button></form></td></tr>
+    <tr class="spool-edit-row hidden" id="spool-edit-{{ s.id }}"><td colspan="5"><form method="post" action="/spools/{{ s.id }}/edit" class="spool-edit-form"><div class="form-grid three-col">
+      {# ── Row 1 ── #}
+      <label><span>Profile</span><select name="cloud_resource_id" required>{% if s.cached_profile and s.cached_profile.deleted_from_cloud %}<option value="{{ s.cached_profile.cloud_resource_id }}" selected>{{ plabel(s.cached_profile) }} (Orphan)</option>{% endif %}{% for p in profiles %}<option value="{{ p.cloud_resource_id }}" {% if p.cloud_resource_id == s.cloud_resource_id %}selected{% endif %}>{{ plabel(p) }}</option>{% endfor %}</select></label>
+      <label class="color-field"><span>Color</span><div class="color-row"><span class="swatch color-row-swatch" id="edit-color-swatch-{{ s.id }}" style="background:{{ s.color_override or '#cccccc' }}"></span><select name="color_override" id="edit-color-select-{{ s.id }}"><option value="" {% if not s.color_override %}selected{% endif %}>Profile default</option><option value="#ffffff">White</option><option value="#f5f5dc">Beige</option><option value="#d9d9d9">Light Grey</option><option value="#808080">Grey</option><option value="#404040">Dark Grey</option><option value="#1a1a1a">Black</option><option value="#ff0000">Red</option><option value="#c0392b">Dark Red</option><option value="#ff5e4d">Coral</option><option value="#ff8c00">Orange</option><option value="#e67e22">Dark Orange</option><option value="#ffd700">Gold</option><option value="#f1c40f">Yellow</option><option value="#9acd32">Yellow Green</option><option value="#2ecc71">Green</option><option value="#27ae60">Dark Green</option><option value="#00b894">Teal</option><option value="#1abc9c">Cyan</option><option value="#3498db">Blue</option><option value="#2980b9">Dark Blue</option><option value="#2c3e50">Navy</option><option value="#9b59b6">Purple</option><option value="#8e44ad">Dark Purple</option><option value="#e91e63">Magenta</option><option value="#e8b4b8">Pink</option><option value="#964b00">Brown</option><option value="#5d4037">Dark Brown</option><option value="#c0c0c0">Silver</option><option value="#d4af37">Gold Metallic</option></select><input type="color" id="edit-color-custom-{{ s.id }}" value="{{ s.color_override or '#cccccc' }}" title="Custom color picker" class="color-custom-btn" aria-label="Open native color picker"></div><input type="text" id="edit-color-hex-{{ s.id }}" value="{{ s.color_override or '#cccccc' }}" placeholder="#RRGGBB" class="hex-input" maxlength="7" inputmode="text" autocomplete="off" aria-label="Hex color code"></label>
+      <label><span>Location</span><input name="location" value="{{ s.location or '' }}" placeholder="e.g. Dry box A"></label>
+      {# ── Row 2 ── #}
+      <label><span>Color name</span><input type="text" name="color_name" id="edit-color-name-{{ s.id }}" value="{{ s.color_name or '' }}" placeholder="e.g. Vivid Yellow" maxlength="60" autocomplete="off"></label>
+      <label class="range-field"><span>Remaining <output id="edit-remaining-output-{{ s.id }}">{{ s.remaining_pct }}%</output></span><div class="range-row"><input type="range" id="edit-range-{{ s.id }}" min="0" max="100" value="{{ s.remaining_pct }}" aria-label="Remaining material (slider)"><input type="number" name="remaining_pct" id="edit-number-{{ s.id }}" min="0" max="100" value="{{ s.remaining_pct }}" class="range-number" aria-label="Remaining material (percent)"></div></label>
+      <label><span>Notes</span><input name="notes" value="{{ s.notes or '' }}" placeholder="Optional notes"></label>
+    </div><div class="form-actions"><button type="submit" class="button button-primary">Save</button><button type="button" class="button button-secondary" onclick="document.getElementById('spool-edit-{{ s.id }}').classList.add('hidden')">Cancel</button></div></form></td></tr>
     {% endfor %}
     </tbody></table></div>{% else %}<div class="empty-state"><span>◎</span><h3>No spools in stock</h3><p>Add the first spool to start tracking material.</p></div>{% endif %}
   </section>
 </section>
 <script>
 (function() {
-  var sel = document.getElementById('color-select');
-  var swatch = document.getElementById('color-swatch');
-  var custom = document.getElementById('color-custom');
-  if (!sel) return;
-  function update() { swatch.style.background = sel.value; custom.value = sel.value; }
-  sel.addEventListener('change', update);
-  custom.addEventListener('input', function() {
-    sel.options[0].value = custom.value;
-    sel.options[0].text = 'Custom';
-    sel.selectedIndex = 0;
-    swatch.style.background = custom.value;
-  });
-  update();
+  'use strict';
+
+  // ── Hex normalization ──
+  function normalizeHex(raw) {
+    var v = String(raw || '').replace(/^#/, '').trim();
+    if (/^[0-9a-fA-F]{3}$/.test(v)) {
+      v = v[0] + v[0] + v[1] + v[1] + v[2] + v[2];
+    }
+    if (/^[0-9a-fA-F]{6}$/.test(v)) {
+      return '#' + v.toLowerCase();
+    }
+    return null;
+  }
+
+  // ── Color field initializer ──
+  // Works for both Add form (prefix='add-') and Edit forms (prefix='edit-<id>-').
+  function initColorField(prefix, initialColorName) {
+    var sel     = document.getElementById(prefix + 'color-select');
+    var swatch  = document.getElementById(prefix + 'color-swatch');
+    var picker  = document.getElementById(prefix + 'color-custom');
+    var hex     = document.getElementById(prefix + 'color-hex');
+    var nameInp = document.getElementById(prefix + 'color-name');
+    if (!sel || !swatch) return;
+
+    var nameModified = !!(initialColorName && initialColorName.length > 0);
+
+    // Sync all visual elements from the dropdown's current value.
+    function syncFromDropdown() {
+      var val = sel.value;
+      swatch.style.background = val;
+      if (picker) picker.value = val;
+      if (hex) {
+        hex.value = val;
+        hex.classList.remove('invalid');
+      }
+    }
+
+    // Try to match a hex value to a preset option; if no match, set "Custom".
+    function syncFromHex(hexVal) {
+      // Find a matching preset option (skip index 0 = Custom/Profile default)
+      for (var i = 1; i < sel.options.length; i++) {
+        if (sel.options[i].value === hexVal) {
+          sel.selectedIndex = i;
+          syncFromDropdown();
+          tryAutoPopulate(sel.options[i].text);
+          return;
+        }
+      }
+      // No preset match → set first option to Custom with this hex
+      sel.options[0].value = hexVal;
+      sel.options[0].text = 'Custom';
+      sel.selectedIndex = 0;
+      swatch.style.background = hexVal;
+      if (picker) picker.value = hexVal;
+      // Do NOT auto-populate color_name for custom hex
+    }
+
+    // Auto-populate color_name if user hasn't typed a custom value.
+    function tryAutoPopulate(presetName) {
+      if (nameInp && !nameModified) {
+        nameInp.value = presetName;
+      }
+    }
+
+    // ── Dropdown change → sync everything + auto-populate name ──
+    sel.addEventListener('change', function() {
+      syncFromDropdown();
+      if (sel.selectedIndex > 0) {
+        tryAutoPopulate(sel.options[sel.selectedIndex].text);
+      }
+    });
+
+    // ── Native color picker input → sync hex + dropdown ──
+    if (picker) {
+      picker.addEventListener('input', function() {
+        var normalized = normalizeHex(picker.value);
+        if (normalized) {
+          hex.value = normalized;
+          hex.classList.remove('invalid');
+          syncFromHex(normalized);
+        }
+      });
+    }
+
+    // ── Hex text input → normalize + sync ──
+    if (hex) {
+      hex.addEventListener('input', function() {
+        var normalized = normalizeHex(hex.value);
+        if (normalized) {
+          hex.classList.remove('invalid');
+          syncFromHex(normalized);
+        } else if (hex.value.trim() === '') {
+          hex.classList.remove('invalid');
+          // Don't update swatch/dropdown on empty input
+        } else {
+          hex.classList.add('invalid');
+        }
+      });
+
+      // On blur, normalize the displayed value (add # prefix, lowercase)
+      hex.addEventListener('blur', function() {
+        var normalized = normalizeHex(hex.value);
+        if (normalized) {
+          hex.value = normalized;
+          hex.classList.remove('invalid');
+        }
+      });
+    }
+
+    // ── Color name input → track user modification ──
+    if (nameInp) {
+      nameInp.addEventListener('input', function() {
+        nameModified = nameInp.value.trim().length > 0;
+      });
+    }
+
+    // Initialize display from current dropdown value
+    syncFromDropdown();
+  }
+
+  // ── Range + number sync initializer ──
+  function initRangeField(rangeId, numberId, outputId) {
+    var range  = document.getElementById(rangeId);
+    var number = document.getElementById(numberId);
+    var output = document.getElementById(outputId);
+    if (!range || !number) return;
+
+    function updateOutput(val) {
+      if (output) output.textContent = val + '%';
+    }
+
+    range.addEventListener('input', function() {
+      number.value = range.value;
+      updateOutput(range.value);
+    });
+
+    number.addEventListener('input', function() {
+      var v = parseInt(number.value, 10);
+      if (isNaN(v)) return;
+      v = Math.max(0, Math.min(100, v));
+      range.value = v;
+      updateOutput(v);
+    });
+
+    number.addEventListener('change', function() {
+      var v = parseInt(number.value, 10);
+      if (isNaN(v)) v = 100;
+      v = Math.max(0, Math.min(100, v));
+      number.value = v;
+      range.value = v;
+      updateOutput(v);
+    });
+  }
+
+  // ── Quantity hint ──
+  function initQuantityHint(qtyId, hintId) {
+    var qty  = document.getElementById(qtyId);
+    var hint = document.getElementById(hintId);
+    if (!qty || !hint) return;
+    function update() {
+      var n = parseInt(qty.value, 10) || 1;
+      hint.textContent = n > 1 ? 'Creates ' + n + ' identical spools' : '';
+    }
+    qty.addEventListener('input', update);
+    qty.addEventListener('change', update);
+    update();
+  }
+
+  // ── Initialize Add form ──
+  initColorField('add-', '');
+  initRangeField('add-range', 'add-number', 'add-remaining-output');
+  initQuantityHint('add-quantity', 'add-quantity-hint');
+
+  // ── Initialize Edit forms (one per spool row) ──
+  {% for s in spools %}
+  initColorField('edit-{{ s.id }}-', '{{ s.color_name or '' }}');
+  initRangeField('edit-range-{{ s.id }}', 'edit-number-{{ s.id }}', 'edit-remaining-output-{{ s.id }}');
+  {% endfor %}
+
 })();
 </script>
 {% endblock %}

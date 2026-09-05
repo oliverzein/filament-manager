@@ -78,6 +78,11 @@ def _migrate(engine: Engine) -> None:
             conn.execute(text("ALTER TABLE spools ADD COLUMN cloud_resource_id VARCHAR(64)"))
             conn.commit()
 
+        # spools.color_name — descriptive color name (e.g. "Vivid Yellow")
+        if "color_name" not in spool_cols:
+            conn.execute(text("ALTER TABLE spools ADD COLUMN color_name VARCHAR(64)"))
+            conn.commit()
+
         # Backfill spools.cloud_resource_id from the sibling orca_preset target.
         conn.execute(text("""
             UPDATE spools

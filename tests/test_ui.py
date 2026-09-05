@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import pytest
 from starlette.testclient import TestClient
 
+from sqlalchemy import func, select
 from fm.db import SessionLocal
 from fm.models import ProfileCache
 
@@ -470,3 +471,87 @@ def test_logs_github_backup_not_duplicated(client, monkeypatch):
     r_full = client.get("/logs")
     assert r_full.status_code == 200
     assert r_full.text.count('class="log-row ') == 1
+
+
+# ---------------------------------------------------------------------------
+# Spool features — quantity, color_name, duplicate, vendor dedup
+# ---------------------------------------------------------------------------
+
+def test_spool_create_with_quantity(client, seeded_cache_profile):
+    """POST /spools/form with quantity=3 creates 3 spools."""
+    from fm.models import Spool
+    with SessionLocal() as s:
+        before = s.scalar(select(func.count(Spool.id))) or 0
+    r = client.post("/spools/form", data={
+        "cloud_resource_id": seeded_cache_profile,
+        "remaining_pct": "100",
+        "quantity": "3",
+    }, follow_redirects=True)
+    assert r.status_code == 200
+    with SessionLocal() as s:
+        after = s.scalar(select(func.count(Spool.id))) or 0
+    assert after - before == 3
+
+
+def test_spool_create_with_color_name(client, seeded_cache_profile):
+    """POST /spools/form with color_name persists and appears in table."""
+    r = client.post("/spools/form", data={
+        "cloud_resource_id": seeded_cache_profile,
+        "remaining_pct": "100",
+        "color_name": "Rainbow",
+    }, follow_redirects=True)
+    assert r.status_code == 200
+    assert b"Rainbow" in r.content
+
+
+def test_spool_edit_color_name(client, seeded_cache_profile):
+    """POST /spools/{id}/edit updates color_name."""
+    # Create a spool first
+    client.post("/spools/form", data={
+        "cloud_resource_id": seeded_cache_profile,
+        "remaining_pct": "100",
+    }, follow_redirects=True)
+    from fm.models import Spool
+    with SessionLocal() as s:
+        spool = s.scalars(select(Spool).order_by(Spool.id.desc())).first()
+        sid = spool.id
+    # Edit it with a color_name
+    r = client.post(f"/spools/{sid}/edit", data={
+        "cloud_resource_id": seeded_cache_profile,
+        "remaining_pct": "80",
+        "color_name": "Sunset Orange",
+    }, follow_redirects=True)
+    assert r.status_code == 200
+    with SessionLocal() as s:
+        spool = s.get(Spool, sid)
+        assert spool.color_name == "Sunset Orange"
+
+
+def test_spool_duplicate_copies_color_name(client, seeded_cache_profile):
+    """Duplicating a spool preserves color_name."""
+    # Create a spool with color_name
+    client.post("/spools/form", data={
+        "cloud_resource_id": seeded_cache_profile,
+        "remaining_pct": "100",
+        "color_name": "Ocean Blue",
+    }, follow_redirects=True)
+    from fm.models import Spool
+    with SessionLocal() as s:
+        spool = s.scalars(select(Spool).order_by(Spool.id.desc())).first()
+        sid = spool.id
+    # Duplicate it
+    r = client.post(f"/spools/{sid}/duplicate", follow_redirects=True)
+    assert r.status_code == 200
+    with SessionLocal() as s:
+        dupes = s.scalars(select(Spool).where(Spool.color_name == "Ocean Blue")).all()
+        assert len(dupes) == 2
+
+
+def test_spool_profile_dropdown_no_double_names(client, seeded_cache_profile):
+    """Profile <option>s on /spools must not contain 'Sunlu Sunlu'."""
+    r = client.get("/spools")
+    assert r.status_code == 200
+    html = r.text
+    assert "Sunlu Sunlu" not in html
+    # The deduplicated label should be present
+    assert "Sunlu PLA+ Optimized" in html

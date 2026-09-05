@@ -169,36 +169,27 @@ def spool_create_form(
     remaining_pct: int = Form(100),
     location: str = Form(""),
     notes: str = Form(""),
+    color_name: str | None = Form(None),
+    quantity: int = Form(1),
 ) -> RedirectResponse:
     if db.get(ProfileCache, cloud_resource_id) is None:
         raise HTTPException(status_code=404, detail="profile not found")
+    qty = max(1, min(50, quantity))
+    cname = color_name.strip() if color_name else None
     now = _now()
-    s = Spool(
-        cloud_resource_id=cloud_resource_id,
-        color_override=color_override or None,
-        remaining_pct=remaining_pct,
-        location=location,
-        notes=notes,
-        created_at=now, updated_at=now,
-    )
-    db.add(s)
+    for _ in range(qty):
+        s = Spool(
+            cloud_resource_id=cloud_resource_id,
+            color_override=color_override or None,
+            remaining_pct=remaining_pct,
+            location=location,
+            notes=notes,
+            color_name=cname,
+            created_at=now, updated_at=now,
+        )
+        db.add(s)
     db.flush()
     return RedirectResponse(url="/spools", status_code=303)
-
-
-@router.post("/spools/{sid}/remaining", response_class=HTMLResponse)
-def spool_update_remaining(
-    request: Request, sid: int, db: DbSession, remaining_pct: int = Form(...),
-) -> HTMLResponse:
-    s = db.get(Spool, sid)
-    if s is None:
-        raise HTTPException(status_code=404, detail="spool not found")
-    s.remaining_pct = remaining_pct
-    s.updated_at = _now()
-    db.flush()
-    return HTMLResponse(
-        f'<span id="remaining-{sid}" class="remaining">{remaining_pct}%</span>'
-    )
 
 @router.post("/spools/{sid}/edit", response_class=HTMLResponse)
 def spool_edit_form(
@@ -210,6 +201,7 @@ def spool_edit_form(
     remaining_pct: int = Form(100),
     location: str = Form(""),
     notes: str = Form(""),
+    color_name: str | None = Form(None),
 ) -> RedirectResponse:
     """Update a spool's editable fields from the inline edit form."""
     s = db.get(Spool, sid)
@@ -222,6 +214,7 @@ def spool_edit_form(
     s.remaining_pct = remaining_pct
     s.location = location
     s.notes = notes
+    s.color_name = color_name.strip() if color_name else None
     s.updated_at = _now()
     db.flush()
     return RedirectResponse(url="/spools", status_code=303)
@@ -250,6 +243,7 @@ def spool_duplicate_form(sid: int, db: DbSession) -> RedirectResponse:
         remaining_pct=100,
         location=s.location,
         notes=s.notes,
+        color_name=s.color_name,
         created_at=now,
         updated_at=now,
     )

@@ -17,7 +17,7 @@
       <div class="form-grid three-col">
         {# ── Row 1 ── #}
         <label><span>Profile</span><select name="cloud_resource_id" required>{% for p in profiles %}<option value="{{ p.cloud_resource_id }}">{{ plabel(p) }}</option>{% endfor %}</select></label>
-        <label class="color-field"><span>Color</span><div class="color-control"><span class="swatch color-row-swatch" id="add-color-swatch" style="background:#cccccc" aria-hidden="true"></span><select name="color_override" id="add-color-select" aria-label="Color preset"><option value="#cccccc">Custom</option><option value="#ffffff">White</option><option value="#f5f5dc">Beige</option><option value="#d9d9d9">Light Grey</option><option value="#808080">Grey</option><option value="#404040">Dark Grey</option><option value="#1a1a1a">Black</option><option value="#ff0000">Red</option><option value="#c0392b">Dark Red</option><option value="#ff5e4d">Coral</option><option value="#ff8c00">Orange</option><option value="#e67e22">Dark Orange</option><option value="#ffd700">Gold</option><option value="#f1c40f">Yellow</option><option value="#9acd32">Yellow Green</option><option value="#2ecc71">Green</option><option value="#27ae60">Dark Green</option><option value="#00b894">Teal</option><option value="#1abc9c">Cyan</option><option value="#3498db">Blue</option><option value="#2980b9">Dark Blue</option><option value="#2c3e50">Navy</option><option value="#9b59b6">Purple</option><option value="#8e44ad">Dark Purple</option><option value="#e91e63">Magenta</option><option value="#e8b4b8">Pink</option><option value="#964b00">Brown</option><option value="#5d4037">Dark Brown</option><option value="#c0c0c0">Silver</option><option value="#d4af37">Gold Metallic</option></select><span class="color-control-custom"><input type="color" id="add-color-custom" value="#cccccc" title="Custom color picker" class="color-custom-btn" aria-label="Open native color picker"><input type="text" id="add-color-hex" value="#cccccc" placeholder="#RRGGBB" class="hex-input" maxlength="7" inputmode="text" autocomplete="off" aria-label="Hex color code"></span></div></label>
+        <label class="color-field"><span>Color</span><div class="color-control"><span class="swatch color-row-swatch" id="add-color-swatch" style="background:#cccccc" aria-hidden="true"></span><select name="color_override" id="add-color-select" aria-label="Color preset"><option value="#cccccc">Custom</option><option value="#ffffff">White</option><option value="#f5f5dc">Beige</option><option value="#d9d9d9">Light Grey</option><option value="#808080">Grey</option><option value="#404040">Dark Grey</option><option value="#1a1a1a">Black</option><option value="#ff0000">Red</option><option value="#c0392b">Dark Red</option><option value="#ff5e4d">Coral</option><option value="#ff8c00">Orange</option><option value="#e67e22">Dark Orange</option><option value="#ffd700">Gold</option><option value="#f1c40f">Yellow</option><option value="#9acd32">Yellow Green</option><option value="#2ecc71">Green</option><option value="#27ae60">Dark Green</option><option value="#00b894">Teal</option><option value="#1abc9c">Cyan</option><option value="#3498db">Blue</option><option value="#2980b9">Dark Blue</option><option value="#2c3e50">Navy</option><option value="#9b59b6">Purple</option><option value="#8e44ad">Dark Purple</option><option value="#e91e63">Magenta</option><option value="#e8b4b8">Pink</option><option value="#964b00">Brown</option><option value="#5d4037">Dark Brown</option><option value="#c0c0c0">Silver</option><option value="#d4af37">Gold Metallic</option></select><span class="color-control-custom"><input type="color" id="add-color-custom" value="#cccccc" title="Custom color picker" class="color-custom-btn" aria-label="Open native color picker"></span></div></label>
         <label><span>Location</span><input name="location" value="" placeholder="e.g. Dry box A"></label>
         {# ── Row 2 ── #}
         <label><span>Color name</span><input type="text" name="color_name" id="add-color-name" value="" placeholder="e.g. Vivid Yellow" maxlength="60" autocomplete="off"></label>
@@ -35,7 +35,7 @@
     <tr class="spool-edit-row hidden" id="spool-edit-{{ s.id }}"><td colspan="5"><form method="post" action="/spools/{{ s.id }}/edit" class="spool-edit-form"><div class="form-grid three-col">
       {# ── Row 1 ── #}
       <label><span>Profile</span><select name="cloud_resource_id" required>{% if s.cached_profile and s.cached_profile.deleted_from_cloud %}<option value="{{ s.cached_profile.cloud_resource_id }}" selected>{{ plabel(s.cached_profile) }} (Orphan)</option>{% endif %}{% for p in profiles %}<option value="{{ p.cloud_resource_id }}" {% if p.cloud_resource_id == s.cloud_resource_id %}selected{% endif %}>{{ plabel(p) }}</option>{% endfor %}</select></label>
-      <label class="color-field"><span>Color</span><div class="color-control" data-initial-color="{{ s.color_override or '' }}"><span class="swatch color-row-swatch" id="edit-{{ s.id }}-color-swatch" style="background:{{ s.color_override or '#cccccc' }}" aria-hidden="true"></span><select name="color_override" id="edit-{{ s.id }}-color-select" aria-label="Color preset"><option value="" {% if not s.color_override %}selected{% endif %}>Profile default</option><option value="#ffffff">White</option><option value="#f5f5dc">Beige</option><option value="#d9d9d9">Light Grey</option><option value="#808080">Grey</option><option value="#404040">Dark Grey</option><option value="#1a1a1a">Black</option><option value="#ff0000">Red</option><option value="#c0392b">Dark Red</option><option value="#ff5e4d">Coral</option><option value="#ff8c00">Orange</option><option value="#e67e22">Dark Orange</option><option value="#ffd700">Gold</option><option value="#f1c40f">Yellow</option><option value="#9acd32">Yellow Green</option><option value="#2ecc71">Green</option><option value="#27ae60">Dark Green</option><option value="#00b894">Teal</option><option value="#1abc9c">Cyan</option><option value="#3498db">Blue</option><option value="#2980b9">Dark Blue</option><option value="#2c3e50">Navy</option><option value="#9b59b6">Purple</option><option value="#8e44ad">Dark Purple</option><option value="#e91e63">Magenta</option><option value="#e8b4b8">Pink</option><option value="#964b00">Brown</option><option value="#5d4037">Dark Brown</option><option value="#c0c0c0">Silver</option><option value="#d4af37">Gold Metallic</option></select><span class="color-control-custom"><input type="color" id="edit-{{ s.id }}-color-custom" value="{{ s.color_override or '#cccccc' }}" title="Custom color picker" class="color-custom-btn" aria-label="Open native color picker"><input type="text" id="edit-{{ s.id }}-color-hex" value="{{ s.color_override or '#cccccc' }}" placeholder="#RRGGBB" class="hex-input" maxlength="7" inputmode="text" autocomplete="off" aria-label="Hex color code"></span></div></label>
+      <label class="color-field"><span>Color</span><div class="color-control" data-initial-color="{{ s.color_override or '' }}"><span class="swatch color-row-swatch" id="edit-{{ s.id }}-color-swatch" style="background:{{ s.color_override or '#cccccc' }}" aria-hidden="true"></span><select name="color_override" id="edit-{{ s.id }}-color-select" aria-label="Color preset"><option value="" {% if not s.color_override %}selected{% endif %}>Profile default</option><option value="#ffffff">White</option><option value="#f5f5dc">Beige</option><option value="#d9d9d9">Light Grey</option><option value="#808080">Grey</option><option value="#404040">Dark Grey</option><option value="#1a1a1a">Black</option><option value="#ff0000">Red</option><option value="#c0392b">Dark Red</option><option value="#ff5e4d">Coral</option><option value="#ff8c00">Orange</option><option value="#e67e22">Dark Orange</option><option value="#ffd700">Gold</option><option value="#f1c40f">Yellow</option><option value="#9acd32">Yellow Green</option><option value="#2ecc71">Green</option><option value="#27ae60">Dark Green</option><option value="#00b894">Teal</option><option value="#1abc9c">Cyan</option><option value="#3498db">Blue</option><option value="#2980b9">Dark Blue</option><option value="#2c3e50">Navy</option><option value="#9b59b6">Purple</option><option value="#8e44ad">Dark Purple</option><option value="#e91e63">Magenta</option><option value="#e8b4b8">Pink</option><option value="#964b00">Brown</option><option value="#5d4037">Dark Brown</option><option value="#c0c0c0">Silver</option><option value="#d4af37">Gold Metallic</option></select><span class="color-control-custom"><input type="color" id="edit-{{ s.id }}-color-custom" value="{{ s.color_override or '#cccccc' }}" title="Custom color picker" class="color-custom-btn" aria-label="Open native color picker"></span></div></label>
       <label><span>Location</span><input name="location" value="{{ s.location or '' }}" placeholder="e.g. Dry box A"></label>
       {# ── Row 2 ── #}
       <label><span>Color name</span><input type="text" name="color_name" id="edit-{{ s.id }}-color-name" value="{{ s.color_name or '' }}" placeholder="e.g. Vivid Yellow" maxlength="60" autocomplete="off"></label>
@@ -50,25 +50,12 @@
 (function() {
   'use strict';
 
-  // ── Hex normalization ──
-  function normalizeHex(raw) {
-    var v = String(raw || '').replace(/^#/, '').trim();
-    if (/^[0-9a-fA-F]{3}$/.test(v)) {
-      v = v[0] + v[0] + v[1] + v[1] + v[2] + v[2];
-    }
-    if (/^[0-9a-fA-F]{6}$/.test(v)) {
-      return '#' + v.toLowerCase();
-    }
-    return null;
-  }
-
   // ── Color field initializer ──
   // Works for both Add form (prefix='add-') and Edit forms (prefix='edit-<id>-').
   function initColorField(prefix, initialColorName) {
     var sel     = document.getElementById(prefix + 'color-select');
     var swatch  = document.getElementById(prefix + 'color-swatch');
     var picker  = document.getElementById(prefix + 'color-custom');
-    var hex     = document.getElementById(prefix + 'color-hex');
     var nameInp = document.getElementById(prefix + 'color-name');
     if (!sel || !swatch) return;
 
@@ -79,10 +66,6 @@
       var val = sel.value;
       swatch.style.background = val;
       if (picker) picker.value = val;
-      if (hex) {
-        hex.value = val;
-        hex.classList.remove('invalid');
-      }
     }
 
     // Try to match a hex value to a preset option; if no match, set "Custom".
@@ -120,40 +103,25 @@
       }
     });
 
-    // ── Native color picker input → sync hex + dropdown ──
+    // ── Native color picker input → sync dropdown + swatch ──
     if (picker) {
       picker.addEventListener('input', function() {
-        var normalized = normalizeHex(picker.value);
-        if (normalized) {
-          hex.value = normalized;
-          hex.classList.remove('invalid');
-          syncFromHex(normalized);
+        var val = picker.value;
+        var matched = false;
+        for (var i = 1; i < sel.options.length; i++) {
+          if (sel.options[i].value === val) {
+            sel.selectedIndex = i;
+            tryAutoPopulate(sel.options[i].text);
+            matched = true;
+            break;
+          }
         }
-      });
-    }
-
-    // ── Hex text input → normalize + sync ──
-    if (hex) {
-      hex.addEventListener('input', function() {
-        var normalized = normalizeHex(hex.value);
-        if (normalized) {
-          hex.classList.remove('invalid');
-          syncFromHex(normalized);
-        } else if (hex.value.trim() === '') {
-          hex.classList.remove('invalid');
-          // Don't update swatch/dropdown on empty input
-        } else {
-          hex.classList.add('invalid');
+        if (!matched) {
+          sel.options[0].value = val;
+          sel.options[0].text = 'Custom';
+          sel.selectedIndex = 0;
         }
-      });
-
-      // On blur, normalize the displayed value (add # prefix, lowercase)
-      hex.addEventListener('blur', function() {
-        var normalized = normalizeHex(hex.value);
-        if (normalized) {
-          hex.value = normalized;
-          hex.classList.remove('invalid');
-        }
+        swatch.style.background = val;
       });
     }
 
@@ -167,8 +135,22 @@
     // Initialize display from a stored custom value or the current preset.
     var initialColor = sel.closest('.color-control').dataset.initialColor;
     if (initialColor) {
-      syncFromHex(initialColor);
-      if (hex) hex.value = initialColor;
+      picker.value = initialColor;
+      swatch.style.background = initialColor;
+      // Match preset or set Custom
+      var matched = false;
+      for (var i = 1; i < sel.options.length; i++) {
+        if (sel.options[i].value === initialColor) {
+          sel.selectedIndex = i;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        sel.options[0].value = initialColor;
+        sel.options[0].text = 'Custom';
+        sel.selectedIndex = 0;
+      }
     } else {
       syncFromDropdown();
     }

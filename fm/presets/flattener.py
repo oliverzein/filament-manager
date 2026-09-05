@@ -21,9 +21,17 @@ SYS_PROFILES = Path("/opt/orca-slicer/resources/profiles")
 
 
 def find_preset_by_name(name, hint_dir=None):
-    """Find a preset JSON by name. Prefer hint_dir, then bundled templates."""
+    """Find a preset JSON by name. Prefer hint_dir, then bundled templates.
+
+    Falls back gracefully for OrcaSlicer naming inconsistencies:
+      * ``@System`` -> ``@base`` when the @System file is not bundled.
+      * ``/`` in the name -> space or hyphen (upstream file-name mismatch,
+        e.g. ``Bambu Support For PA/PET @base`` is stored on disk as
+        ``Bambu Support For PA PET @base.json``).
+    """
     if not name:
         return None
+    # 1. Standard lookup: hint_dir first, then bundled templates.
     if hint_dir:
         p = hint_dir / f"{name}.json"
         if p.exists():
@@ -31,6 +39,27 @@ def find_preset_by_name(name, hint_dir=None):
     p = _BUNDLED_DIR / f"{name}.json"
     if p.exists():
         return p
+
+    # 2. Slash normalisation — upstream stores some filenames with spaces or
+    #    hyphens where the inherits field uses '/'.
+    if "/" in name:
+        for replacement in (" ", "-"):
+            alt = name.replace("/", replacement)
+            if alt == name:
+                continue
+            if hint_dir:
+                p = hint_dir / f"{alt}.json"
+                if p.exists():
+                    return p
+            p = _BUNDLED_DIR / f"{alt}.json"
+            if p.exists():
+                return p
+
+    # 3. @System -> @base fallback.
+    if name.endswith(" @System"):
+        base_name = name[:-8] + " @base"
+        return find_preset_by_name(base_name, hint_dir=hint_dir)
+
     return None
 
 

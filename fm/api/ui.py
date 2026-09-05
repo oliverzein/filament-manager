@@ -952,6 +952,8 @@ def settings_save(
     github_token: str = Form(""),
     github_repo: str = Form(""),
     github_branch: str = Form("main"),
+    orca_email: str = Form(""),
+    orca_password: str = Form(""),
 ) -> HTMLResponse | RedirectResponse:
     """Validate, persist settings.json, update app.state.config, redirect."""
     printer_ip = printer_ip.strip()
@@ -981,28 +983,51 @@ def settings_save(
     ver = _int("Version override", version_override, _SETTINGS_DEFAULTS["version_override"])
     ids = _int("ID range start", id_range_start, _SETTINGS_DEFAULTS["id_range_start"])
 
-    submitted = {
+    # Merge onto existing settings so Orca Cloud tokens & sync cursor survive
+    # a full-file replace by save_settings().
+    existing = load_settings() or {}
+    merged = dict(existing)
+    merged.update({
         "printer_ip": printer_ip, "ssh_user": ssh_user,
         "ssh_password": ssh_password, "db_remote_path": db_remote_path,
         "ws_port": port,
         "version_override": ver, "id_range_start": ids,
-    }
+    })
+
+    # GitHub backup config (optional — empty token means not configured)
+    if github_token.strip():
+        merged["github_token"] = github_token.strip()
+        merged["github_repo"] = github_repo.strip()
+        merged["github_branch"] = github_branch.strip() or "main"
+    else:
+        merged.pop("github_token", None)
+        merged.pop("github_repo", None)
+        merged.pop("github_branch", None)
+
+    # Orca Cloud connect from the email/password form fields (optional)
+    if orca_email.strip() and orca_password.strip():
+        try:
+            refresh_tok, user_id = OrcaCloudClient.login_with_password(
+                orca_email.strip(), orca_password.strip())
+            merged["orca_refresh_token"] = refresh_tok
+            merged["orca_user_id"] = user_id
+        except OrcaCloudError as exc:
+            errors.append(f"Orca Cloud connection failed: {exc.message}")
 
     if errors:
-        ctx = {**_settings_context(None, saved=False, errors=errors), **submitted}
+        form_values = {
+            "printer_ip": printer_ip, "ssh_user": ssh_user,
+            "ssh_password": ssh_password, "db_remote_path": db_remote_path,
+            "ws_port": port, "version_override": ver, "id_range_start": ids,
+        }
+        ctx = {**_settings_context(None, saved=False, errors=errors), **form_values}
         ctx["configured"] = False
         return _templates(request).TemplateResponse(
             request, "settings.html", ctx, status_code=422,
         )
 
-    # GitHub backup config (optional — empty token means not configured)
-    if github_token.strip():
-        submitted["github_token"] = github_token.strip()
-        submitted["github_repo"] = github_repo.strip()
-        submitted["github_branch"] = github_branch.strip() or "main"
-
-    save_settings(submitted)
-    request.app.state.config = build_config(submitted)
+    save_settings(merged)
+    request.app.state.config = build_config(merged)
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 

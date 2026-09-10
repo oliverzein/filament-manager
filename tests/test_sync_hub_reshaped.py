@@ -151,10 +151,10 @@ def test_cache_sync_endpoint_without_client_returns_fragment(client, monkeypatch
     assert resp.status_code == 200
 
 
-def test_sync_hub_renders_stock_rfid_for_creality_presets(tmp_path):
-    """Creality presets must be displayed with Creality Stock, status 'stock',
-    no 'Push to Printer' button, and excluded from the 'not pushed' summary count."""
-    db_url = f"sqlite:///{tmp_path}/test_sync_stock.db"
+def test_sync_hub_renders_creality_presets_as_pushable(tmp_path):
+    """Creality presets are now rendered as normal pushable presets with a
+    'Push to Printer' button, correct status, and counted toward 'not pushed'."""
+    db_url = f"sqlite:///{tmp_path}/test_sync_creality.db"
     engine = init_engine(db_url)
     with Session(engine) as s:
         p_custom = ProfileCache(
@@ -188,11 +188,17 @@ def test_sync_hub_renders_stock_rfid_for_creality_presets(tmp_path):
     assert resp.status_code == 200
     html = resp.text
 
-    # Creality row should show 'Creality Stock', status 'stock', and 'Stock RFID'
-    assert "Creality Stock" in html
-    assert "status-stock" in html
-    assert "Stock RFID" in html
+    # Creality row should NOT show 'Creality Stock' or 'Stock RFID'
+    assert "Creality Stock" not in html
+    assert "Stock RFID" not in html
 
-    # Summary card must show "1 in sync, 0 not pushed" (Creality is stock, not counted as not pushed)
-    assert "1 in sync, 0 not pushed" in html
+    # Creality preset should show 'Not pushed' (no SyncTarget) and pending status
+    assert "Not pushed" in html
+    assert "status-pending" in html
+
+    # Creality preset should have a 'Push to Printer' button
+    assert "Push to Printer" in html
+
+    # Summary card must show "1 in sync, 1 not pushed" (Creality now counts)
+    assert "1 in sync, 1 not pushed" in html
     assert "preset-table" in resp.text

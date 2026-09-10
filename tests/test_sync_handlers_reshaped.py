@@ -226,12 +226,12 @@ def test_cloud_resource_ids_no_match_no_catalog_fallback(
     assert prof.printer_db_id is None
 
 
-def test_rebuild_from_cloud_skips_inherited_creality_presets(
+def test_rebuild_from_cloud_pushes_inherited_creality_presets(
     inmemory_session, cfg, tmp_path, sample_db, monkeypatch
 ):
-    """Inherited presets with Creality vendor (e.g. Hyper Stardust @K2-all) must be
-    skipped from push per Iron Rule 2 (Stock RFID protection), even if the raw
-    cloud preset does not have filament_vendor explicitly set."""
+    """Inherited presets with Creality vendor (e.g. Hyper Stardust @K2-all) are
+    now pushed to the printer DB with a 99xxx ID, just like any other brand
+    (stock RFID block removed)."""
     cache_file = tmp_path / "printer-db-cache.json"
     cache_file.write_text(json.dumps(sample_db))
     monkeypatch.setattr(sh, "_resolve_cache_path", lambda: cache_file)
@@ -266,10 +266,23 @@ def test_rebuild_from_cloud_skips_inherited_creality_presets(
 
     payload = {}
     result = sh.handle_push(inmemory_session, cfg, payload)
-    assert result["pushed"] == 0
+    assert result["pushed"] == 2
 
-    # Ensure no 99xxx entries were added for Creality presets
-    for entry in sample_db["result"]["list"]:
-        eid = entry.get("base", {}).get("id", "")
-        if eid.startswith("99"):
-            assert "Hyper Stardust" not in entry["base"].get("name", "")
+    # Both Creality presets should have 99xxx entries in the pushed DB
+    pushed_db = json.loads(cache_file.read_text())
+    new_ids = [
+        e.get("base", {}).get("id", "")
+        for e in pushed_db["result"]["list"]
+        if e.get("base", {}).get("id", "").startswith("99")
+    ]
+    # Two new 99xxx entries should exist (the sample_db has one pre-existing 99001)
+    assert len(new_ids) >= 2
+
+    # SyncTargets should have been created with 99xxx printer_db_ids
+    targets = inmemory_session.scalars(
+        select(SyncTarget).where(SyncTarget.kind == "printer_db")
+    ).all()
+    assert len(targets) == 2
+    for t in targets:
+        assert t.printer_db_id is not None
+        assert t.printer_db_id.startswith("99")

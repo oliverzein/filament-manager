@@ -219,9 +219,9 @@ Iron Rules (AGENTS.md) unverändert.
 
 - Lookup `sync_targets.printer_db_id` via `cloud_resource_id`.
 - Fehlt der Eintrag → `next_free_id` (99xxx, auto-inkrement ab `id_range_start`).
-- Stock-Schutz `STOCK_RFID_BRANDS = {"creality"}` unverändert
-  (`_is_stock_rfid`): Creality-Presets werden vom Push ausgeschlossen, ihre
-  RFID-Tags matchen bereits Stock-01xxx-Einträge.
+- Creality presets are pushed normally with 99xxx IDs (stock RFID block
+  removed — custom/optimized Creality profiles can now be tagged via
+  RFID like any other brand).
 
 ### Type-Unboxing & Adapter (`_cloud_preset_to_entry_values`)
 
@@ -272,7 +272,7 @@ UI-Arbeit verwendet die **designer role** (omp designer agent) gemäß AGENTS.md
 - **Printer/Sync-Seite (umbenannt/reshaped):**
   - **Preset- & Status-Tabelle (ersetzt Drift-Tabelle):**
     - Listet alle Presets aus `profile_cache` (Vendor, Name, Type, Vererbungs-Status).
-    - Zeigt zugeordnete `printer_db_id` (z. B. `99001`, `Stock` oder `Not pushed`).
+    - Zeigt zugeordnete `printer_db_id` (z. B. `99001` oder `Not pushed`).
     - Status-Badges: `In Sync`, `Pending Verify`, `Orphan` (in Cloud gelöscht).
     - Aktionen pro Zeile: `Push to Printer` (Einzel-Push via `cloud_resource_id`), bei Orphans `Remove from Printer` (Double-Confirm mit typed token).
   - Target-Cards (rechts): Printer DB ("X in sync, Y pending/unlinked"), Orca Cloud Status ("X cached, Y orphans"), Backup to GitHub.

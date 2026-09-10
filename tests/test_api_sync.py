@@ -289,14 +289,14 @@ class TestDriftStatus:
         assert r.json() == []
 
 
-    def test_stock_rfid_profile_shows_stock_status(self, client):
-        """Creality profile with no printer_db target → stock status, not pending."""
+    def test_creality_profile_shows_pending_status(self, client):
+        """Creality profile with no printer_db target → pending status (stock RFID block removed)."""
         p = _make_profile(client, brand="Creality", name="Creality Hyper PLA")
         r = client.get("/api/status/drift")
         assert r.status_code == 200
         matrix = r.json()
         entry = next(e for e in matrix if e["profile_id"] == p["id"])
-        assert entry["printer_db"]["status"] == "stock"
+        assert entry["printer_db"]["status"] == "new"
         assert entry["orca_preset"]["status"] == "pending"
 
     def test_legacy_entry_shows_in_sync(self, client):

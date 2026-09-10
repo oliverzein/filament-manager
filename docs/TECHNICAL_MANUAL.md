@@ -382,12 +382,10 @@ button on Sync Hub.
    queue synchronously.
 2. **`_rebuild_printer_db`** (`sync_handlers.py`):
    - **Cloud-first path** (Orca Cloud configured): pull filament presets
-     via `sync_pull`, filter by `cloud_resource_ids` if provided, skip
-     stock Creality presets (evaluated on the **flattened** preset so
-     inherited variants like Hyper Stardust and EN-PLA+ are recognized as
-     Creality stock), flatten inherited presets, build entries via
-     `build_entry`. `printer_db_id` is mapped via existing `SyncTarget`
-     rows (`cloud_id == res_id`) or allocated as `next_free_id`.
+     via `sync_pull`, filter by `cloud_resource_ids` if provided, flatten
+     inherited presets, build entries via `build_entry`. `printer_db_id`
+     is mapped via existing `SyncTarget` rows (`cloud_id == res_id`) or
+     allocated as `next_free_id`.
    - **Fallback path** (no Orca Cloud client): rebuild from cache DB +
      catalog `Profile` rows, filtered by `profile_ids` if provided.
    - **Orphan Rule**: existing custom 99xxx entries missing from the
@@ -476,9 +474,7 @@ cache-file fallback, returns None if neither available). For each
 
 | Status | Condition |
 |---|---|
-| `stock` | Preset vendor is a stock-RFID brand (e.g. Creality) — spool RFID tags match stock 01xxx entries, no 99xxx push needed |
 | `new` | No `printer_db_id` — never pushed |
-| `missing` | `printer_db_id` set but `find_entry` returns None |
 | `in_sync` | Entry exists and `_entry_drift_detail(entry, expected)` is empty |
 | `modified` | Entry exists but differs — detail string shows changed fields |
 
@@ -678,19 +674,6 @@ via WS. Returns `None` if idle, or a dict with `filename`, `progress`,
 
 SHA-256 of canonical JSON (`sort_keys=True`) of identity + parameter
 fields. Used for drift detection (expected vs. actual hash comparison).
-
-### Stock RFID Protection
-
-`STOCK_RFID_BRANDS = {"creality"}` in `sync_handlers.py`. Presets whose
-`filament_vendor` (after flattening) matches a stock-RFID brand are
-protected from push — their spool RFID tags already match stock 01xxx
-printer DB entries, so a 99xxx duplicate would never match a tag scan.
-The stock check is performed on the **flattened** preset so that
-inherited variants (e.g. Hyper Stardust, EN-PLA+ — which inherit from
-Creality system presets) are recognized as stock. On the Sync Hub, stock
-presets show a `stock` status badge, **Creality Stock** in the Printer DB
-column, and a **Stock RFID** label instead of a push button. They are
-excluded from the "not pushed" count in the Printer DB target card.
 
 ---
 

@@ -27,7 +27,7 @@
     <section id="preset-sync-status" class="panel">
       <div class="panel-heading"><div><p class="eyebrow">Connections</p><h2>Preset sync status</h2></div><a href="/sync" class="text-link">Manage sync →</a></div>
       {% if presets %}<div class="table-wrap"><table><thead><tr><th>Preset</th><th>Printer DB</th><th>Status</th></tr></thead><tbody>
-      {% for p in presets %}<tr><td><span class="cell-main">{{ p.name if p.name.lower().startswith(p.vendor.lower()) else p.vendor ~ ' ' ~ p.name }}</span><span class="cell-sub">{{ p.type }}</span></td><td>{% if p.is_stock %}<span class="muted">Creality Stock</span>{% elif p.printer_db_id %}<span class="cell-main">{{ p.printer_db_id }}</span>{% else %}<span class="muted">Not pushed</span>{% endif %}</td><td><span class="status-badge status-{{ p.status | status_class }}">{{ p.status | replace('_', ' ') }}</span></td></tr>{% endfor %}
+      {% for p in presets %}<tr><td><span class="cell-main">{{ p.name if p.name.lower().startswith(p.vendor.lower()) else p.vendor ~ ' ' ~ p.name }}</span><span class="cell-sub">{{ p.type }}</span></td><td>{% if p.printer_db_id %}<span class="cell-main">{{ p.printer_db_id }}</span>{% else %}<span class="muted">Not pushed</span>{% endif %}</td><td><span class="status-badge status-{{ p.status | status_class }}">{{ p.status | replace('_', ' ') }}</span></td></tr>{% endfor %}
       </tbody></table></div>{% else %}<div class="empty-state compact"><p>No cached presets.</p></div>{% endif %}
     </section>
   </div>

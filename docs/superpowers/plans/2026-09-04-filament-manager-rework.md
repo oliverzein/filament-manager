@@ -13,11 +13,10 @@
 ## Global Constraints
 
 - Iron Rule 1: Version bump ≥ 9876543210 and printer reboot mandatory after printer DB write; busy check runs before upload.
-- Iron Rule 2: Stock Creality presets (`STOCK_RFID_BRANDS = {"creality"}`) are excluded from push (RFID tags match 01xxx stock IDs).
-- Iron Rule 3: Custom printer DB IDs only in 99xxx range (`id_range_start = 99001`); stock IDs protected.
-- Iron Rule 4: Printer backup before every write; rotate, keep 5.
-- Iron Rule 5: Double-confirm on delete with typed token.
-- Iron Rule 6: Refuse push when printer DB < 30 entries (`MIN_DB_ENTRIES = 30`) unless explicitly forced.
+- Iron Rule 2: Custom printer DB IDs only in 99xxx range (`id_range_start = 99001`); stock IDs protected.
+- Iron Rule 3: Printer backup before every write; rotate, keep 5.
+- Iron Rule 4: Double-confirm on delete with typed token.
+- Iron Rule 5: Refuse push when printer DB < 30 entries (`MIN_DB_ENTRIES = 30`) unless explicitly forced.
 - Working Rule 1: UI design/refinement uses omp designer agent.
 - Working Rule 2: Scripts over repetition (`scripts/test.sh`, `scripts/dev-start.sh`).
 - Working Rule 3: Skill repo `~/Dokumente/Daten/Development/skills/Creality-custom-filament` is read-only reference material.
@@ -729,7 +728,6 @@ def _cloud_preset_to_entry_values(preset: dict, entry_id: str) -> dict:
 Update `_rebuild_printer_db` in `fm/service/sync_handlers.py`:
 - Use live pull from Orca Cloud (`client.sync_pull(cursor=0)`).
 - Filter by `cloud_resource_ids` if provided.
-- Skip stock Creality presets (`_is_stock_rfid`).
 - Flatten inherited presets with `flatten_preset`.
 - Build entry with `build_entry(db, values)`.
 - **Orphan Rule F3/B**: Do NOT delete existing 99xxx entries that are not in cloud. Remove lines that remove orphaned entries.

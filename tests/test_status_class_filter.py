@@ -34,9 +34,6 @@ def test_new_passes_through():
     assert status_class("new") == "new"
 
 
-def test_stock_passes_through():
-    assert status_class("stock") == "stock"
-
 
 def test_queued_passes_through():
     assert status_class("queued") == "queued"

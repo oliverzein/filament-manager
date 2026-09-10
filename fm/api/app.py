@@ -61,7 +61,7 @@ def status_class(value: str) -> str:
 
     Only ``drift`` → ``drifted`` and ``done`` → ``completed`` need mapping;
     all other status values (in_sync, pending, error, modified, missing,
-    new, stock, queued, running, awaiting_input) have direct CSS classes.
+    new, queued, running, awaiting_input) have direct CSS classes.
     """
     return _STATUS_CLASS_MAP.get(value, value)
 

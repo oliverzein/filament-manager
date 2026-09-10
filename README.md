@@ -201,16 +201,11 @@ The Sync Hub (`/sync`) is the central sync management page. It shows:
 - **Preset & Status table** — one row per cached Orca Cloud preset, showing
   vendor + name (vendor prefix deduplicated: if the preset name already
   starts with the vendor, only the name is shown), type, printer DB ID (if
-  pushed), and sync status (`in_sync`, `pending`, `orphan`, or `stock`).
-  Each row has a **Push to Printer** button (for non-orphan, non-stock
-  presets) or a **Remove** button (for orphan presets with a printer DB ID).
-  Creality stock RFID presets show **Creality Stock** in the Printer DB
-  column, a `stock` status badge, and a **Stock RFID** label instead of a
-  push button — their spool RFID tags already match stock 01xxx entries, so
-  no 99xxx push is needed.
-- **Printer DB target card** — summary of in-sync vs. not-pushed counts
-  (stock presets excluded from the not-pushed count), with a bulk
-  **Push to Printer** button.
+  pushed), and sync status (`in_sync`, `pending`, or `orphan`).
+  Each row has a **Push to Printer** button (for non-orphan presets)
+  or a **Remove** button (for orphan presets with a printer DB ID).
+- **Printer DB target card** — summary of in-sync vs. not-pushed counts,
+  with a bulk **Push to Printer** button.
 - **Cloud presets target card** — summary of cached presets and orphan count.
   Orca Cloud is the sole source of filament presets; new presets are created
   in OrcaSlicer and sync via Orca Cloud.

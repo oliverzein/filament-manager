@@ -10,10 +10,14 @@
 {%- endif -%}
 {%- endmacro %}
 <section id="spools">
-  <header class="page-header"><div><p class="eyebrow">Inventory</p><h1>Spool inventory</h1><p>Track stock, location and remaining material in real time.</p></div></header>
-  <section class="panel inventory-controls">
-    <form method="get" action="/spools" class="filters"><label><span>Profile</span><select name="cloud_resource_id"><option value="">All profiles</option>{% for p in profiles %}<option value="{{ p.cloud_resource_id }}" {% if filter_cloud_resource_id == p.cloud_resource_id %}selected{% endif %}>{{ plabel(p) }}</option>{% endfor %}</select></label><label><span>Location</span><input name="location" value="{{ filter_location }}" placeholder="Search location"></label><button type="submit" class="button button-secondary">Apply filters</button></form>
-    <details><summary class="button button-primary">＋ Add spool</summary><form method="post" action="/spools/form" class="add-form">
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Inventory</p>
+      <h1>Spool inventory</h1>
+      <p>Track stock, location and remaining material in real time.</p>
+      <span class="result-count" id="spool-count-display">{{ spools | length }} total</span>
+    </div>
+    <details class="add-spool-details"><summary class="button button-primary">＋ Add spool</summary><form method="post" action="/spools/form" class="add-form">
       <div class="form-grid three-col">
         {# ── Row 1 ── #}
         <label><span>Profile</span><select name="cloud_resource_id" required>{% for p in profiles %}<option value="{{ p.cloud_resource_id }}">{{ plabel(p) }}</option>{% endfor %}</select></label>
@@ -26,12 +30,17 @@
       </div>
       <div class="form-actions"><button type="submit" class="button button-primary">Add spool</button><button type="button" class="button button-secondary" onclick="this.closest('details').removeAttribute('open')">Cancel</button></div>
     </form></details>
-  </section>
+  </header>
   <section class="panel table-panel">
-    <div class="panel-heading"><div><p class="eyebrow">Stock</p><h2>Active spools</h2></div><span class="result-count">{{ spools | length }} total</span></div>
-    {% if spools %}<div class="table-wrap"><table><thead><tr><th>Profile</th><th>Color</th><th>Material remaining</th><th>Location</th><th></th></tr></thead><tbody>
+    {% if spools %}<div class="table-wrap spools-table-wrap"><table id="spools-table"><thead><tr>
+      <th class="sortable-th" data-col="profile" aria-sort="ascending"><span>Profile</span><span class="sort-arrow" aria-hidden="true">▲</span><span class="th-filter-icon" title="Filtered" aria-hidden="true"><svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor"><path d="M1.5 2.5h13l-5.2 6.1v4.9l-2.6-1.3v-3.6L1.5 2.5z"/></svg></span></th>
+      <th class="sortable-th" data-col="type" aria-sort="none"><span>Type</span><span class="sort-arrow" aria-hidden="true"></span><span class="th-filter-icon" title="Filtered" aria-hidden="true"><svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor"><path d="M1.5 2.5h13l-5.2 6.1v4.9l-2.6-1.3v-3.6L1.5 2.5z"/></svg></span></th>
+      <th class="sortable-th" data-col="color" aria-sort="none"><span>Color</span><span class="sort-arrow" aria-hidden="true"></span><span class="th-filter-icon" title="Filtered" aria-hidden="true"><svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor"><path d="M1.5 2.5h13l-5.2 6.1v4.9l-2.6-1.3v-3.6L1.5 2.5z"/></svg></span></th>
+      <th class="sortable-th" data-col="remaining" aria-sort="none"><span>Material remaining</span><span class="sort-arrow" aria-hidden="true"></span><span class="th-filter-icon" title="Filtered" aria-hidden="true"><svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor"><path d="M1.5 2.5h13l-5.2 6.1v4.9l-2.6-1.3v-3.6L1.5 2.5z"/></svg></span></th>
+      <th class="actions-col"><span class="sr-only">Actions</span><button type="button" id="reset-all-filters-btn" class="button button-ghost button-sm reset-filters-btn hidden" title="Alle Filter zurücksetzen" aria-label="Alle Filter zurücksetzen">✕ Filter zurücksetzen</button></th>
+    </tr></thead><tbody>
     {% for s in spools %}
-    <tr class="spool-row" id="spool-row-{{ s.id }}"><td><div class="profile-cell"><span class="avatar spool-avatar">{{ (s.cached_profile.vendor or '?')[:1] }}{{ (s.cached_profile.name or '?')[:1] }}</span><div><span class="cell-main">{{ s.cached_profile.name }}{% if s.cached_profile.deleted_from_cloud %} <span class="status-badge status-orphan" title="Deleted in OrcaSlicer">Orphan</span>{% endif %}</span><span class="cell-sub">{{ s.cached_profile.vendor }}</span></div></div></td><td>{% if s.color_override %}<span class="color-value"><span class="swatch" style="background:{{ s.color_override }}"></span><span class="color-info"><span class="color-name-text">{{ s.color_name or s.color_override }}</span>{% if s.color_name %}<span class="color-hex-sub">{{ s.color_override }}</span>{% endif %}</span></span>{% else %}<span class="muted">Profile default</span>{% endif %}</td><td><div class="remaining-cell"><div><span id="remaining-{{ s.id }}" class="remaining">{{ s.remaining_pct }}%</span><span class="remaining-label">available</span></div><input type="range" min="0" max="100" value="{{ s.remaining_pct }}" name="remaining_pct" hx-post="/spools/{{ s.id }}/remaining" hx-trigger="change" hx-target="#remaining-{{ s.id }}" hx-swap="outerHTML" hx-include="this" aria-label="Remaining material for spool {{ s.id }}"></div></td><td><span class="location-tag">⌖ {{ s.location or 'Unassigned' }}</span></td><td class="actions-cell"><button type="button" class="icon-button" onclick="document.getElementById('spool-edit-{{ s.id }}').classList.toggle('hidden')" title="Edit" aria-label="Edit spool {{ s.id }}">✎</button><form method="post" action="/spools/{{ s.id }}/duplicate" style="display:inline"><button type="submit" class="icon-button" title="Duplicate" aria-label="Duplicate spool {{ s.id }}">⧉</button></form><form method="post" action="/spools/{{ s.id }}/delete" style="display:inline" onsubmit="return confirm('Delete spool #{{ s.id }}?')"><button type="submit" class="icon-button" title="Delete" aria-label="Delete spool {{ s.id }}">🗑</button></form></td></tr>
+    <tr class="spool-row" id="spool-row-{{ s.id }}" data-id="{{ s.id }}" data-profile="{{ plabel(s.cached_profile) | lower }}" data-vendor="{{ (s.cached_profile.vendor or '') | lower }}" data-vendor-display="{{ s.cached_profile.vendor or 'Unknown' }}" data-type="{{ (s.cached_profile.type or '') | lower }}" data-type-display="{{ s.cached_profile.type or '—' }}" data-color="{{ (s.color_name or s.color_override or 'Profile default') | lower }}" data-color-display="{{ s.color_name or s.color_override or 'Profile default' }}" data-color-hex="{{ s.color_override or '' }}" data-remaining="{{ s.remaining_pct }}"><td><div class="profile-cell"><span class="avatar spool-avatar">{{ (s.cached_profile.vendor or '?')[:1] }}{{ (s.cached_profile.name or '?')[:1] }}</span><div><span class="cell-main">{{ s.cached_profile.name }}{% if s.cached_profile.deleted_from_cloud %} <span class="status-badge status-orphan" title="Deleted in OrcaSlicer">Orphan</span>{% endif %}</span><span class="cell-sub">{{ s.cached_profile.vendor }}</span></div></div></td><td><span class="badge badge-muted type-badge">{{ s.cached_profile.type or '—' }}</span></td><td>{% if s.color_override %}<span class="color-value"><span class="swatch" style="background:{{ s.color_override }}"></span><span class="color-info"><span class="color-name-text">{{ s.color_name or s.color_override }}</span>{% if s.color_name %}<span class="color-hex-sub">{{ s.color_override }}</span>{% endif %}</span></span>{% else %}<span class="muted">Profile default</span>{% endif %}</td><td><div class="remaining-cell"><div><span id="remaining-{{ s.id }}" class="remaining">{{ s.remaining_pct }}%</span><span class="remaining-label">available</span></div><input type="range" min="0" max="100" value="{{ s.remaining_pct }}" name="remaining_pct" hx-post="/spools/{{ s.id }}/remaining" hx-trigger="change" hx-target="#remaining-{{ s.id }}" hx-swap="outerHTML" hx-include="this" aria-label="Remaining material for spool {{ s.id }}"></div></td><td class="actions-cell"><button type="button" class="icon-button" onclick="document.getElementById('spool-edit-{{ s.id }}').classList.toggle('hidden')" title="Edit" aria-label="Edit spool {{ s.id }}">✎</button><form method="post" action="/spools/{{ s.id }}/duplicate" style="display:inline"><button type="submit" class="icon-button" title="Duplicate" aria-label="Duplicate spool {{ s.id }}">⧉</button></form><form method="post" action="/spools/{{ s.id }}/delete" style="display:inline" onsubmit="return confirm('Delete spool #{{ s.id }}?')"><button type="submit" class="icon-button" title="Delete" aria-label="Delete spool {{ s.id }}">🗑</button></form></td></tr>
     <tr class="spool-edit-row hidden" id="spool-edit-{{ s.id }}"><td colspan="5"><form method="post" action="/spools/{{ s.id }}/edit" class="spool-edit-form"><div class="form-grid three-col">
       {# ── Row 1 ── #}
       <label><span>Profile</span><select name="cloud_resource_id" required>{% if s.cached_profile and s.cached_profile.deleted_from_cloud %}<option value="{{ s.cached_profile.cloud_resource_id }}" selected>{{ plabel(s.cached_profile) }} (Orphan)</option>{% endif %}{% for p in profiles %}<option value="{{ p.cloud_resource_id }}" {% if p.cloud_resource_id == s.cloud_resource_id %}selected{% endif %}>{{ plabel(p) }}</option>{% endfor %}</select></label>
@@ -202,6 +211,253 @@
     qty.addEventListener('input', update);
     qty.addEventListener('change', update);
     update();
+  }
+
+  // ── Inventory sorting and Excel-style column filters ──
+  var table = document.getElementById('spools-table');
+  if (table) {
+    var tbody = table.tBodies[0];
+    var headers = Array.prototype.slice.call(table.querySelectorAll('.sortable-th'));
+    var spoolRows = Array.prototype.slice.call(tbody.querySelectorAll('.spool-row'));
+    var countDisplay = document.getElementById('spool-count-display');
+    var resetAllFiltersButton = document.getElementById('reset-all-filters-btn');
+    var sortState = { column: 'profile', direction: 'asc' };
+    var filters = {};
+    var popover = null;
+    var popoverColumn = null;
+
+    function rowValue(row, column) {
+      return row.dataset[column] || '';
+    }
+
+    function sortRows(column, direction) {
+      spoolRows.sort(function(a, b) {
+        var comparison;
+        if (column === 'remaining') {
+          comparison = (parseInt(rowValue(a, column), 10) || 0) - (parseInt(rowValue(b, column), 10) || 0);
+        } else {
+          comparison = rowValue(a, column).localeCompare(rowValue(b, column), undefined, { sensitivity: 'base', numeric: true });
+        }
+        if (comparison === 0) comparison = (parseInt(a.dataset.id, 10) || 0) - (parseInt(b.dataset.id, 10) || 0);
+        return direction === 'asc' ? comparison : -comparison;
+      });
+
+      spoolRows.forEach(function(row) {
+        var editRow = document.getElementById('spool-edit-' + row.dataset.id);
+        tbody.appendChild(row);
+        if (editRow) tbody.appendChild(editRow);
+      });
+
+      headers.forEach(function(header) {
+        var active = header.dataset.col === column;
+        header.setAttribute('aria-sort', active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none');
+        header.querySelector('.sort-arrow').textContent = active ? (direction === 'asc' ? '▲' : '▼') : '';
+      });
+    }
+
+    function optionMeta(column) {
+      if (column === 'profile') return { value: 'vendor', display: 'vendorDisplay' };
+      if (column === 'type') return { value: 'type', display: 'typeDisplay' };
+      if (column === 'color') return { value: 'color', display: 'colorDisplay' };
+      return null;
+    }
+
+    function uniqueOptions(column) {
+      var meta = optionMeta(column);
+      if (!meta) return [];
+      var seen = {};
+      spoolRows.forEach(function(row) {
+        var value = row.dataset[meta.value] || '';
+        if (!Object.prototype.hasOwnProperty.call(seen, value)) {
+          seen[value] = { value: value, label: row.dataset[meta.display] || 'Unknown', hex: column === 'color' ? row.dataset.colorHex : '' };
+        }
+      });
+      return Object.keys(seen).map(function(key) { return seen[key]; }).sort(function(a, b) {
+        return a.label.localeCompare(b.label, undefined, { sensitivity: 'base', numeric: true });
+      });
+    }
+
+    function setRowFiltered(row, hidden) {
+      var editRow = document.getElementById('spool-edit-' + row.dataset.id);
+      if (hidden) {
+        row.classList.add('hidden');
+        if (editRow && !editRow.dataset.filterHidden) {
+          editRow.dataset.filterHidden = 'true';
+          editRow.dataset.wasHidden = editRow.classList.contains('hidden') ? 'true' : 'false';
+          editRow.classList.add('hidden');
+        }
+      } else {
+        row.classList.remove('hidden');
+        if (editRow && editRow.dataset.filterHidden) {
+          if (editRow.dataset.wasHidden === 'false') editRow.classList.remove('hidden');
+          delete editRow.dataset.filterHidden;
+          delete editRow.dataset.wasHidden;
+        }
+      }
+    }
+
+    function applyFilters() {
+      var visible = 0;
+      var hasActiveFilters = Object.keys(filters).length > 0;
+      spoolRows.forEach(function(row) {
+        var matches = Object.keys(filters).every(function(column) {
+          var filter = filters[column];
+          var textMatch = !filter.search || rowValue(row, column).indexOf(filter.search) !== -1;
+          var meta = optionMeta(column);
+          var optionMatch = !meta || filter.selected.indexOf(row.dataset[meta.value] || '') !== -1;
+          return textMatch && optionMatch;
+        });
+        setRowFiltered(row, !matches);
+        if (matches) visible += 1;
+      });
+
+      countDisplay.textContent = visible === spoolRows.length ? spoolRows.length + ' total' : 'Showing ' + visible + ' of ' + spoolRows.length + ' spools';
+      headers.forEach(function(header) {
+        var isFiltered = !!filters[header.dataset.col];
+        header.classList.toggle('is-filtered', isFiltered);
+        header.querySelector('.th-filter-icon').classList.toggle('active', isFiltered);
+      });
+      resetAllFiltersButton.classList.toggle('hidden', !hasActiveFilters);
+    }
+
+    function closePopover() {
+      if (popover) popover.remove();
+      popover = null;
+      popoverColumn = null;
+    }
+    var popoverMouseDown = false;
+
+
+    function positionPopover(header) {
+      var rect = header.getBoundingClientRect();
+      var margin = 12;
+      var width = popover.offsetWidth;
+      var height = popover.offsetHeight;
+      var left = Math.min(rect.left, window.innerWidth - width - margin);
+      var top = rect.bottom + 6;
+      if (top + height > window.innerHeight - margin) top = Math.max(margin, rect.top - height - 6);
+      popover.style.left = Math.max(margin, left) + 'px';
+      popover.style.top = top + 'px';
+    }
+
+    function openPopover(header) {
+      closePopover();
+      var column = header.dataset.col;
+      var label = header.querySelector('span').textContent;
+      var options = uniqueOptions(column);
+      var current = filters[column];
+      popoverColumn = column;
+      popover = document.createElement('div');
+      popover.className = 'excel-filter-popover';
+      popover.setAttribute('role', 'dialog');
+      popover.setAttribute('aria-label', 'Filter ' + label);
+      popover.innerHTML = '<div class="excel-filter-header"><strong>Filter: ' + label + '</strong><button type="button" class="excel-filter-close" aria-label="Close filter">×</button></div>' +
+        '<div class="excel-filter-body"><input type="text" class="excel-filter-search" placeholder="Search in ' + label + '..." aria-label="Search in ' + label + '"><div class="excel-filter-options"></div></div>' +
+        '<div class="excel-filter-footer"><button type="button" class="button button-ghost button-sm excel-filter-clear">Clear Filter</button><button type="button" class="button button-primary button-sm excel-filter-apply">Apply</button></div>';
+      document.body.appendChild(popover);
+
+      var search = popover.querySelector('.excel-filter-search');
+      search.value = current ? current.search : '';
+      var list = popover.querySelector('.excel-filter-options');
+      if (options.length) {
+        var allLabel = document.createElement('label');
+        allLabel.className = 'excel-filter-option select-all';
+        allLabel.innerHTML = '<input type="checkbox" class="excel-select-all"><span>Select All</span>';
+        list.appendChild(allLabel);
+        options.forEach(function(option) {
+          var item = document.createElement('label');
+          item.className = 'excel-filter-option';
+          var checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.value = option.value;
+          checkbox.checked = !current || current.selected.indexOf(option.value) !== -1;
+          item.appendChild(checkbox);
+          if (column === 'color') {
+            var swatch = document.createElement('span');
+            swatch.className = 'filter-color-swatch';
+            swatch.style.background = option.hex || 'var(--surface-alt)';
+            item.appendChild(swatch);
+          }
+          var text = document.createElement('span');
+          text.textContent = option.label;
+          item.appendChild(text);
+          list.appendChild(item);
+        });
+
+        var selectAll = list.querySelector('.excel-select-all');
+        var optionChecks = Array.prototype.slice.call(list.querySelectorAll('input:not(.excel-select-all)'));
+        function syncSelectAll() {
+          var checked = optionChecks.filter(function(input) { return input.checked; }).length;
+          selectAll.checked = checked === optionChecks.length;
+          selectAll.indeterminate = checked > 0 && checked < optionChecks.length;
+        }
+        selectAll.addEventListener('change', function() {
+          optionChecks.forEach(function(input) { input.checked = selectAll.checked; });
+          syncSelectAll();
+        });
+        optionChecks.forEach(function(input) { input.addEventListener('change', syncSelectAll); });
+        syncSelectAll();
+      } else {
+        list.classList.add('hidden');
+      }
+
+      popover.querySelector('.excel-filter-close').addEventListener('click', closePopover);
+      popover.querySelector('.excel-filter-clear').addEventListener('click', function() {
+        delete filters[column];
+        applyFilters();
+        closePopover();
+      });
+      popover.querySelector('.excel-filter-apply').addEventListener('click', function() {
+        var selected = Array.prototype.slice.call(popover.querySelectorAll('.excel-filter-option input:not(.excel-select-all):checked')).map(function(input) { return input.value; });
+        var normalizedSearch = search.value.trim().toLocaleLowerCase();
+        if (!normalizedSearch && (!options.length || selected.length === options.length)) delete filters[column];
+        else filters[column] = { search: normalizedSearch, selected: selected };
+        applyFilters();
+        closePopover();
+      });
+      search.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') { event.preventDefault(); popover.querySelector('.excel-filter-apply').click(); }
+      });
+
+      positionPopover(header);
+      search.focus();
+    }
+
+    headers.forEach(function(header) {
+      header.addEventListener('click', function() {
+        var column = header.dataset.col;
+        var direction = sortState.column === column && sortState.direction === 'asc' ? 'desc' : 'asc';
+        sortState = { column: column, direction: direction };
+        sortRows(column, direction);
+      });
+      header.addEventListener('contextmenu', function(event) {
+        event.preventDefault();
+        openPopover(header);
+      });
+    });
+
+    resetAllFiltersButton.addEventListener('click', function() {
+      filters = {};
+      applyFilters();
+      if (popover) closePopover();
+    });
+
+    document.addEventListener('mousedown', function(event) {
+      popoverMouseDown = !!(popover && popover.contains(event.target));
+    });
+    document.addEventListener('click', function(event) {
+      if (popover && !popoverMouseDown && !popover.contains(event.target)) closePopover();
+      popoverMouseDown = false;
+    });
+    document.addEventListener('keydown', function(event) {
+      if (event.key === 'Escape') closePopover();
+    });
+    window.addEventListener('resize', closePopover);
+    window.addEventListener('scroll', function(event) {
+      if (popover && (event.target === popover || popover.contains(event.target))) return;
+      closePopover();
+    }, true);
+    sortRows('profile', 'asc');
   }
 
   // ── Initialize Add form ──

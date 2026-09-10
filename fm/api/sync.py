@@ -19,7 +19,7 @@ from ..config import Config
 from ..db import SessionLocal
 from ..models import Job, Profile, SyncTarget
 from ..service import jobs
-from ..service.sync_handlers import compute_printer_db_drift, register_handlers, _is_stock_rfid, _orca_client_factory  # noqa: F401 — register_handlers side-effect import stays
+from ..service.sync_handlers import compute_printer_db_drift, register_handlers, _orca_client_factory  # noqa: F401 — register_handlers side-effect import stays
 from ..service.cache_sync import sync_profile_cache
 
 router = APIRouter(prefix="/api", tags=["sync"])
@@ -184,8 +184,6 @@ def drift_status(request: Request, db: DbSession) -> list[dict]:
                     "expected_hash": target.expected_hash,
                     "detail": detail,
                 }
-            elif kind == "printer_db" and _is_stock_rfid(p):
-                entry[kind] = {"status": "stock", "expected_hash": None, "detail": ""}
             else:
                 entry[kind] = {"status": "pending", "expected_hash": None, "detail": ""}
         result.append(entry)

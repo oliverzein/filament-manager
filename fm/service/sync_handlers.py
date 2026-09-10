@@ -287,14 +287,6 @@ def _cloud_preset_to_entry_values(preset: dict, entry_id: str) -> dict:
     return values
 
 
-def _is_stock_rfid_preset(preset: dict) -> bool:
-    """Check if a cloud preset dict has a stock-RFID brand (e.g. Creality)."""
-    vendor = preset.get("filament_vendor")
-    if isinstance(vendor, list):
-        vendor = vendor[0] if vendor else ""
-    return (str(vendor or "").strip().lower()) in STOCK_RFID_BRANDS
-
-
 def _flatten_cloud_preset(preset: dict) -> dict:
     """Flatten a cloud preset dict via ``flatten_preset`` (temp-file round-trip).
 
@@ -311,15 +303,6 @@ def _flatten_cloud_preset(preset: dict) -> dict:
         return flatten_preset(path)
     finally:
         path.unlink(missing_ok=True)
-
-# Brands whose spool RFID tags already match stock 01xxx printer DB
-# entries (tag carries "1" + stock entry ID — direct ID lookup, no
-# name matching).  A 99xxx duplicate would never match a tag.
-STOCK_RFID_BRANDS = {"creality"}
-
-
-def _is_stock_rfid(profile: Profile) -> bool:
-    return (profile.brand or "").strip().lower() in STOCK_RFID_BRANDS
 
 
 def _entry_hash_fields(entry: dict) -> dict:
@@ -466,7 +449,7 @@ def load_printer_db_for_drift(config: Config | None) -> dict | None:
 def compute_printer_db_drift(session: Session, config: Config | None) -> dict[int, dict] | None:
     """Live printer_db drift per profile id: {"status", "detail"}.
 
-    Statuses: stock | new | in_sync | modified | missing.
+    Statuses: new | in_sync | modified | missing.
     Returns None when no printer DB is available (live or cache).
     """
     db = load_printer_db_for_drift(config)
@@ -474,9 +457,7 @@ def compute_printer_db_drift(session: Session, config: Config | None) -> dict[in
         return None
     drift: dict[int, dict] = {}
     for profile in session.scalars(select(Profile).order_by(Profile.id)):
-        if _is_stock_rfid(profile):
-            drift[profile.id] = {"status": "stock", "detail": ""}
-        elif not profile.printer_db_id:
+        if not profile.printer_db_id:
             drift[profile.id] = {"status": "new", "detail": ""}
         else:
             entry = find_entry(db, profile.printer_db_id)
@@ -508,14 +489,13 @@ def _rebuild_printer_db(
     """Rebuild the local printer DB from live cloud presets or catalog fallback.
 
     **Primary path** (Orca Cloud configured): pull filament presets via
-    ``sync_pull``, filter by ``cloud_resource_ids`` if provided, skip stock
-    Creality presets, flatten inherited presets, and build entries via
-    ``build_entry``.  ``printer_db_id`` is mapped via existing ``SyncTarget``
+    ``sync_pull``, filter by ``cloud_resource_ids`` if provided, flatten
+    inherited presets, and build entries via ``build_entry``.
+    ``printer_db_id`` is mapped via existing ``SyncTarget``
     rows (``cloud_id == res_id``) or allocated as ``next_free_id``.
 
     **Fallback path** (no Orca Cloud client): rebuild from cache DB + catalog
-    ``Profile`` rows, filtered by ``profile_ids`` if provided.  Stock-RFID
-    profiles (e.g. Creality) are excluded and reported as skipped IDs.
+    ``Profile`` rows, filtered by ``profile_ids`` if provided.
 
     **Orphan Rule F3/B**: existing custom 99xxx entries missing from the
     cloud / catalog are *never* removed here — they persist on the printer
@@ -589,9 +569,6 @@ def _rebuild_from_cloud(
     skipped_ids: list[int] = []
 
     for preset in presets:
-        if _is_stock_rfid_preset(preset):
-            continue
-
         # Inheritance resolution check (spec §5): skip presets whose
         # inherits chain cannot be fully resolved against bundled templates.
         inherits = str(preset.get("inherits", "")).strip()
@@ -605,12 +582,6 @@ def _rebuild_from_cloud(
             continue
 
         flat = _flatten_cloud_preset(preset)
-
-        # Stock Creality presets are protected from push (their spool RFID tags
-        # match 01xxx stock IDs; 99xxx duplicates would never match a tag).
-        # Check on flattened preset to catch inherited variants (e.g. Hyper Stardust @K2-all).
-        if _is_stock_rfid_preset(flat):
-            continue
         res_id = preset.get("_path", "")
 
         # Map printer_db_id via SyncTarget where cloud_id == res_id
@@ -642,7 +613,7 @@ def _rebuild_from_cloud(
                 session.add(target)
                 session.flush()
 
-        # flat already computed and checked above
+        # flat already computed above
         values = _cloud_preset_to_entry_values(flat, entry_id)
         entry = build_entry(db, values)
         insert_entry(db, entry)
@@ -669,8 +640,8 @@ def _rebuild_from_catalog(
     else:
         all_profiles = list(session.scalars(select(Profile).order_by(Profile.id)))
 
-    profiles = [p for p in all_profiles if not _is_stock_rfid(p)]
-    skipped_ids = [p.id for p in all_profiles if _is_stock_rfid(p)]
+    profiles = all_profiles
+    skipped_ids: list[int] = []
 
     pushed: list[tuple[Any, dict]] = []
     for profile in profiles:

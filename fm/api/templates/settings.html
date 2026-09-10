@@ -2,7 +2,16 @@
 {% block title %}Settings — Filament Manager{% endblock %}
 {% block content %}
 <section id="settings-form">
-  <header class="page-header"><div><p class="eyebrow">Configuration</p><h1>Settings</h1><p>Configure printer connection and Orca Cloud sync.</p></div></header>
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Configuration</p>
+      <div class="page-title-row">
+        <h1>Settings</h1>
+        <span class="settings-version-badge">v{{ version }}</span>
+      </div>
+      <p>Configure printer connection and Orca Cloud sync.</p>
+    </div>
+  </header>
   {% if saved %}<div class="alert" style="border-color: rgba(80,200,120,.25); background: rgba(80,200,120,.08); color: #8ee6a8;"><strong>Settings saved.</strong><p>Printer connection updated.</p></div>{% endif %}
   {% if not configured %}<div class="alert alert-warning"><strong>Printer not configured.</strong><p>Fill in the fields below to enable sync and migration.</p></div>{% endif %}
   {% if errors %}<div class="alert alert-danger"><strong>Check the highlighted information</strong><ul class="errors">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}

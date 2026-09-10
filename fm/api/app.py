@@ -93,6 +93,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates.env.filters["colors_list"] = lambda v: json.loads(v) if isinstance(v, str) else (v or [])
     templates.env.filters["from_json"] = lambda v: json.loads(v) if isinstance(v, str) else (v or {})
     templates.env.filters["status_class"] = status_class
+    templates.env.globals["version"] = _package_version()
     app.state.templates = templates
     app.state.config = app_config
     app.mount("/static", StaticFiles(directory=str(_DIR / "static")), name="static")

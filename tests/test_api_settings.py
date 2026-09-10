@@ -54,6 +54,13 @@ def test_get_settings_renders(client):
     assert b"Settings" in r.content
 
 
+def test_get_settings_renders_version_badges(client):
+    r = client.get("/settings")
+    assert r.status_code == 200
+    assert b"brand-version" in r.content
+    assert b"settings-version-badge" in r.content
+    assert b"v2.0.0" in r.content
+
 def test_get_settings_has_form_fields(client):
     r = client.get("/settings")
     assert b"name=\"printer_ip\"" in r.content

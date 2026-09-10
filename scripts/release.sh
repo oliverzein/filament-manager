@@ -25,14 +25,18 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 echo "==> tagging ${tag}"
-git tag "${tag}"
+if git rev-parse "${tag}" >/dev/null 2>&1; then
+  echo "tag ${tag} already exists; leaving in place"
+else
+  git tag "${tag}"
+fi
 
 echo "==> building image ${image}"
-docker build -t "${image}" .
+docker build -t "${image}" -t "filament-manager:latest" .
 
 echo "==> saving ${tarball}"
 mkdir -p dist
-docker save "${image}" | gzip > "${tarball}"
+docker save "${image}" "filament-manager:latest" | gzip > "${tarball}"
 
 echo "==> checksum"
 sha256sum "${tarball}"

@@ -37,8 +37,13 @@ if [[ ! -f "${tarball}" ]]; then
   exit 1
 fi
 if [[ ! -f "${env_file}" ]]; then
-  echo "error: env file ${env_file} not found" >&2
-  exit 1
+  if [[ -f "deploy/filament-manager.env.example" ]]; then
+    echo "notice: ${env_file} not found; copying from deploy/filament-manager.env.example"
+    cp "deploy/filament-manager.env.example" "${env_file}"
+  else
+    echo "notice: ${env_file} not found; creating minimal default"
+    echo "FM_DATABASE_URL=sqlite:////data/filaments.db" > "${env_file}"
+  fi
 fi
 if [[ ! -f "${template}" ]]; then
   echo "error: template ${template} not found" >&2
@@ -54,18 +59,21 @@ else
   ssh_prefix=()
 fi
 
+echo "==> creating remote directory ${remote_dir}"
+"${ssh_prefix[@]}" ssh "root@${host}" "mkdir -p ${remote_dir}"
+
 echo "==> copying ${tarball} to ${host}:${remote_dir}/"
 "${ssh_prefix[@]}" scp -O "${tarball}" "root@${host}:${remote_dir}/"
 
 echo "==> copying env file to ${host}:${remote_env}"
 "${ssh_prefix[@]}" scp -O "${env_file}" "root@${host}:${remote_env}"
+"${ssh_prefix[@]}" ssh "root@${host}" "chmod 600 ${remote_env} || true"
 
 echo "==> loading image on ${host}"
 "${ssh_prefix[@]}" ssh "root@${host}" "gunzip -c ${remote_dir}/$(basename "${tarball}") | docker load"
 
-echo "==> installing dockerMan template"
-"${ssh_prefix[@]}" scp -O "${template}" "root@${host}:${templates_dir}/$(basename "${template}")"
-
+echo "==> installing dockerMan template as my-filament-manager.xml"
+"${ssh_prefix[@]}" scp -O "${template}" "root@${host}:${templates_dir}/my-filament-manager.xml"
 echo "==> restarting container ${container}"
 "${ssh_prefix[@]}" ssh "root@${host}" "
   docker stop ${container} 2>/dev/null || true

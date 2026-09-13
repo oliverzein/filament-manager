@@ -23,6 +23,7 @@ from ..config import Config
 from ..models import ActivityLog, Job, ProfileCache, Spool, SyncTarget
 from ..service import jobs
 from ..service import sync_handlers
+from ..service import preset_diff
 from ..service.cache_sync import sync_profile_cache
 from ..printer.dbcodec import find_entry, load_db, save_db, remove_entry
 from .sync import _get_config
@@ -712,6 +713,49 @@ def sync_backup_modal_poll(job_id: int, db: DbSession) -> HTMLResponse:
     """Poll endpoint for backup-modal: return modal fragment for the job's state."""
     return _action_modal_poll_impl(job_id, db)
 
+
+@router.post("/sync/compare-modal", response_class=HTMLResponse)
+def sync_compare_modal(
+    request: Request, db: DbSession,
+    preset_a_id: str = Form(...),
+    preset_b_id: str | None = Form(None),
+) -> HTMLResponse:
+    """Render the two-preset diff modal body.
+
+    Read-only: pulls live presets from Orca Cloud, resolves each side's
+    ``inherits`` chain against bundled templates, and renders the
+    categorized side-by-side diff.  ``preset_b_id == "@base"`` compares A
+    against its resolved base template.  Without ``preset_b_id`` the
+    fragment offers a Preset-B picker (row "Compare" buttons pre-select A).
+    All failures render an error fragment (HTTP 200) inside the modal.
+    """
+    if not preset_b_id:
+        presets = list(db.scalars(
+            select(ProfileCache)
+            .where(ProfileCache.deleted_from_cloud == False)  # noqa: E712
+            .order_by(ProfileCache.vendor, ProfileCache.name)
+        ))
+        preset_a = db.scalar(
+            select(ProfileCache).where(ProfileCache.cloud_resource_id == preset_a_id)
+        )
+        return _templates(request).TemplateResponse(
+            request, "_preset_diff_modal.html",
+            {
+                "pick_b": True,
+                "preset_a_id": preset_a_id,
+                "preset_a": preset_a,
+                "presets": presets,
+            },
+        )
+    try:
+        diff = preset_diff.build_preset_diff(preset_a_id, preset_b_id)
+    except preset_diff.PresetDiffError as exc:
+        return _templates(request).TemplateResponse(
+            request, "_preset_diff_modal.html", {"error": str(exc)},
+        )
+    return _templates(request).TemplateResponse(
+        request, "_preset_diff_modal.html", {"diff": diff},
+    )
 
 @router.post("/sync/jobs/{job_id}/resolve-modal", response_class=HTMLResponse)
 def sync_resolve_modal(

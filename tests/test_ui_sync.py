@@ -682,3 +682,98 @@ class TestSyncPageModalWiring:
         assert b"hx-post=\"/api/sync/backup-github\"" not in r.content
 
 
+
+# ---------------------------------------------------------------------------
+# Compare modal — two-preset diff fragment
+# ---------------------------------------------------------------------------
+
+class TestCompareModal:
+    """Tests for POST /sync/compare-modal — preset A vs preset B diff."""
+
+    def _orca_with_presets(self, upserts):
+        from unittest.mock import MagicMock
+        c = MagicMock()
+        c.sync_pull.return_value = {
+            "next_cursor": 0, "upserts": upserts, "deletes": [],
+        }
+        return c
+
+    def test_compare_modal_renders_diff(self, client, monkeypatch):
+        orca = self._orca_with_presets([
+            {"id": "uuid-a", "content": {
+                "type": "filament", "name": "eSUN PETG",
+                "filament_flow_ratio": "0.98",
+                "filament_max_volumetric_speed": "12",
+            }},
+            {"id": "uuid-b", "content": {
+                "type": "filament", "name": "SUNLU PETG",
+                "filament_flow_ratio": "0.98",
+                "filament_max_volumetric_speed": "8",
+            }},
+        ])
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: orca)
+        r = client.post("/sync/compare-modal",
+                        data={"preset_a_id": "uuid-a",
+                              "preset_b_id": "uuid-b"})
+        assert r.status_code == 200
+        assert b"eSUN PETG" in r.content
+        assert b"SUNLU PETG" in r.content
+        assert b"status-diff" in r.content
+        assert b"status-same" in r.content
+        assert b"diff-table" in r.content
+        assert b"toggleDiffOnly" in r.content
+        assert b"closeDiffModal" in r.content
+
+    def test_compare_modal_pick_b(self, client):
+        """Posting only preset_a_id renders the Preset-B picker."""
+        with SessionLocal() as s:
+            s.add(ProfileCache(
+                cloud_resource_id="uuid-b",
+                name="Target PLA",
+                vendor="SUNLU",
+                type="PLA",
+                last_seen_at=datetime.now(timezone.utc),
+            ))
+            s.commit()
+        r = client.post("/sync/compare-modal",
+                        data={"preset_a_id": "uuid-a"})
+        assert r.status_code == 200
+        assert b"Choose Preset B" in r.content
+        assert b'name="preset_b_id"' in r.content
+        assert b'value="uuid-a"' in r.content
+        assert b"Target PLA" in r.content
+
+    def test_compare_modal_base_pseudo_id(self, client, monkeypatch):
+        orca = self._orca_with_presets([{
+            "id": "uuid-a",
+            "content": {
+                "type": "filament", "name": "eSUN PLA",
+                "inherits": "eSUN PLA+ @System",
+                "filament_flow_ratio": "1.10",
+            },
+        }])
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: orca)
+        r = client.post("/sync/compare-modal",
+                        data={"preset_a_id": "uuid-a",
+                              "preset_b_id": "@base"})
+        assert r.status_code == 200
+        assert b"eSUN PLA+ @System" in r.content
+        assert b"status-diff" in r.content
+
+    def test_compare_modal_preset_not_found(self, client, monkeypatch):
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: _fake_orca())
+        r = client.post("/sync/compare-modal",
+                        data={"preset_a_id": "missing",
+                              "preset_b_id": "missing2"})
+        assert r.status_code == 200
+        assert b"Compare failed" in r.content
+        assert b"not found" in r.content
+
+    def test_compare_modal_not_connected(self, client, monkeypatch):
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: None)
+        r = client.post("/sync/compare-modal",
+                        data={"preset_a_id": "uuid-a",
+                              "preset_b_id": "uuid-b"})
+        assert r.status_code == 200
+        assert b"not connected" in r.content
+

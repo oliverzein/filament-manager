@@ -1,0 +1,140 @@
+{# Fragment: two-preset diff modal body.
+   Rendered by POST /sync/compare-modal into #diff-modal-body.
+   States: error | pick_b | diff. #}
+{% if error %}
+<div class="push-modal-state push-modal-error">
+  <div class="push-modal-icon push-modal-icon-err">✗</div>
+  <h3>Compare failed</h3>
+  <p class="push-modal-error-msg">{{ error }}</p>
+  <button class="button button-secondary" onclick="closeDiffModal()">Close</button>
+</div>
+{% elif pick_b %}
+<div class="diff-modal-head">
+  <div class="diff-title-row">
+    <div class="diff-title-content">
+      <span class="eyebrow">Compare preset</span>
+      <h3>Choose Preset B</h3>
+      <p class="diff-inherits">Select a second preset or base template to compare against.</p>
+    </div>
+    <button type="button" class="diff-close-btn" onclick="closeDiffModal()" aria-label="Close">✕</button>
+  </div>
+</div>
+<form class="diff-pick" hx-post="/sync/compare-modal" hx-target="#diff-modal-body" hx-swap="innerHTML">
+  <input type="hidden" name="preset_a_id" value="{{ preset_a_id }}">
+  {% if preset_a %}
+  <div class="diff-pick-preset-a">
+    <span class="diff-pick-preset-a-label">Preset A (selected)</span>
+    <span class="diff-pick-preset-a-name">{{ preset_a.vendor }} {{ preset_a.name }}</span>
+  </div>
+  {% endif %}
+  <label>
+    <span>Preset B</span>
+    <select name="preset_b_id" required>
+      <option value="" disabled selected>Select a preset…</option>
+      <option value="@base">— Base template of A —</option>
+      {% for p in presets %}
+      <option value="{{ p.cloud_resource_id }}">{{ p.vendor }} {{ p.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <div class="button-group">
+    <button type="button" class="button button-ghost" onclick="closeDiffModal()">Cancel</button>
+    <button type="submit" class="button button-primary">Compare</button>
+  </div>
+</form>
+{% else %}
+<div class="diff-modal-head">
+  <div class="diff-title-row">
+    <div class="diff-title-content">
+      <span class="eyebrow">Preset Comparison</span>
+      <h3 class="diff-vs">
+        <span class="preset-name preset-name-a">{{ diff.name_a }}</span>
+        <span class="diff-vs-badge">vs</span>
+        <span class="preset-name preset-name-b">{{ diff.name_b }}</span>
+      </h3>
+    </div>
+    <button type="button" class="diff-close-btn" onclick="closeDiffModal()" aria-label="Close diff modal">✕</button>
+  </div>
+  <div class="diff-controls-row">
+    <div class="diff-summary">
+      <span class="diff-pill diff-pill-diff"><strong>{{ diff.summary.diff }}</strong> different</span>
+      <span class="diff-pill"><strong>{{ diff.summary.same }}</strong> identical</span>
+      {% if diff.summary.only_a > 0 %}
+      <span class="diff-pill diff-pill-only-a"><strong>{{ diff.summary.only_a }}</strong> only in A</span>
+      {% endif %}
+      {% if diff.summary.only_b > 0 %}
+      <span class="diff-pill diff-pill-only-b"><strong>{{ diff.summary.only_b }}</strong> only in B</span>
+      {% endif %}
+    </div>
+    <label class="diff-only-toggle" title="Show only differing parameters">
+      <input type="checkbox" onchange="toggleDiffOnly(this)">
+      <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+      <span class="toggle-label">Only differences</span>
+    </label>
+  </div>
+</div>
+<div class="table-wrap diff-table-wrap">
+  <table class="diff-table">
+    <thead>
+      <tr>
+        <th class="col-field">Parameter</th>
+        <th class="col-val col-val-a">
+          <span class="col-side-tag">Preset A</span>
+          <span class="col-preset-name" title="{{ diff.name_a }}">{{ diff.name_a }}</span>
+        </th>
+        <th class="col-val col-val-b">
+          <span class="col-side-tag">Preset B</span>
+          <span class="col-preset-name" title="{{ diff.name_b }}">{{ diff.name_b }}</span>
+        </th>
+        <th class="col-status">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for cat in diff.categories %}
+      <tr class="diff-cat">
+        <td colspan="4">
+          <div class="diff-cat-header">
+            <span class="diff-cat-name">{{ cat.name }}</span>
+            <span class="diff-cat-count">{{ cat.fields | length }} parameters</span>
+          </div>
+        </td>
+      </tr>
+      {% for f in cat.fields %}
+      <tr class="diff-row diff-row-{{ f.status }}">
+        <td class="cell-field">
+          <span class="field-label">{{ f.label }}</span>
+          <span class="field-key">{{ f.key }}</span>
+        </td>
+        <td class="cell-val cell-val-a">
+          {% if f.multiline %}
+            <pre class="diff-pre"><code>{{ f.value_a }}</code></pre>
+          {% else %}
+            <span class="val-text">{{ f.value_a if f.value_a else '—' }}</span>
+          {% endif %}
+        </td>
+        <td class="cell-val cell-val-b">
+          {% if f.multiline %}
+            <pre class="diff-pre"><code>{{ f.value_b }}</code></pre>
+          {% else %}
+            <span class="val-text">{{ f.value_b if f.value_b else '—' }}</span>
+          {% endif %}
+        </td>
+        <td class="cell-status">
+          <span class="status-badge status-{{ f.status }}">
+            {% if f.status == 'diff' %}≠ Diff
+            {% elif f.status == 'same' %}= Same
+            {% elif f.status == 'only_a' %}Only A
+            {% elif f.status == 'only_b' %}Only B
+            {% else %}{{ f.status | replace('_', ' ') }}{% endif %}
+          </span>
+        </td>
+      </tr>
+      {% endfor %}
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="diff-modal-foot">
+  <button class="button button-secondary" onclick="closeDiffModal()">Close</button>
+</div>
+{% endif %}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from fm.orca_cloud import OrcaCloudError
 from fm.service import preset_diff
 
 
@@ -117,3 +118,136 @@ class TestDiffPresets:
         assert f["multiline"] is True
         assert f["status"] == "diff"
         assert _field(diff, "filament_flow_ratio")["multiline"] is False
+
+
+class TestFetchCloudPresets:
+    def _client(self, upserts):
+        from unittest.mock import MagicMock
+        c = MagicMock()
+        c.sync_pull.return_value = {
+            "next_cursor": 0, "upserts": upserts, "deletes": [],
+        }
+        return c
+
+    def test_returns_presets_by_id(self):
+        client = self._client([{
+            "id": "uuid-1",
+            "content": {
+                "type": "filament",
+                "name": "Cloud PLA",
+                "filament_type": "PLA",
+                "nozzle_temperature": "220",
+            },
+        }])
+        presets = preset_diff.fetch_cloud_presets(client)
+        assert presets["uuid-1"]["name"] == "Cloud PLA"
+        assert presets["uuid-1"]["nozzle_temperature"] == ["220"]
+
+    def test_pull_error_raises(self):
+        from unittest.mock import MagicMock
+        client = MagicMock()
+        client.sync_pull.side_effect = OrcaCloudError(500, "boom")
+        with pytest.raises(preset_diff.PresetDiffError, match="Cloud pull failed"):
+            preset_diff.fetch_cloud_presets(client)
+
+    def test_non_filament_presets_skipped(self):
+        client = self._client([{
+            "id": "uuid-print",
+            "content": {"type": "print", "name": "0.2mm"},
+        }])
+        assert preset_diff.fetch_cloud_presets(client) == {}
+
+
+class TestBuildPresetDiff:
+    def _client(self, upserts):
+        from unittest.mock import MagicMock
+        c = MagicMock()
+        c.sync_pull.return_value = {
+            "next_cursor": 0, "upserts": upserts, "deletes": [],
+        }
+        return c
+
+    def test_not_connected_raises(self, monkeypatch):
+        monkeypatch.setattr(
+            preset_diff.sync_handlers, "_orca_client_factory", lambda: None
+        )
+        with pytest.raises(preset_diff.PresetDiffError, match="not connected"):
+            preset_diff.build_preset_diff("uuid-1", "uuid-2")
+
+    def test_unknown_id_raises(self, monkeypatch):
+        monkeypatch.setattr(
+            preset_diff.sync_handlers, "_orca_client_factory",
+            lambda: self._client([]),
+        )
+        with pytest.raises(preset_diff.PresetDiffError, match="not found"):
+            preset_diff.build_preset_diff("uuid-1", "uuid-2")
+
+    def test_end_to_end(self, monkeypatch):
+        client = self._client([
+            {
+                "id": "uuid-a",
+                "content": {
+                    "type": "filament",
+                    "name": "eSUN PLA",
+                    "inherits": "eSUN PLA+ @System",
+                    "filament_flow_ratio": "1.10",
+                },
+            },
+            {
+                "id": "uuid-b",
+                "content": {
+                    "type": "filament",
+                    "name": "SUNLU PLA",
+                    "filament_flow_ratio": "0.95",
+                    "filament_max_volumetric_speed": "12",
+                },
+            },
+        ])
+        monkeypatch.setattr(
+            preset_diff.sync_handlers, "_orca_client_factory", lambda: client
+        )
+        diff = preset_diff.build_preset_diff("uuid-a", "uuid-b")
+        assert diff["name_a"] == "eSUN PLA"
+        assert diff["name_b"] == "SUNLU PLA"
+        assert _field(diff, "filament_flow_ratio")["status"] == "diff"
+        # A inherits max_volumetric 16 from base; B sets 12 -> diff
+        f = _field(diff, "filament_max_volumetric_speed")
+        assert f["status"] == "diff"
+        assert f["value_a"] == "16"
+        assert f["value_b"] == "12"
+
+    def test_base_pseudo_id(self, monkeypatch):
+        client = self._client([{
+            "id": "uuid-a",
+            "content": {
+                "type": "filament",
+                "name": "eSUN PLA",
+                "inherits": "eSUN PLA+ @System",
+                "filament_flow_ratio": "1.10",
+            },
+        }])
+        monkeypatch.setattr(
+            preset_diff.sync_handlers, "_orca_client_factory", lambda: client
+        )
+        diff = preset_diff.build_preset_diff("uuid-a", "@base")
+        assert diff["name_b"] == "eSUN PLA+ @System"
+        f = _field(diff, "filament_flow_ratio")
+        assert f["status"] == "diff"
+        assert f["value_a"] == "1.10"
+        assert f["value_b"] == "0.98"
+
+    def test_base_on_standalone_raises(self, monkeypatch):
+        client = self._client([{
+            "id": "uuid-a",
+            "content": {
+                "type": "filament",
+                "name": "Solo",
+                "inherits": "",
+                "filament_flow_ratio": "1.0",
+            },
+        }])
+        monkeypatch.setattr(
+            preset_diff.sync_handlers, "_orca_client_factory", lambda: client
+        )
+        with pytest.raises(preset_diff.PresetDiffError, match="base template"):
+            preset_diff.build_preset_diff("uuid-a", "@base")

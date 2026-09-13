@@ -13,7 +13,13 @@ import json
 import tempfile
 from pathlib import Path
 
+from ..orca_cloud import OrcaCloudClient
 from ..presets.flattener import find_preset_by_name, flatten_preset
+from . import sync_handlers
+
+
+class PresetDiffError(Exception):
+    """User-facing failure while building a preset diff."""
 
 
 # Keys that describe the preset resource rather than tunable values.
@@ -99,8 +105,8 @@ def _flatten_dict(preset: dict) -> dict:
     with tempfile.NamedTemporaryFile(
         suffix=".json", delete=False, mode="w"
     ) as f:
-        json.dump(preset, f)
         path = Path(f.name)
+        json.dump(preset, f)
     try:
         return flatten_preset(path)
     finally:
@@ -157,3 +163,59 @@ def diff_presets(preset_a: dict, preset_b: dict, flatten: bool = True) -> dict:
             for cat in _CATEGORY_ORDER if cat in buckets
         ],
     }
+
+
+def _resolve_base(preset: dict) -> dict:
+    """Flattened inherits chain of ``preset``; raises when unresolvable."""
+    inherits = _normalize(preset.get("inherits"))
+    base_path = find_preset_by_name(inherits) if inherits else None
+    if base_path is None:
+        raise PresetDiffError("Preset has no resolvable base template")
+    return flatten_preset(base_path)
+
+
+def fetch_cloud_presets(client: OrcaCloudClient) -> dict[str, dict]:
+    """Fetch all filament presets from Orca Cloud (read-only pull).
+
+    Returns ``{resource_id: preset}`` in local format (parameter fields
+    wrapped in arrays, ``_path``/``_system`` markers added).  Raises
+    :class:`PresetDiffError` on pull failure.
+    """
+    try:
+        pull_result = client.sync_pull(cursor=0)
+    except Exception as exc:
+        raise PresetDiffError(f"Cloud pull failed: {exc}") from exc
+    upserts = pull_result.get("upserts", [])
+    return {
+        p["_path"]: p
+        for p in sync_handlers._cloud_presets_to_local(upserts)
+        if p.get("_path")
+    }
+
+
+def build_preset_diff(preset_a_id: str, preset_b_id: str) -> dict:
+    """Fetch two cloud presets and build their categorized field diff.
+
+    ``preset_b_id == "@base"`` diffs preset A against its resolved
+    inheritance base.  Raises :class:`PresetDiffError` when Orca Cloud is
+    not configured, the pull fails, an id is unknown, or the base is
+    unresolvable.
+    """
+    client = sync_handlers._orca_client_factory()
+    if client is None:
+        raise PresetDiffError(
+            "Orca Cloud not connected — set up the connection in Settings"
+        )
+    presets = fetch_cloud_presets(client)
+    preset_a = presets.get(preset_a_id)
+    if preset_a is None:
+        raise PresetDiffError(f"Preset not found in Orca Cloud: {preset_a_id}")
+    if preset_b_id == "@base":
+        preset_b = _resolve_base(preset_a)
+    else:
+        preset_b = presets.get(preset_b_id)
+        if preset_b is None:
+            raise PresetDiffError(
+                f"Preset not found in Orca Cloud: {preset_b_id}"
+            )
+    return diff_presets(preset_a, preset_b)

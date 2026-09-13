@@ -32,7 +32,7 @@ else
 fi
 
 echo "==> building image ${image}"
-docker build -t "${image}" -t "filament-manager:latest" .
+docker build --network host -t "${image}" -t "filament-manager:latest" .
 
 echo "==> saving ${tarball}"
 mkdir -p dist

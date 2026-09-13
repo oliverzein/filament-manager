@@ -922,7 +922,7 @@ select { cursor: pointer; color-scheme: dark; }select option { background-color:
 /* ──────────────────────────────────────────────
    Responsive rules
    ────────────────────────────────────────────── */
-@media (max-width: 900px) {
+@media (max-width: 1099px) {
   .compare-inputs {
     flex-direction: column;
     align-items: stretch;

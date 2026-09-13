@@ -66,8 +66,10 @@
               </td>
               <td class="actions-cell">
                 <div class="row-actions">
-                  {% if p.status == 'orphan' and p.printer_db_id %}
+                  {% if p.status == 'orphan' %}
+                  {% if p.printer_db_id %}
                   <button class="button button-danger" hx-post="/sync/printer-db/{{ p.printer_db_id }}/remove" hx-vals='{"confirm": "{{ p.printer_db_id }}"}' hx-target="#sync-hub-content" hx-swap="innerHTML" hx-confirm="This removes orphan printer DB entry {{ p.printer_db_id }} and its SyncTarget. Continue?">Remove</button>
+                  {% endif %}
                   {% else %}
                   <button class="button button-ghost" hx-post="/sync/compare-modal" hx-vals='{"preset_a_id": "{{ p.cloud_resource_id }}"}' hx-target="#diff-modal-body" hx-swap="innerHTML" hx-on::before-request="openDiffModal()">Compare</button>
                   <button class="button button-ghost" hx-post="/sync/push-modal" hx-vals='{"cloud_resource_ids": "{{ p.cloud_resource_id }}"}' hx-target="#action-modal-body" hx-swap="innerHTML" hx-on::before-request="openActionModal()">Push to Printer</button>

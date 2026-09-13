@@ -822,3 +822,26 @@ class TestCompareModal:
         assert b'hx-vals=\'{"preset_a_id": "uuid-cmp"}\'' in r.content
         assert b'#diff-modal-body' in r.content
 
+    def test_orphan_preset_without_printer_db_id_no_compare_button(self, client):
+        """An orphan preset (deleted_from_cloud) without a printer_db_id must
+        NOT receive a Compare or Push button — only orphans with a
+        printer_db_id get a Remove button; the rest get no action."""
+        with SessionLocal() as s:
+            s.add(ProfileCache(
+                cloud_resource_id="uuid-orphan-nodb",
+                name="Orphan No DB PLA",
+                vendor="Ghost",
+                type="PLA",
+                last_seen_at=datetime.now(timezone.utc),
+                deleted_from_cloud=True,
+            ))
+            s.commit()
+        r = client.get("/sync")
+        assert r.status_code == 200
+        # The orphan row must NOT have a Compare button
+        assert b'hx-vals=\'{"preset_a_id": "uuid-orphan-nodb"}\'' not in r.content
+        # The orphan row must NOT have a Push button
+        assert b'hx-vals=\'{"cloud_resource_ids": "uuid-orphan-nodb"}\'' not in r.content
+        # The orphan row must NOT have a Remove button (no printer_db_id)
+        assert b'/sync/printer-db/' not in r.content
+

@@ -804,8 +804,8 @@ Non-negotiable rules enforced in code, lifted from the skill
 The image is built and loaded locally — no registry.
 
 ```bash
-scripts/release.sh 2.0.0           # tag vX.Y.Z, build image, save dist/*.tar.gz
-scripts/deploy-unraid.sh 2.0.0     # load image + XML template on Unraid, restart
+scripts/release.sh 2.1.0           # tag vX.Y.Z, build image, save dist/*.tar.gz
+scripts/deploy-unraid.sh 2.1.0     # load image + XML template on Unraid, restart
 ```
 
 `deploy-unraid.sh` expects:

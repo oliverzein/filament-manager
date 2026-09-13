@@ -92,8 +92,8 @@ The image is built and loaded locally — there is no registry. From a clean
 tree:
 
 ```bash
-scripts/release.sh 2.0.0           # tag vX.Y.Z, build image, save dist/*.tar.gz
-scripts/deploy-unraid.sh 2.0.0     # load image + XML template on Unraid, restart
+scripts/release.sh 2.1.0           # tag vX.Y.Z, build image, save dist/*.tar.gz
+scripts/deploy-unraid.sh 2.1.0     # load image + XML template on Unraid, restart
 ```
 
 `deploy-unraid.sh` expects a deploy env file at `deploy/filament-manager.env`

@@ -777,3 +777,48 @@ class TestCompareModal:
         assert r.status_code == 200
         assert b"not connected" in r.content
 
+    def test_sync_page_has_diff_modal_scaffolding(self, client):
+        """The /sync page contains the diff-modal overlay container and JS."""
+        r = client.get("/sync")
+        assert r.status_code == 200
+        assert b'id="diff-modal"' in r.content
+        assert b'id="diff-modal-body"' in r.content
+        assert b'openDiffModal' in r.content
+        assert b'closeDiffModal' in r.content
+        assert b'toggleDiffOnly' in r.content
+
+    def test_sync_page_has_compare_picker(self, client):
+        """The preset panel offers Preset A / Preset B selects + Compare."""
+        with SessionLocal() as s:
+            s.add(ProfileCache(
+                cloud_resource_id="uuid-cmp",
+                name="Compare Me PLA",
+                vendor="Generic",
+                type="PLA",
+                last_seen_at=datetime.now(timezone.utc),
+            ))
+            s.commit()
+        r = client.get("/sync")
+        assert r.status_code == 200
+        assert b'name="preset_a_id"' in r.content
+        assert b'name="preset_b_id"' in r.content
+        assert b'/sync/compare-modal' in r.content
+        assert b'value="uuid-cmp"' in r.content
+        assert b'value="@base"' in r.content
+
+    def test_preset_row_has_compare_button(self, client):
+        """Each non-orphan preset row gets a Compare button wired to the diff modal."""
+        with SessionLocal() as s:
+            s.add(ProfileCache(
+                cloud_resource_id="uuid-cmp",
+                name="Compare Me PLA",
+                vendor="Generic",
+                type="PLA",
+                last_seen_at=datetime.now(timezone.utc),
+            ))
+            s.commit()
+        r = client.get("/sync")
+        assert r.status_code == 200
+        assert b'hx-vals=\'{"preset_a_id": "uuid-cmp"}\'' in r.content
+        assert b'#diff-modal-body' in r.content
+

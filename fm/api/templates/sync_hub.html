@@ -45,6 +45,9 @@
     .push-modal-icon-err { background: rgba(255,90,101,.15); color: #ff8d95; }
     .push-modal-error-msg { color: #ff8d95; font-size: 13px; overflow-wrap: anywhere; }
     .push-modal-awaiting .button-group { justify-content: center; margin-top: 8px; }
+    /* Diff modal overlay — same pattern as #action-modal */
+    #diff-modal { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; background: rgba(1,5,17,.7); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+    #diff-modal[hidden] { display: none; }
   </style>
 
   <div id="sync-hub-content">
@@ -60,6 +63,13 @@
         <div class="spinner spinner-lg"></div>
         <p>Starting…</p>
       </div>
+    </div>
+  </div>
+</div>
+<div id="diff-modal" hidden role="dialog" aria-modal="true" aria-label="Preset diff" tabindex="-1">
+  <div class="diff-modal-dialog">
+    <div id="diff-modal-body" class="diff-modal-body" aria-live="polite">
+      <div class="push-modal-state"><div class="spinner spinner-lg"></div><p>Loading…</p></div>
     </div>
   </div>
 </div>
@@ -97,5 +107,52 @@ document.getElementById('action-modal').addEventListener('click', function(e) {
   if (body && body.querySelector('.spinner')) return;
   closeActionModal();
 });
+var _diffModalPriorFocus = null;
+function openDiffModal() {
+  var m = document.getElementById('diff-modal');
+  if (!m) return;
+  _diffModalPriorFocus = document.activeElement;
+  m.removeAttribute('hidden');
+  m.focus();
+  var b = document.getElementById('diff-modal-body');
+  if (b) b.innerHTML = '<div class="push-modal-state"><div class="spinner spinner-lg"></div><p>Comparing…</p></div>';
+  document.addEventListener('keydown', _diffModalKeydown);
+}
+function closeDiffModal() {
+  var m = document.getElementById('diff-modal');
+  if (!m) return;
+  m.setAttribute('hidden', '');
+  document.removeEventListener('keydown', _diffModalKeydown);
+  if (_diffModalPriorFocus && _diffModalPriorFocus.focus) _diffModalPriorFocus.focus();
+  _diffModalPriorFocus = null;
+}
+function _diffModalKeydown(e) {
+  if (e.key !== 'Escape') return;
+  var m = document.getElementById('diff-modal');
+  if (!m || m.hasAttribute('hidden')) return;
+  var body = document.getElementById('diff-modal-body');
+  if (body && body.querySelector('.spinner')) return;
+  closeDiffModal();
+}
+document.getElementById('diff-modal').addEventListener('click', function(e) {
+  if (e.target !== this) return;
+  var body = document.getElementById('diff-modal-body');
+  if (body && body.querySelector('.spinner')) return;
+  closeDiffModal();
+});
+function toggleDiffOnly(cb) {
+  var body = document.getElementById('diff-modal-body');
+  if (!body) return;
+  body.classList.toggle('diff-only', cb.checked);
+  body.querySelectorAll('.diff-cat').forEach(function(cat) {
+    var row = cat.nextElementSibling;
+    var anyVisible = false;
+    while (row && !row.classList.contains('diff-cat')) {
+      if (!cb.checked || !row.classList.contains('diff-row-same')) anyVisible = true;
+      row = row.nextElementSibling;
+    }
+    cat.style.display = anyVisible ? '' : 'none';
+  });
+}
 </script>
 {% endblock %}

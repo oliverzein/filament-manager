@@ -10,6 +10,38 @@
       </header>
       <p class="target-note">Cached presets from Orca Cloud with printer DB sync status.</p>
       {% if presets %}
+      <div class="compare-toolbar">
+        <form class="compare-picker" hx-post="/sync/compare-modal" hx-target="#diff-modal-body" hx-swap="innerHTML" hx-on::before-request="openDiffModal()">
+          <div class="compare-inputs">
+            <label class="compare-label">
+              <span>Preset A</span>
+              <select name="preset_a_id" required>
+                <option value="" disabled selected>Select preset A…</option>
+                {% for p in presets %}{% if not p.deleted_from_cloud %}
+                <option value="{{ p.cloud_resource_id }}">{{ p.vendor }} {{ p.name }}</option>
+                {% endif %}{% endfor %}
+              </select>
+            </label>
+            <span class="compare-vs-badge" aria-hidden="true">vs</span>
+            <label class="compare-label">
+              <span>Preset B</span>
+              <select name="preset_b_id" required>
+                <option value="" disabled selected>Select preset B…</option>
+                <option value="@base">— Base template of A —</option>
+                {% for p in presets %}{% if not p.deleted_from_cloud %}
+                <option value="{{ p.cloud_resource_id }}">{{ p.vendor }} {{ p.name }}</option>
+                {% endif %}{% endfor %}
+              </select>
+            </label>
+          </div>
+          <button type="submit" class="button button-secondary compare-submit-btn">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h3A1.5 1.5 0 0 1 7 2.5v11A1.5 1.5 0 0 1 5.5 15h-3A1.5 1.5 0 0 1 1 13.5v-11zM9 2.5A1.5 1.5 0 0 1 10.5 1h3A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 9 13.5v-11z"/></svg>
+            Compare
+          </button>
+        </form>
+      </div>
+      {% endif %}
+      {% if presets %}
       <div class="table-wrap">
         <table class="drift-table">
           <thead><tr><th>Preset</th><th>Printer DB</th><th>Status</th><th class="actions-cell">Actions</th></tr></thead>
@@ -37,6 +69,7 @@
                   {% if p.status == 'orphan' and p.printer_db_id %}
                   <button class="button button-danger" hx-post="/sync/printer-db/{{ p.printer_db_id }}/remove" hx-vals='{"confirm": "{{ p.printer_db_id }}"}' hx-target="#sync-hub-content" hx-swap="innerHTML" hx-confirm="This removes orphan printer DB entry {{ p.printer_db_id }} and its SyncTarget. Continue?">Remove</button>
                   {% else %}
+                  <button class="button button-ghost" hx-post="/sync/compare-modal" hx-vals='{"preset_a_id": "{{ p.cloud_resource_id }}"}' hx-target="#diff-modal-body" hx-swap="innerHTML" hx-on::before-request="openDiffModal()">Compare</button>
                   <button class="button button-ghost" hx-post="/sync/push-modal" hx-vals='{"cloud_resource_ids": "{{ p.cloud_resource_id }}"}' hx-target="#action-modal-body" hx-swap="innerHTML" hx-on::before-request="openActionModal()">Push to Printer</button>
                   {% endif %}
                 </div>

@@ -1,7 +1,7 @@
 # pyproject.toml
 [project]
 name = "filament-manager"
-version = "2.1.0"
+version = "2.1.1"
 requires-python = ">=3.12"
 dependencies = ["fastapi>=0.115", "uvicorn[standard]", "sqlalchemy>=2.0",
                 "jinja2", "python-multipart", "websocket-client", "requests", "pytest"]

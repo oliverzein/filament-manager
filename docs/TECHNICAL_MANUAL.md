@@ -801,11 +801,12 @@ Non-negotiable rules enforced in code, lifted from the skill
 
 ### Container (Unraid)
 
-The image is built and loaded locally — no registry.
+The image can be built locally or pushed to Docker Hub (`w00z72/filament-manager`).
 
 ```bash
-scripts/release.sh 2.1.0           # tag vX.Y.Z, build image, save dist/*.tar.gz
-scripts/deploy-unraid.sh 2.1.0     # load image + XML template on Unraid, restart
+scripts/release.sh 2.1.1                  # tag vX.Y.Z, build image, save dist/*.tar.gz
+scripts/release.sh --push 2.1.1           # tag, build, save tarball, and push to Docker Hub
+scripts/deploy-unraid.sh 2.1.1            # load image + XML template on Unraid, restart
 ```
 
 `deploy-unraid.sh` expects:

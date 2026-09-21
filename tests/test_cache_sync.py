@@ -207,3 +207,57 @@ def test_cache_sync_reconciles_reuploaded_preset_with_new_cloud_id(session):
 
     updated_spool = session.get(Spool, spool.id)
     assert updated_spool.cloud_resource_id == new_id
+
+
+def test_cache_sync_excludes_simultaneous_upsert_and_delete(session):
+    """Regression: an id present in BOTH upserts and deletes must stay live.
+
+    OrcaSlicer can delete+recreate a preset within one sync window; the
+    pull then reports the same resource id in both feeds. The upsert must
+    win — otherwise the freshly cached row is tombstoned and the Sync Hub
+    shows it as Orphan until the next sync clears the flag.
+    """
+    client = MagicMock()
+    client.sync_pull.return_value = {
+        "next_cursor": 900,
+        "upserts": [
+            {
+                "id": "uuid-flip",
+                "name": "Elegoo Rapid PETG Optimized",
+                "content": {
+                    "type": "filament",
+                    "filament_vendor": ["Elegoo"],
+                    "filament_type": ["PETG"],
+                    "filament_id": "Pabc123",
+                },
+            }
+        ],
+        "deletes": ["uuid-flip", "uuid-gone"],
+    }
+
+    # uuid-gone exists in cache and is only in the deletes feed.
+    session.add(ProfileCache(
+        cloud_resource_id="uuid-gone",
+        name="Truly Deleted PLA",
+        vendor="Generic",
+        type="PLA",
+        deleted_from_cloud=False,
+    ))
+    session.commit()
+
+    result = sync_profile_cache(session, client)
+
+    assert result["synced"] == 1
+    assert result["deleted"] == 1
+
+    # Same-id upsert wins over the tombstone.
+    flip = session.get(ProfileCache, "uuid-flip")
+    assert flip is not None
+    assert flip.name == "Elegoo Rapid PETG Optimized"
+    assert flip.deleted_from_cloud is False
+    assert flip.deleted_at is None
+
+    # A delete-only id is still soft-deleted.
+    gone = session.get(ProfileCache, "uuid-gone")
+    assert gone.deleted_from_cloud is True
+    assert gone.deleted_at is not None

@@ -29,7 +29,11 @@ def sync_profile_cache(session: Session, client: OrcaCloudClient) -> dict:
         return {"synced": 0, "deleted": 0, "offline": True, "error": str(exc)}
 
     upserts = pull_result.get("upserts", [])
-    deletes = set(pull_result.get("deletes", []))
+    # A resource id reported in both feeds means the cloud deleted and
+    # re-created it within one sync window — the upsert wins, otherwise the
+    # row would be tombstoned immediately after being (re)created.
+    upsert_ids = {item.get("id") for item in upserts if item.get("id")}
+    deletes = set(pull_result.get("deletes", [])) - upsert_ids
     now = _now()
 
     synced_count = 0

@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>filament-manager</Name>
-  <Repository>filament-manager:latest</Repository>
+  <Repository>w00z72/filament-manager:latest</Repository>
   <Registry/>
   <Network>bridge</Network>
   <MyIP/>
@@ -13,7 +13,7 @@
   <Category>Productivity: Tools:Utilities</Category>
   <WebUI>http://[IP]:[PORT:8404]/</WebUI>
   <TemplateURL/>
-  <Icon/>
+  <Icon>https://raw.githubusercontent.com/oliverzein/filament-manager/master/deploy/icon.png</Icon>
   <ExtraParams/>
   <PostArgs/>
   <CPUset/>

@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#161824"/>
+      <stop offset="50%" stop-color="#0f111a"/>
+      <stop offset="100%" stop-color="#090a10"/>
+    </linearGradient>
+
+    <!-- Outer Border Glow -->
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a855f7" stop-opacity="0.8"/>
+      <stop offset="50%" stop-color="#7f25fb" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.3"/>
+    </linearGradient>
+
+    <!-- Primary Brand Accent Gradient -->
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c084fc"/>
+      <stop offset="40%" stop-color="#9333ea"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+
+    <!-- Filament Spool Windings Gradient -->
+    <linearGradient id="filamentGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="45%" stop-color="#a855f7"/>
+      <stop offset="70%" stop-color="#c084fc"/>
+      <stop offset="100%" stop-color="#e879f9"/>
+    </linearGradient>
+
+    <!-- Spool Flange Metallic/Matte Finish -->
+    <linearGradient id="flangeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2d3148"/>
+      <stop offset="50%" stop-color="#1e2132"/>
+      <stop offset="100%" stop-color="#141724"/>
+    </linearGradient>
+
+    <!-- Inner Core Gradient -->
+    <linearGradient id="coreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e2235"/>
+      <stop offset="100%" stop-color="#0b0d14"/>
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="purpleGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <filter id="strandGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <!-- Shadow for Depth -->
+    <filter id="dropShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle Base for Unraid Icon -->
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#bgGrad)"/>
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="none" stroke="url(#borderGrad)" stroke-width="4" opacity="0.9"/>
+
+  <!-- Ambient Glow behind Spool -->
+  <circle cx="256" cy="256" r="140" fill="#7f25fb" opacity="0.18" filter="url(#purpleGlow)"/>
+
+  <!-- Spool Group with Drop Shadow -->
+  <g filter="url(#dropShadow)">
+
+    <!-- Outer Spool Flange Rim -->
+    <circle cx="256" cy="256" r="172" fill="url(#flangeGrad)" stroke="#3f4566" stroke-width="2"/>
+
+    <!-- Filament Windings Ring (Coil) -->
+    <circle cx="256" cy="256" r="148" fill="none" stroke="url(#filamentGrad)" stroke-width="36"/>
+
+    <!-- Concentric Coil Texture Lines -->
+    <circle cx="256" cy="256" r="160" fill="none" stroke="#e879f9" stroke-width="1.5" opacity="0.45"/>
+    <circle cx="256" cy="256" r="154" fill="none" stroke="#c084fc" stroke-width="1.5" opacity="0.55"/>
+    <circle cx="256" cy="256" r="148" fill="none" stroke="#a855f7" stroke-width="1.5" opacity="0.5"/>
+    <circle cx="256" cy="256" r="142" fill="none" stroke="#7c3aed" stroke-width="1.5" opacity="0.55"/>
+    <circle cx="256" cy="256" r="136" fill="none" stroke="#6d28d9" stroke-width="1.5" opacity="0.6"/>
+
+    <!-- Front Flange Structure (with modern geometric cutouts like high-end spools) -->
+    <!-- Front Flange Rim -->
+    <circle cx="256" cy="256" r="172" fill="none" stroke="#4e557d" stroke-width="6"/>
+
+    <!-- Spool Hub / Center Flange Ring -->
+    <circle cx="256" cy="256" r="88" fill="url(#flangeGrad)" stroke="#4e557d" stroke-width="3"/>
+
+    <!-- 4 Geometric Spool Cutouts (Window cutouts showing the filament inside) -->
+    <path d="M 256,96 A 160,160 0 0,1 369,143 L 322,190 A 96,96 0 0,0 256,160 Z" fill="#000000" opacity="0.25"/>
+    <path d="M 416,256 A 160,160 0 0,1 369,369 L 322,322 A 96,96 0 0,0 352,256 Z" fill="#000000" opacity="0.25"/>
+    <path d="M 256,416 A 160,160 0 0,1 143,369 L 190,322 A 96,96 0 0,0 256,352 Z" fill="#000000" opacity="0.25"/>
+    <path d="M 96,256 A 160,160 0 0,1 143,143 L 190,190 A 96,96 0 0,0 160,256 Z" fill="#000000" opacity="0.25"/>
+
+    <!-- Center Spindle Hole -->
+    <circle cx="256" cy="256" r="48" fill="url(#coreGrad)" stroke="#3f4566" stroke-width="4"/>
+    <circle cx="256" cy="256" r="38" fill="#090a10" stroke="#1f2337" stroke-width="2"/>
+
+    <!-- Filament Manager 3-Bar Signature in Center Hub -->
+    <!-- Bars at 55%, 100%, 75% relative heights matching brand-mark -->
+    <rect x="236" y="254" width="7" height="15" rx="2" fill="url(#accentGrad)"/>
+    <rect x="247" y="243" width="7" height="26" rx="2" fill="#c084fc"/>
+    <rect x="258" y="248" width="7" height="21" rx="2" fill="url(#accentGrad)"/>
+    <rect x="269" y="252" width="7" height="17" rx="2" fill="#818cf8"/>
+
+    <!-- Dynamic Unwinding Filament Strand leading outward -->
+    <path d="M 256,88 C 330,88 410,120 424,190 C 434,240 405,295 435,340 C 450,362 468,375 480,380"
+          fill="none" stroke="url(#filamentGrad)" stroke-width="8" stroke-linecap="round" filter="url(#strandGlow)"/>
+
+    <!-- Extrusion Tip / Glowing Droplet at Strand End -->
+    <circle cx="435" cy="340" r="5" fill="#f472b6" opacity="0.9"/>
+  </g>
+</svg>

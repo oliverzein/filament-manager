@@ -238,8 +238,14 @@
         } else {
           comparison = rowValue(a, column).localeCompare(rowValue(b, column), undefined, { sensitivity: 'base', numeric: true });
         }
-        if (comparison === 0) comparison = (parseInt(a.dataset.id, 10) || 0) - (parseInt(b.dataset.id, 10) || 0);
-        return direction === 'asc' ? comparison : -comparison;
+        if (comparison !== 0) {
+          return direction === 'asc' ? comparison : -comparison;
+        }
+        if (column !== 'profile') {
+          var sec = rowValue(a, 'profile').localeCompare(rowValue(b, 'profile'), undefined, { sensitivity: 'base', numeric: true });
+          if (sec !== 0) return sec;
+        }
+        return (parseInt(a.dataset.id, 10) || 0) - (parseInt(b.dataset.id, 10) || 0);
       });
 
       spoolRows.forEach(function(row) {

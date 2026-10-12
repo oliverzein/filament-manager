@@ -924,7 +924,7 @@ def handle_verify(session: Session, config: Config, payload: dict) -> dict:
             else:
                 target.status = "error"
         target.last_synced_at = _now()
-
+    session.flush()
     if cloud_rollback:
         jobs.log_activity(
             session, "verify", "warn",

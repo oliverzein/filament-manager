@@ -685,3 +685,155 @@ class TestRebuildFromCatalogAdoption:
         # Total count of 99008 entries in db is 1
         custom_ids = [e["base"]["id"] for e in db_result["result"]["list"] if e["base"]["id"].startswith("99")]
         assert custom_ids.count("99008") == 1
+
+
+class TestCleanDBReconciliation:
+    def test_clean_db_reconciliation_adopts_existing_entries_without_ghost_duplicates(
+        self, inmemory_session, cfg, tmp_path, sample_db, monkeypatch
+    ):
+        """End-to-end multi-instance reconciliation test.
+
+        Simulates a fresh FM database session with no SyncTargets connecting to a
+        printer DB that already has custom entries (99008 Elegoo Rapid PETG Optimized
+        and 99014 eSUN PLA+ Optimized).
+
+        Cloud returns:
+        1) 'Elegoo Rapid PETG Optimized' (matches 99008)
+        2) 'eSUN PLA+ Optimized' (matches 99014)
+        3) 'Overture ABS Turbo' (new preset, no match)
+
+        Verifies:
+        1) 99008 and 99014 are adopted and updated with fresh hashes (not duplicated).
+        2) Overture ABS gets allocated 99015 (or next available free ID).
+        3) Custom entry count on printer DB equals exactly 3 (no ghost duplicates).
+        4) handle_verify passes with in_sync for all targets.
+        """
+        from unittest.mock import MagicMock
+        s = inmemory_session
+
+        # Clear any existing custom entries in sample_db fixture so only test entries exist
+        sample_db["result"]["list"] = [
+            e for e in sample_db["result"]["list"]
+            if not e.get("base", {}).get("id", "").startswith("99")
+        ]
+
+        # Seed printer DB with existing custom entries 99008 and 99014
+        entry_petg = build_entry(sample_db, {
+            "id": "99008",
+            "brand": "Elegoo",
+            "name": "Elegoo Rapid PETG Optimized",
+            "type": "PETG",
+            "minTemp": 220,
+            "maxTemp": 250,
+        })
+        entry_pla = build_entry(sample_db, {
+            "id": "99014",
+            "brand": "eSUN",
+            "name": "eSUN PLA+ Optimized",
+            "type": "PLA",
+            "minTemp": 205,
+            "maxTemp": 225,
+        })
+        insert_entry(sample_db, entry_petg)
+        insert_entry(sample_db, entry_pla)
+
+        cache = _cache_file(tmp_path, sample_db)
+        monkeypatch.setattr(sh, "_cache_db_path", cache)
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: FakeTransport())
+
+        # Cloud returns 2 matching presets + 1 new preset
+        fake_client = MagicMock()
+        fake_client.sync_pull.return_value = {
+            "next_cursor": 0,
+            "upserts": [
+                {
+                    "id": "cloud-elegoo-petg",
+                    "content": {
+                        "type": "filament",
+                        "name": "Elegoo Rapid PETG Optimized",
+                        "filament_type": "PETG",
+                        "filament_vendor": "Elegoo",
+                        "nozzle_temperature": "240",
+                        "nozzle_temperature_range_low": "220",
+                        "nozzle_temperature_range_high": "250",
+                    },
+                },
+                {
+                    "id": "cloud-esun-pla",
+                    "content": {
+                        "type": "filament",
+                        "name": "eSUN PLA+ Optimized",
+                        "filament_type": "PLA",
+                        "filament_vendor": "eSUN",
+                        "nozzle_temperature": "215",
+                        "nozzle_temperature_range_low": "205",
+                        "nozzle_temperature_range_high": "225",
+                    },
+                },
+                {
+                    "id": "cloud-overture-abs",
+                    "content": {
+                        "type": "filament",
+                        "name": "Overture ABS Turbo",
+                        "filament_type": "ABS",
+                        "filament_vendor": "Overture",
+                        "nozzle_temperature": "250",
+                        "nozzle_temperature_range_low": "240",
+                        "nozzle_temperature_range_high": "260",
+                    },
+                },
+            ],
+            "deletes": [],
+        }
+        monkeypatch.setattr(sh, "_orca_client_factory", lambda: fake_client)
+
+        # 1. Run push
+        push_result = sh.handle_push(s, cfg, {})
+        assert push_result["status"] == "ok"
+        assert push_result["pushed"] == 3
+
+        # 2. Check SyncTargets in database
+        target_petg = s.scalars(
+            select(SyncTarget).where(SyncTarget.cloud_id == "cloud-elegoo-petg")
+        ).first()
+        target_pla = s.scalars(
+            select(SyncTarget).where(SyncTarget.cloud_id == "cloud-esun-pla")
+        ).first()
+        target_abs = s.scalars(
+            select(SyncTarget).where(SyncTarget.cloud_id == "cloud-overture-abs")
+        ).first()
+
+        assert target_petg is not None
+        assert target_petg.printer_db_id == "99008"
+
+        assert target_pla is not None
+        assert target_pla.printer_db_id == "99014"
+
+        assert target_abs is not None
+        assert target_abs.printer_db_id not in ("99008", "99014")
+        assert target_abs.printer_db_id.startswith("99")
+
+        # 3. Verify printer DB contents: exactly 3 custom entries (no duplicates)
+        pushed_db = json.loads(cache.read_text())
+        custom_entries = [
+            e for e in pushed_db["result"]["list"]
+            if e.get("base", {}).get("id", "").startswith("99")
+        ]
+        assert len(custom_entries) == 3
+        custom_ids = {e["base"]["id"] for e in custom_entries}
+        assert custom_ids == {"99008", "99014", target_abs.printer_db_id}
+
+        # 4. Verify step: verify must report in_sync for all targets
+        verify_transport = VerifyTransport(db=pushed_db)
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: verify_transport)
+
+        verify_result = sh.handle_verify(s, cfg, {})
+        assert verify_result["version_ok"] is True
+        assert verify_result["cloud_rollback"] is False
+
+        s.refresh(target_petg)
+        s.refresh(target_pla)
+        s.refresh(target_abs)
+        assert target_petg.status == "in_sync"
+        assert target_pla.status == "in_sync"
+        assert target_abs.status == "in_sync"

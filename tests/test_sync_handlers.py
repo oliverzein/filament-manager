@@ -588,3 +588,59 @@ class TestFindMatchingCustomEntry:
             assigned_ids={"99008"},
         )
         assert matched is None
+
+
+class TestRebuildFromCloudAdoption:
+    def test_rebuild_from_cloud_adopts_existing_printer_entry_by_name(
+        self, inmemory_session, cfg, sample_db
+    ):
+        """When SyncTarget has no printer_db_id, adopts an unassigned custom entry by name/type/vendor."""
+        from unittest.mock import MagicMock
+        s = inmemory_session
+
+        # Seed sample_db with an existing custom entry 99008
+        existing_entry = build_entry(sample_db, {
+            "id": "99008",
+            "brand": "Elegoo",
+            "name": "Elegoo Rapid PETG Optimized",
+            "type": "PETG",
+            "minTemp": 220,
+            "maxTemp": 250,
+        })
+        insert_entry(sample_db, existing_entry)
+
+        # Fake Orca Cloud client returning a matching preset
+        fake_client = MagicMock()
+        fake_client.sync_pull.return_value = {
+            "next_cursor": 0,
+            "upserts": [{
+                "id": "cloud-uuid-elegoo-petg",
+                "content": {
+                    "type": "filament",
+                    "name": "Elegoo Rapid PETG Optimized",
+                    "filament_type": "PETG",
+                    "filament_vendor": "Elegoo",
+                    "nozzle_temperature": "235",
+                    "nozzle_temperature_range_low": "220",
+                    "nozzle_temperature_range_high": "250",
+                },
+            }],
+            "deletes": [],
+        }
+
+        db_result, pushed, skipped_ids = sh._rebuild_from_cloud(
+            s, cfg, sample_db, fake_client
+        )
+
+        assert len(pushed) == 1
+        target, pushed_entry = pushed[0]
+        # Must adopt existing 99008 rather than generating a new ID (e.g. 99002)
+        assert target.printer_db_id == "99008"
+        assert pushed_entry["base"]["id"] == "99008"
+        # The entry in the DB result has the updated nozzle temperature
+        adopted_entry = find_entry(db_result, "99008")
+        assert adopted_entry is not None
+        assert adopted_entry["kvParam"]["nozzle_temperature"] == "235"
+        # No duplicate entry exists
+        custom_ids = [e["base"]["id"] for e in db_result["result"]["list"] if e["base"]["id"].startswith("99")]
+        assert custom_ids.count("99008") == 1

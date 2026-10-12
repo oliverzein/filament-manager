@@ -614,6 +614,17 @@ def _rebuild_from_cloud(
     pushed: list[tuple[Any, dict]] = []
     skipped_ids: list[int] = []
 
+    assigned_ids: set[str] = {
+        row.printer_db_id
+        for row in session.scalars(
+            select(SyncTarget).where(
+                SyncTarget.kind == "printer_db",
+                SyncTarget.printer_db_id.is_not(None),
+            )
+        ).all()
+        if row.printer_db_id
+    }
+
     for preset in presets:
         # Inheritance resolution check (spec §5): skip presets whose
         # inherits chain cannot be fully resolved against bundled templates.
@@ -641,6 +652,18 @@ def _rebuild_from_cloud(
 
         flat = _flatten_cloud_preset(preset)
 
+        raw_name = flat.get("name") or flat.get("filament_settings_id") or "Custom Filament"
+        preset_name = raw_name[0] if isinstance(raw_name, list) else str(raw_name)
+        preset_name = preset_name.strip().strip('"').strip("'")
+
+        raw_vendor = flat.get("filament_vendor") or ""
+        preset_vendor = raw_vendor[0] if isinstance(raw_vendor, list) else str(raw_vendor)
+        preset_vendor = preset_vendor.strip().strip('"').strip("'")
+
+        raw_type = flat.get("filament_type") or "PLA"
+        preset_type = raw_type[0] if isinstance(raw_type, list) else str(raw_type)
+        preset_type = preset_type.strip().strip('"').strip("'")
+
         # Map printer_db_id via SyncTarget where cloud_id == res_id
         target = session.scalars(
             select(SyncTarget).where(
@@ -651,25 +674,58 @@ def _rebuild_from_cloud(
 
         if target is not None and target.printer_db_id:
             entry_id = target.printer_db_id
+            assigned_ids.add(entry_id)
             existing = find_entry(db, entry_id)
             if existing is not None:
                 remove_entry(db, entry_id)
         else:
-            entry_id = str(next_free_id(db, config.id_range_start))
-            if target is not None:
-                target.printer_db_id = entry_id
+            # Check existing unassigned custom entries on printer DB by name & type
+            cand = _find_matching_custom_entry(
+                db,
+                name=preset_name,
+                ftype=preset_type,
+                vendor=preset_vendor,
+                assigned_ids=assigned_ids,
+            )
+            if cand is not None:
+                entry_id = str(cand["base"]["id"])
+                remove_entry(db, entry_id)
+                if target is not None:
+                    target.printer_db_id = entry_id
+                else:
+                    target = SyncTarget(
+                        profile_id=None,
+                        kind="printer_db",
+                        cloud_id=res_id,
+                        printer_db_id=entry_id,
+                        status="pending",
+                    )
+                    session.add(target)
+                    session.flush()
+                assigned_ids.add(entry_id)
             else:
-                # No existing SyncTarget — create one so verify can find it.
-                target = SyncTarget(
-                    profile_id=None,
-                    kind="printer_db",
-                    cloud_id=res_id,
-                    printer_db_id=entry_id,
-                    status="pending",
-                )
-                session.add(target)
-                session.flush()
-
+                candidate = config.id_range_start
+                used = {
+                    int(e["base"]["id"])
+                    for e in db["result"]["list"]
+                    if e.get("base", {}).get("id", "").isdigit()
+                } | {int(x) for x in assigned_ids if x.isdigit()}
+                while candidate in used:
+                    candidate += 1
+                entry_id = str(candidate)
+                if target is not None:
+                    target.printer_db_id = entry_id
+                else:
+                    target = SyncTarget(
+                        profile_id=None,
+                        kind="printer_db",
+                        cloud_id=res_id,
+                        printer_db_id=entry_id,
+                        status="pending",
+                    )
+                    session.add(target)
+                    session.flush()
+                assigned_ids.add(entry_id)
         # flat already computed above
         values = _cloud_preset_to_entry_values(flat, entry_id)
         entry = build_entry(db, values)

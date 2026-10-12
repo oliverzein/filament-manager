@@ -644,3 +644,44 @@ class TestRebuildFromCloudAdoption:
         # No duplicate entry exists
         custom_ids = [e["base"]["id"] for e in db_result["result"]["list"] if e["base"]["id"].startswith("99")]
         assert custom_ids.count("99008") == 1
+
+
+class TestRebuildFromCatalogAdoption:
+    def test_rebuild_from_catalog_adopts_existing_printer_entry(
+        self, inmemory_session, cfg, sample_db
+    ):
+        """When profile.printer_db_id is None, adopts an unassigned custom entry by name/type/vendor."""
+        s = inmemory_session
+
+        # Seed sample_db with an existing custom entry 99008
+        existing_entry = build_entry(sample_db, {
+            "id": "99008",
+            "brand": "Elegoo",
+            "name": "Elegoo Rapid PETG Optimized",
+            "type": "PETG",
+            "minTemp": 220,
+            "maxTemp": 250,
+        })
+        insert_entry(sample_db, existing_entry)
+
+        # Profile with matching attributes and no printer_db_id
+        profile = _make_profile(
+            s,
+            brand="Elegoo",
+            name="Elegoo Rapid PETG Optimized",
+            type="PETG",
+            printer_db_id=None,
+        )
+
+        db_result, pushed, skipped_ids = sh._rebuild_from_catalog(
+            s, cfg, sample_db, [profile.id]
+        )
+
+        assert len(pushed) == 1
+        p_obj, pushed_entry = pushed[0]
+        # profile.printer_db_id must adopt 99008
+        assert profile.printer_db_id == "99008"
+        assert pushed_entry["base"]["id"] == "99008"
+        # Total count of 99008 entries in db is 1
+        custom_ids = [e["base"]["id"] for e in db_result["result"]["list"] if e["base"]["id"].startswith("99")]
+        assert custom_ids.count("99008") == 1

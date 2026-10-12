@@ -742,8 +742,9 @@ def _rebuild_from_catalog(
 ) -> tuple[dict, list[tuple[Any, dict]], list[int]]:
     """Fallback rebuild: source entries from cache DB + catalog Profile rows.
 
-    Used when no Orca Cloud client is configured.  Preserves the pre-rework
-    behavior minus orphan removal (Orphan Rule F3/B).
+    Used when no Orca Cloud client is configured. Preserves the pre-rework
+    behavior minus orphan removal (Orphan Rule F3/B). Adopts existing custom
+    entries matching name, type, and vendor when printer_db_id is not yet set.
     """
     if profile_ids:
         all_profiles = list(session.scalars(
@@ -756,16 +757,47 @@ def _rebuild_from_catalog(
     profiles = all_profiles
     skipped_ids: list[int] = []
 
+    assigned_ids: set[str] = {
+        p.printer_db_id
+        for p in session.scalars(
+            select(Profile).where(Profile.printer_db_id.is_not(None))
+        ).all()
+        if p.printer_db_id
+    }
+
     pushed: list[tuple[Any, dict]] = []
     for profile in profiles:
         entry_id = profile.printer_db_id
         if entry_id:
+            assigned_ids.add(entry_id)
             existing = find_entry(db, entry_id)
             if existing is not None:
                 remove_entry(db, entry_id)
         else:
-            entry_id = str(next_free_id(db, config.id_range_start))
-            profile.printer_db_id = entry_id
+            cand = _find_matching_custom_entry(
+                db,
+                name=profile.name,
+                ftype=profile.type,
+                vendor=profile.brand or "",
+                assigned_ids=assigned_ids,
+            )
+            if cand is not None:
+                entry_id = str(cand["base"]["id"])
+                remove_entry(db, entry_id)
+                profile.printer_db_id = entry_id
+                assigned_ids.add(entry_id)
+            else:
+                candidate = config.id_range_start
+                used = {
+                    int(e["base"]["id"])
+                    for e in db["result"]["list"]
+                    if e.get("base", {}).get("id", "").isdigit()
+                } | {int(x) for x in assigned_ids if x.isdigit()}
+                while candidate in used:
+                    candidate += 1
+                entry_id = str(candidate)
+                profile.printer_db_id = entry_id
+                assigned_ids.add(entry_id)
 
         values = _profile_to_values(profile, entry_id)
         entry = build_entry(db, values)

@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy import select
 
 from conftest import FakeTransport
-from fm.printer.dbcodec import find_entry
+from fm.printer.dbcodec import build_entry, find_entry, insert_entry
 from fm.models import ActivityLog, Job, Profile, SyncTarget
 from fm.service import sync_handlers as sh
 
@@ -524,3 +524,67 @@ class TestOrphanPreservation:
         pushed_db = json.loads(cache.read_text())
         assert find_entry(pushed_db, "99001") is not None
 
+
+
+class TestFindMatchingCustomEntry:
+    def test_find_matching_custom_entry_exact(self, sample_db):
+        """Finds custom entry matching name, type, and vendor exactly (case-insensitive)."""
+        entry = build_entry(sample_db, {
+            "id": "99008",
+            "brand": "Elegoo",
+            "name": "Elegoo Rapid PETG Optimized",
+            "type": "PETG",
+            "minTemp": 220,
+            "maxTemp": 250,
+        })
+        insert_entry(sample_db, entry)
+
+        matched = sh._find_matching_custom_entry(
+            sample_db,
+            name="elegoo rapid petg optimized",
+            ftype="petg",
+            vendor="elegoo",
+        )
+        assert matched is not None
+        assert matched["base"]["id"] == "99008"
+
+    def test_find_matching_custom_entry_vendor_mismatch(self, sample_db):
+        """Returns None when vendor does not match the existing custom entry brand."""
+        entry = build_entry(sample_db, {
+            "id": "99008",
+            "brand": "Elegoo",
+            "name": "Elegoo Rapid PETG Optimized",
+            "type": "PETG",
+            "minTemp": 220,
+            "maxTemp": 250,
+        })
+        insert_entry(sample_db, entry)
+
+        matched = sh._find_matching_custom_entry(
+            sample_db,
+            name="Elegoo Rapid PETG Optimized",
+            ftype="PETG",
+            vendor="eSUN",
+        )
+        assert matched is None
+
+    def test_find_matching_custom_entry_assigned_id_skipped(self, sample_db):
+        """Skips entries whose ID is present in assigned_ids."""
+        entry = build_entry(sample_db, {
+            "id": "99008",
+            "brand": "Elegoo",
+            "name": "Elegoo Rapid PETG Optimized",
+            "type": "PETG",
+            "minTemp": 220,
+            "maxTemp": 250,
+        })
+        insert_entry(sample_db, entry)
+
+        matched = sh._find_matching_custom_entry(
+            sample_db,
+            name="Elegoo Rapid PETG Optimized",
+            ftype="PETG",
+            vendor="Elegoo",
+            assigned_ids={"99008"},
+        )
+        assert matched is None

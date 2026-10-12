@@ -39,6 +39,7 @@ from ..config import Config
 from ..models import Profile, SyncTarget
 from ..printer.dbcodec import (
     build_entry,
+    find_custom_entries,
     find_entry,
     insert_entry,
     load_db,
@@ -551,6 +552,51 @@ def _inherits_chain_resolvable(preset: dict) -> bool:
         parent_data = json.loads(Path(parent_path).read_text())
         inherits = str(parent_data.get("inherits", "")).strip()
     return True
+
+
+def _find_matching_custom_entry(
+    db: dict,
+    name: str,
+    ftype: str,
+    vendor: str = "",
+    assigned_ids: set[str] | None = None,
+) -> dict | None:
+    """Find an existing custom (99xxx) entry matching name, type, and optional vendor.
+
+    Skips entries whose ID is in ``assigned_ids``. Compares name, material
+    type, and vendor case-insensitively. Returns the matching entry dict or None.
+    """
+    assigned = assigned_ids or set()
+    target_name = name.strip().casefold()
+    target_type = ftype.strip().casefold()
+    target_vendor = vendor.strip().casefold()
+
+    for entry in find_custom_entries(db):
+        base = entry.get("base", {})
+        eid = str(base.get("id", "")).strip()
+        if not eid or eid in assigned:
+            continue
+
+        entry_name = str(base.get("name", "")).strip().casefold()
+        if entry_name != target_name:
+            continue
+
+        entry_type = str(
+            base.get("meterialType") or base.get("type") or ""
+        ).strip().casefold()
+        if entry_type != target_type:
+            continue
+
+        if target_vendor:
+            entry_vendor = str(
+                base.get("brand") or entry.get("kvParam", {}).get("filament_vendor") or ""
+            ).strip().casefold()
+            if entry_vendor and entry_vendor != target_vendor:
+                continue
+
+        return entry
+
+    return None
 
 def _rebuild_from_cloud(
     session: Session, config: Config, db: dict,

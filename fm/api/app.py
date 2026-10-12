@@ -48,7 +48,7 @@ def _package_version() -> str:
 
         return version("filament-manager")
     except PackageNotFoundError:
-        return "2.1.2"
+        return "2.1.3"
 
 _STATUS_CLASS_MAP = {
     "drift": "drifted",

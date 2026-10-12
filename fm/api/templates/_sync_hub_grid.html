@@ -11,37 +11,27 @@
       {% if presets %}
       <div class="table-wrap">
         <table class="drift-table">
-          <thead><tr><th>Preset</th><th>Printer DB</th><th>Status</th><th class="actions-cell">Actions</th></tr></thead>
+          <thead><tr><th>Preset</th><th>Printer DB</th><th>Status</th></tr></thead>
           <tbody>
           {% for p in presets %}
-            <tr>
+            <tr class="preset-row" data-cloud-id="{{ p.cloud_resource_id }}" data-status="{{ p.status }}" data-name="{{ p.name }}" data-printer-db-id="{{ p.printer_db_id or '' }}">
               <td>
                 <span class="cell-main">{{ p.name if p.name.lower().startswith(p.vendor.lower()) else p.vendor ~ ' ' ~ p.name }}</span>
                 <span class="cell-sub">{{ p.type }}{% if p.is_inherited %} · inherited{% endif %}</span>
               </td>
               <td>
-                {% if p.printer_db_id %}
-                  <span class="cell-main">{{ p.printer_db_id }}</span>
-                {% elif p.status == 'orphan' %}
+                {% if p.status == 'orphan' %}
                   <span class="cell-main">{{ p.printer_db_id or '—' }}</span>
+                {% elif p.status == 'ignored' %}
+                  <span class="muted">Ignored</span>
+                {% elif p.printer_db_id %}
+                  <span class="cell-main">{{ p.printer_db_id }}</span>
                 {% else %}
                   <span class="muted">Not pushed</span>
                 {% endif %}
               </td>
               <td>
                 <span class="status-badge status-{{ p.status | status_class }}">{{ p.status | replace('_', ' ') }}</span>
-              </td>
-              <td class="actions-cell">
-                <div class="row-actions">
-                  {% if p.status == 'orphan' %}
-                  {% if p.printer_db_id %}
-                  <button class="button button-danger" hx-post="/sync/printer-db/{{ p.printer_db_id }}/remove" hx-vals='{"confirm": "{{ p.printer_db_id }}"}' hx-target="#sync-hub-content" hx-swap="innerHTML" hx-confirm="This removes orphan printer DB entry {{ p.printer_db_id }} and its SyncTarget. Continue?">Remove</button>
-                  {% endif %}
-                  {% else %}
-                  <button class="button button-ghost" hx-post="/sync/compare-modal" hx-vals='{"preset_a_id": "{{ p.cloud_resource_id }}"}' hx-target="#diff-modal-body" hx-swap="innerHTML" hx-on::before-request="openDiffModal()">Compare</button>
-                  <button class="button button-ghost" hx-post="/sync/push-modal" hx-vals='{"cloud_resource_ids": "{{ p.cloud_resource_id }}"}' hx-target="#action-modal-body" hx-swap="innerHTML" hx-on::before-request="openActionModal()">Push to Printer</button>
-                  {% endif %}
-                </div>
               </td>
             </tr>
           {% endfor %}
@@ -71,11 +61,13 @@
   </div>
 
   <aside class="sync-hub-right" aria-label="Sync targets">
-    {% set ns = namespace(pdb_sync=0, pdb_not_pushed=0, orca_cached=0, orca_orphans=0) %}
+    {% set ns = namespace(pdb_sync=0, pdb_not_pushed=0, orca_cached=0, orca_orphans=0, ignored=0) %}
     {% for p in presets %}
       {% set ns.orca_cached = ns.orca_cached + 1 %}
       {% if p.status == 'in_sync' %}
         {% set ns.pdb_sync = ns.pdb_sync + 1 %}
+      {% elif p.status == 'ignored' %}
+        {% set ns.ignored = ns.ignored + 1 %}
       {% elif p.status != 'orphan' %}
         {% set ns.pdb_not_pushed = ns.pdb_not_pushed + 1 %}
       {% endif %}
@@ -87,7 +79,7 @@
         <span class="stat-icon purple" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 2h10v4H7V2Zm-3 6h16a2 2 0 0 1 2 2v8h-4v4H6v-4H2v-8a2 2 0 0 1 2-2Zm4 8v4h8v-4H8Zm9-5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"/></svg></span>
         <div><p class="eyebrow">Printer database</p><h2 id="printer-target-heading">Printer DB</h2></div>
       </div>
-      <span class="target-summary">{{ ns.pdb_sync }} in sync, {{ ns.pdb_not_pushed }} not pushed</span>
+      <span class="target-summary">{{ ns.pdb_sync }} in sync, {{ ns.pdb_not_pushed }} not pushed{% if ns.ignored > 0 %}, {{ ns.ignored }} ignored{% endif %}</span>
       <p>Push cached presets to the printer database.</p>
       <button class="button button-primary" hx-post="/sync/push-modal" hx-target="#action-modal-body" hx-swap="innerHTML" hx-on::before-request="openActionModal()">Push to Printer</button>
     </section>

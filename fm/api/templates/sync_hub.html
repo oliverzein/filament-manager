@@ -47,8 +47,51 @@
     .push-modal-awaiting .button-group { justify-content: center; margin-top: 8px; }
     /* Diff modal overlay — same pattern as #action-modal */
     #diff-modal { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; background: rgba(1,5,17,.7); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
-    #diff-modal[hidden] { display: none; }
-  </style>
+     #diff-modal[hidden] { display: none; }
+    /* Context menu for preset table rows */
+    #preset-context-menu {
+      position: fixed;
+      z-index: 2500;
+      min-width: 200px;
+      padding: 6px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-card);
+      background: var(--surface-raised);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, .55), var(--shadow-card);
+    }
+    #preset-context-menu[hidden] { display: none; }
+    .context-menu-item {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      padding: 8px 12px;
+      border: 0;
+      border-radius: var(--radius-input);
+      background: transparent;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 500;
+      text-align: left;
+      cursor: pointer;
+      transition: background .12s ease, color .12s ease;
+    }
+    .context-menu-item:hover {
+      background: rgba(203, 60, 255, .15);
+      color: var(--text);
+    }
+    .context-menu-item.danger {
+      color: var(--red, #ff5a65);
+    }
+    .context-menu-item.danger:hover {
+      background: rgba(255, 90, 101, .15);
+      color: var(--red, #ff8d95);
+    }
+    .context-menu-divider {
+      height: 1px;
+      margin: 4px 0;
+      background: var(--border-subtle, rgba(255, 255, 255, .08));
+    }
+   </style>
 
   <div id="sync-hub-content">
     {% include "_sync_hub_grid.html" %}
@@ -72,6 +115,22 @@
       <div class="push-modal-state"><div class="spinner spinner-lg"></div><p>Loading…</p></div>
     </div>
   </div>
+</div>
+<div id="preset-context-menu" hidden role="menu" aria-label="Preset actions" tabindex="-1">
+  <button type="button" class="context-menu-item" id="context-menu-push" role="menuitem">
+    <span>⬆ Push to Printer</span>
+  </button>
+  <button type="button" class="context-menu-item" id="context-menu-compare" role="menuitem">
+    <span>⚖ Compare</span>
+  </button>
+  <div class="context-menu-divider" id="context-menu-divider-ignore"></div>
+  <button type="button" class="context-menu-item" id="context-menu-toggle-ignore" role="menuitem">
+    <span id="context-menu-toggle-label">🚫 Vom Sync ausschließen</span>
+  </button>
+  <div class="context-menu-divider" id="context-menu-divider-remove"></div>
+  <button type="button" class="context-menu-item danger" id="context-menu-remove" role="menuitem">
+    <span>🗑 Remove from printer DB</span>
+  </button>
 </div>
 <script>
 function openActionModal() {
@@ -154,5 +213,151 @@ function toggleDiffOnly(cb) {
     cat.style.display = anyVisible ? '' : 'none';
   });
 }
+
+/* ── Context Menu for Preset Rows ── */
+var _activeContextCloudId = null;
+var _activeContextStatus = null;
+var _activeContextPrinterDbId = null;
+var _activeContextName = null;
+
+function closePresetContextMenu() {
+  var menu = document.getElementById('preset-context-menu');
+  if (!menu || menu.hasAttribute('hidden')) return;
+  menu.setAttribute('hidden', '');
+  _activeContextCloudId = null;
+  _activeContextStatus = null;
+  _activeContextPrinterDbId = null;
+  _activeContextName = null;
+}
+
+document.addEventListener('contextmenu', function(e) {
+  var row = e.target.closest('#preset-table tbody tr');
+  if (!row) {
+    closePresetContextMenu();
+    return;
+  }
+  var cloudId = row.dataset.cloudId;
+  if (!cloudId) return;
+  e.preventDefault();
+
+  _activeContextCloudId = cloudId;
+  _activeContextStatus = row.dataset.status || '';
+  _activeContextPrinterDbId = row.dataset.printerDbId || '';
+  _activeContextName = row.dataset.name || '';
+
+  var pushItem = document.getElementById('context-menu-push');
+  var compareItem = document.getElementById('context-menu-compare');
+  var ignoreItem = document.getElementById('context-menu-toggle-ignore');
+  var removeItem = document.getElementById('context-menu-remove');
+  var dividerIgnore = document.getElementById('context-menu-divider-ignore');
+  var dividerRemove = document.getElementById('context-menu-divider-remove');
+  var label = document.getElementById('context-menu-toggle-label');
+
+  if (_activeContextStatus === 'orphan') {
+    if (pushItem) pushItem.style.display = 'none';
+    if (compareItem) compareItem.style.display = 'none';
+    if (ignoreItem) ignoreItem.style.display = 'none';
+    if (dividerIgnore) dividerIgnore.style.display = 'none';
+    if (removeItem) removeItem.style.display = _activeContextPrinterDbId ? '' : 'none';
+    if (dividerRemove) dividerRemove.style.display = 'none';
+  } else if (_activeContextStatus === 'ignored') {
+    if (pushItem) pushItem.style.display = 'none';
+    if (compareItem) compareItem.style.display = '';
+    if (ignoreItem) ignoreItem.style.display = '';
+    if (dividerIgnore) dividerIgnore.style.display = '';
+    if (label) label.textContent = '✓ Sync wieder aktivieren';
+    if (removeItem) removeItem.style.display = 'none';
+    if (dividerRemove) dividerRemove.style.display = 'none';
+  } else {
+    if (pushItem) pushItem.style.display = '';
+    if (compareItem) compareItem.style.display = '';
+    if (ignoreItem) ignoreItem.style.display = '';
+    if (dividerIgnore) dividerIgnore.style.display = '';
+    if (label) label.textContent = '🚫 Vom Sync ausschließen';
+    if (removeItem) removeItem.style.display = 'none';
+    if (dividerRemove) dividerRemove.style.display = 'none';
+  }
+
+  var menu = document.getElementById('preset-context-menu');
+  if (!menu) return;
+  menu.removeAttribute('hidden');
+
+  // Position menu nicely within viewport
+  var x = e.clientX;
+  var y = e.clientY;
+  var menuWidth = menu.offsetWidth || 220;
+  var menuHeight = menu.offsetHeight || 120;
+  if (x + menuWidth > window.innerWidth) x = Math.max(10, window.innerWidth - menuWidth - 10);
+  if (y + menuHeight > window.innerHeight) y = Math.max(10, window.innerHeight - menuHeight - 10);
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+});
+
+document.getElementById('context-menu-compare').addEventListener('click', function() {
+  if (!_activeContextCloudId) return;
+  var cloudId = _activeContextCloudId;
+  closePresetContextMenu();
+  openDiffModal();
+  if (window.htmx) {
+    htmx.ajax('POST', '/sync/compare-modal', {
+      values: {preset_a_id: cloudId},
+      target: '#diff-modal-body',
+      swap: 'innerHTML'
+    });
+  }
+});
+
+document.getElementById('context-menu-push').addEventListener('click', function() {
+  if (!_activeContextCloudId) return;
+  var cloudId = _activeContextCloudId;
+  closePresetContextMenu();
+  openActionModal();
+  if (window.htmx) {
+    htmx.ajax('POST', '/sync/push-modal', {
+      values: {cloud_resource_ids: cloudId},
+      target: '#action-modal-body',
+      swap: 'innerHTML'
+    });
+  }
+});
+
+document.getElementById('context-menu-toggle-ignore').addEventListener('click', function() {
+  if (!_activeContextCloudId) return;
+  var cloudId = _activeContextCloudId;
+  closePresetContextMenu();
+  if (window.htmx) {
+    htmx.ajax('POST', '/sync/presets/' + encodeURIComponent(cloudId) + '/toggle-ignore', {
+      target: '#sync-hub-content',
+      swap: 'innerHTML'
+    });
+  }
+});
+
+document.getElementById('context-menu-remove').addEventListener('click', function() {
+  if (!_activeContextPrinterDbId) return;
+  var printerDbId = _activeContextPrinterDbId;
+  if (!confirm('This removes orphan printer DB entry ' + printerDbId + ' and its SyncTarget. Continue?')) return;
+  closePresetContextMenu();
+  if (window.htmx) {
+    htmx.ajax('POST', '/sync/printer-db/' + encodeURIComponent(printerDbId) + '/remove', {
+      values: {confirm: printerDbId},
+      target: '#sync-hub-content',
+      swap: 'innerHTML'
+    });
+  }
+});
+
+document.addEventListener('click', function(e) {
+  var menu = document.getElementById('preset-context-menu');
+  if (menu && !menu.hasAttribute('hidden') && !menu.contains(e.target)) {
+    closePresetContextMenu();
+  }
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closePresetContextMenu();
+});
+
+window.addEventListener('scroll', closePresetContextMenu, true);
 </script>
 {% endblock %}

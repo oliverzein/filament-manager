@@ -47,5 +47,8 @@ def test_awaiting_input_passes_through():
     assert status_class("awaiting_input") == "awaiting_input"
 
 
+def test_ignored_passes_through():
+    assert status_class("ignored") == "ignored"
+
 def test_map_contains_only_two_entries():
     assert _STATUS_CLASS_MAP == {"drift": "drifted", "done": "completed"}

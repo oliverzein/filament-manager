@@ -581,8 +581,19 @@ def _rebuild_from_cloud(
             )
             continue
 
-        flat = _flatten_cloud_preset(preset)
         res_id = preset.get("_path", "")
+
+        # Skip presets marked as ignored from sync
+        existing_target = session.scalars(
+            select(SyncTarget).where(
+                SyncTarget.cloud_id == res_id,
+                SyncTarget.kind == "printer_db",
+            )
+        ).first()
+        if existing_target is not None and existing_target.status == "ignored":
+            continue
+
+        flat = _flatten_cloud_preset(preset)
 
         # Map printer_db_id via SyncTarget where cloud_id == res_id
         target = session.scalars(
@@ -737,6 +748,7 @@ def handle_verify(session: Session, config: Config, payload: dict) -> dict:
         select(SyncTarget).where(
             SyncTarget.kind == "printer_db",
             SyncTarget.printer_db_id.isnot(None),
+            SyncTarget.status != "ignored",
         )
         .order_by(SyncTarget.id)
     ))

@@ -302,6 +302,34 @@ class TestVerifyHandler:
         assert target.status == "error"
 
 
+    def test_ignored_target_status_preserved_on_verify(self, inmemory_session, cfg, sample_db, monkeypatch):
+        s = inmemory_session
+        target = SyncTarget(
+            profile_id=None,
+            cloud_id="cloud-uuid-123",
+            kind="printer_db",
+            printer_db_id="99001",
+            status="ignored",
+            expected_hash="somehash",
+        )
+        s.add(target)
+        s.flush()
+
+        verify_transport = VerifyTransport(db=sample_db)
+        monkeypatch.setattr(sh, "_transport_factory", lambda c: verify_transport)
+
+        result = sh.handle_verify(s, cfg, {})
+
+        refreshed = s.scalars(
+            select(SyncTarget).where(
+                SyncTarget.kind == "printer_db",
+                SyncTarget.printer_db_id == "99001",
+            )
+        ).first()
+        assert refreshed.status == "ignored"
+        assert "99001" not in result["present"]
+        assert "99001" not in result["missing"]
+
 
 
 # ---------------------------------------------------------------------------

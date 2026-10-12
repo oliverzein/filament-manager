@@ -40,7 +40,7 @@ from ..github_backup import GitHubBackupClient, GitHubBackupError
 # import (app.py imports ui).  The mapping is trivial so we mirror it locally.
 def _status_class(value: str) -> str:
     """Map status values to CSS badge class names (mirrors app.status_class)."""
-    return {"drift": "drifted", "done": "completed"}.get(value, value)
+    return {"drift": "drifted", "done": "completed", "ignored": "ignored"}.get(value, value)
 
 router = APIRouter(tags=["ui"])
 
@@ -284,6 +284,8 @@ def _preset_status_rows(db: Session) -> list[dict]:
         ).first()
         if p.deleted_from_cloud:
             status = "orphan"
+        elif target is not None and target.status == "ignored":
+            status = "ignored"
         elif target is not None and target.status == "in_sync":
             status = "in_sync"
         else:
@@ -913,6 +915,55 @@ def sync_printer_db_remove(
             "github_configured": load_github_config() is not None,
         },
     )
+@router.post("/sync/presets/{cloud_resource_id}/toggle-ignore", response_class=HTMLResponse)
+def sync_preset_toggle_ignore(
+    request: Request, cloud_resource_id: str, db: DbSession,
+) -> HTMLResponse:
+    """Toggle ignore state for a cloud preset.
+
+    Ignored presets exist only in Orca Cloud and are excluded from being
+    pushed to the printer DB.
+    """
+    target = db.scalars(
+        select(SyncTarget).where(
+            SyncTarget.cloud_id == cloud_resource_id,
+            SyncTarget.kind == "printer_db",
+        )
+    ).first()
+
+    if target is None:
+        # Create a new SyncTarget marked as ignored
+        target = SyncTarget(
+            profile_id=None,
+            kind="printer_db",
+            cloud_id=cloud_resource_id,
+            printer_db_id=None,
+            status="ignored",
+            actual_state=json.dumps({"prev_status": "pending"}),
+        )
+        db.add(target)
+    elif target.status == "ignored":
+        # Restore previous status
+        prev_status = "pending"
+        if target.actual_state:
+            try:
+                state_data = json.loads(target.actual_state)
+                if isinstance(state_data, dict) and state_data.get("prev_status"):
+                    prev_status = state_data["prev_status"]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        # Fallback heuristic: in_sync if printer_db_id exists
+        if prev_status == "ignored":
+            prev_status = "in_sync" if target.printer_db_id else "pending"
+        target.status = prev_status
+    else:
+        # Save previous status and set to ignored
+        target.actual_state = json.dumps({"prev_status": target.status})
+        target.status = "ignored"
+
+    db.commit()
+    return sync_hub_fragment(request, db)
+
 
 # ---------------------------------------------------------------------------
 # Settings — printer connection + Orca Cloud (persisted to settings.json)

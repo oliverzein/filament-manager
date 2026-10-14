@@ -9,6 +9,24 @@
         <span class="live-label"><i></i> Live</span>
       </header>
       {% if presets %}
+      {% set inherited_presets = presets | selectattr('is_inherited') | list %}
+      {% if inherited_presets %}
+      <div class="inherited-warning-banner" role="region" aria-label="Inherited presets warning">
+        <span class="inherited-warning-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+            <path d="M7.001 2.333a1.144 1.144 0 0 1 1.998 0l5.733 9.827c.437.75-.104 1.69-.999 1.69H2.267c-.895 0-1.436-.94-.999-1.69L7.001 2.333ZM8 5.75a.625.625 0 0 0-.625.625v2.75a.625.625 0 1 0 1.25 0v-2.75A.625.625 0 0 0 8 5.75Zm0 5.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z"/>
+          </svg>
+        </span>
+        <div class="inherited-warning-body">
+          <div class="inherited-warning-title">
+            <strong>Inherited presets detected</strong>
+            <span class="inherited-warning-count">({{ inherited_presets | length }})</span>
+          </div>
+          <p class="inherited-warning-desc">Inherited presets lack a standalone <code>filament_id</code> in OrcaSlicer. Spools using these presets may be recognized as their parent profile (e.g. Bambu) during CFS sync. Flatten presets in OrcaSlicer for reliable recognition.</p>
+        </div>
+        <button type="button" class="inherited-warning-dismiss" onclick="this.closest('.inherited-warning-banner').remove()" aria-label="Dismiss warning" title="Dismiss warning">✕</button>
+      </div>
+      {% endif %}
       <div class="table-wrap">
         <table class="drift-table">
           <thead><tr><th>Preset</th><th>Printer DB</th><th>Status</th></tr></thead>
@@ -17,7 +35,17 @@
             <tr class="preset-row" data-cloud-id="{{ p.cloud_resource_id }}" data-status="{{ p.status }}" data-name="{{ p.name }}" data-printer-db-id="{{ p.printer_db_id or '' }}">
               <td>
                 <span class="cell-main">{{ p.name if p.name.lower().startswith(p.vendor.lower()) else p.vendor ~ ' ' ~ p.name }}</span>
-                <span class="cell-sub">{{ p.type }}{% if p.is_inherited %} · inherited{% endif %}</span>
+                <span class="cell-sub preset-cell-sub">
+                  <span class="preset-type">{{ p.type }}</span>
+                  {% if p.is_inherited %}
+                    <span class="badge badge-warning inherited-badge" title="Inherited preset: Lacks standalone filament_id. OrcaSlicer CFS sync will identify this spool as its parent system profile.">
+                      <svg class="inherited-badge-icon" viewBox="0 0 16 16" width="10" height="10" aria-hidden="true" fill="currentColor">
+                        <path d="M7.001 2.333a1.144 1.144 0 0 1 1.998 0l5.733 9.827c.437.75-.104 1.69-.999 1.69H2.267c-.895 0-1.436-.94-.999-1.69L7.001 2.333ZM8 5.75a.625.625 0 0 0-.625.625v2.75a.625.625 0 1 0 1.25 0v-2.75A.625.625 0 0 0 8 5.75Zm0 5.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z"/>
+                      </svg>
+                      Inherited
+                    </span>
+                  {% endif %}
+                </span>
               </td>
               <td>
                 {% if p.status == 'orphan' %}

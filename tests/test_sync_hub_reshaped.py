@@ -203,6 +203,71 @@ def test_sync_hub_renders_creality_presets_as_pushable(tmp_path):
     assert "1 in sync, 1 not pushed" in html
     assert "preset-table" in resp.text
 
+
+def test_sync_hub_inherited_preset_warning(tmp_path):
+    """Inherited presets display a warning badge and explanatory banner,
+    while standalone presets display no warning badge."""
+    db_url = f"sqlite:///{tmp_path}/test_sync_inherited.db"
+    engine = init_engine(db_url)
+    with Session(engine) as s:
+        p_standalone = ProfileCache(
+            cloud_resource_id="uuid-standalone",
+            name="eSUN PLA+ Standalone",
+            vendor="eSUN",
+            type="PLA",
+            is_inherited=False,
+            last_seen_at=datetime.now(timezone.utc),
+        )
+        p_inherited = ProfileCache(
+            cloud_resource_id="uuid-inherited",
+            name="Bambu PETG HF Inherited",
+            vendor="Bambu",
+            type="PETG",
+            is_inherited=True,
+            last_seen_at=datetime.now(timezone.utc),
+        )
+        s.add_all([p_standalone, p_inherited])
+        s.commit()
+
+    app = create_app(Settings(database_url=db_url))
+    client = TestClient(app)
+
+    # 1. Full page GET /sync
+    resp = client.get("/sync")
+    assert resp.status_code == 200
+    html = resp.text
+
+    # Warning banner must be present with count and explanation
+    assert "inherited-warning-banner" in html
+    assert "Inherited presets detected" in html
+    assert "(1)" in html
+    assert "Inherited presets lack a standalone" in html
+    assert "filament_id" in html
+    assert "Flatten presets in OrcaSlicer" in html
+    assert "inherited-warning-dismiss" in html
+
+    # Inherited preset row must show the warning badge and tooltip
+    assert "inherited-badge" in html
+    assert "badge badge-warning inherited-badge" in html
+    assert "Inherited preset: Lacks standalone filament_id" in html
+    assert "inherited-badge-icon" in html
+
+    # 2. HTMX fragment GET /sync/hub-fragment must also render the banner & badge
+    frag_resp = client.get("/sync/hub-fragment")
+    assert frag_resp.status_code == 200
+    assert "inherited-warning-banner" in frag_resp.text
+    assert "inherited-badge" in frag_resp.text
+
+    # 3. If there are only standalone presets, banner and badge are NOT present
+    with Session(engine) as s:
+        s.query(ProfileCache).filter_by(cloud_resource_id="uuid-inherited").delete()
+        s.commit()
+
+    resp_clean = client.get("/sync")
+    assert resp_clean.status_code == 200
+    assert "inherited-warning-banner" not in resp_clean.text
+    assert "inherited-badge" not in resp_clean.text
+
 def test_preset_status_rows_and_toggle_ignore(client):
     """Test toggle-ignore endpoint and _preset_status_rows status handling."""
     from sqlalchemy import select as _sel
